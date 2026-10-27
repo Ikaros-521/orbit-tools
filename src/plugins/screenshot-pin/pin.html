@@ -29,12 +29,26 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
       </button>
     </div>
-    <div class="tb-group tb-colors">
-      <button type="button" data-color="#ff5f52" class="tb-swatch" style="--sw:#ff5f52" title="红"></button>
-      <button type="button" data-color="#ffab2e" class="tb-swatch" style="--sw:#ffab2e" title="黄"></button>
-      <button type="button" data-color="#5fe3a1" class="tb-swatch" style="--sw:#5fe3a1" title="绿"></button>
-      <button type="button" data-color="#59a7ff" class="tb-swatch" style="--sw:#59a7ff" title="蓝"></button>
+    <div class="tb-group tb-colors" id="colorGroup">
+      <button type="button" data-color="#ff4d4f" class="tb-swatch" style="--sw:#ff4d4f" title="红"></button>
+      <button type="button" data-color="#ff7a45" class="tb-swatch" style="--sw:#ff7a45" title="橙"></button>
+      <button type="button" data-color="#ffc53d" class="tb-swatch" style="--sw:#ffc53d" title="黄"></button>
+      <button type="button" data-color="#52c41a" class="tb-swatch" style="--sw:#52c41a" title="绿"></button>
+      <button type="button" data-color="#1677ff" class="tb-swatch" style="--sw:#1677ff" title="蓝"></button>
       <button type="button" data-color="#ffffff" class="tb-swatch" style="--sw:#ffffff" title="白"></button>
+      <button type="button" data-color="#141414" class="tb-swatch" style="--sw:#141414" title="黑"></button>
+      <label class="tb-color-picker" title="自定义色盘">
+        <input type="color" id="customColor" value="#ff4d4f">
+        <span class="tb-picker-btn" id="customColorBtn">🎨</span>
+      </label>
+    </div>
+    <div class="tb-sep"></div>
+    <div class="tb-group tb-sizes" id="sizeGroup" title="画笔粗细 (可滚轮微调)">
+      <button type="button" data-size="2" class="tb-szdot" title="2px"><i style="width:3px;height:3px"></i></button>
+      <button type="button" data-size="4" class="tb-szdot on" title="4px"><i style="width:6px;height:6px"></i></button>
+      <button type="button" data-size="8" class="tb-szdot" title="8px"><i style="width:10px;height:10px"></i></button>
+      <input type="range" id="sizeSlider" min="1" max="32" value="4" class="tb-slider" title="滑动微调粗细">
+      <span id="sizeVal" class="tb-size-val">4px</span>
     </div>
     <div class="tb-sep"></div>
     <div class="tb-group tb-acts">

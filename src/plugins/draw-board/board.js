@@ -12,7 +12,12 @@
   const dragHandle = document.getElementById('drag-handle');
   const toolsEl = document.getElementById('tools');
   const colorsEl = document.getElementById('colors');
+  const customColorInput = document.getElementById('customColor');
+  const customColorBtn = document.getElementById('customColorBtn');
   const sizesEl = document.getElementById('sizes');
+  const sizeSlider = document.getElementById('sizeSlider');
+  const sizeVal = document.getElementById('sizeVal');
+  const sizeSliderWrap = document.getElementById('sizeSliderWrap');
 
   let backdropImage = null;
 
@@ -25,11 +30,11 @@
     { id: 'ellipse', title: '椭圆', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>' },
     { id: 'eraser', title: '橡皮', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 18"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>' },
   ];
-  const COLORS = ['#ffab2e', '#ff5f52', '#5fe3a1', '#59a7ff', '#ffffff', '#141d1a'];
-  const SIZES = [3, 6, 12];
+  const COLORS = ['#ff4d4f', '#ff7a45', '#ffc53d', '#52c41a', '#13c2c2', '#1677ff', '#ffffff', '#141414'];
+  const SIZES = [2, 4, 8, 14];
 
   const state = {
-    tool: 'pen', color: COLORS[0], size: SIZES[1],
+    tool: 'pen', color: COLORS[0], size: 4,
     strokes: [], redo: [],
     drawing: false, current: null,
     dpr: window.devicePixelRatio || 1, w: 0, h: 0,
@@ -184,19 +189,61 @@
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'szdot';
+    b.title = `${s}px`;
     b.dataset.size = String(s);
     const i = document.createElement('i');
-    i.style.width = i.style.height = `${Math.min(16, 4 + s)}px`;
+    i.style.width = i.style.height = `${Math.min(16, 3 + s)}px`;
     b.appendChild(i);
     sizesEl.appendChild(b);
   }
 
   function syncBar() {
     toolsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tool === state.tool));
+    const isPresetColor = COLORS.includes(state.color);
     colorsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.color === state.color));
+    if (customColorBtn) {
+      customColorBtn.classList.toggle('on', !isPresetColor);
+      customColorBtn.style.backgroundColor = !isPresetColor ? state.color : 'transparent';
+      customColorBtn.textContent = !isPresetColor ? '' : '🎨';
+    }
+    if (customColorInput) customColorInput.value = state.color;
     sizesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', Number(b.dataset.size) === state.size));
+    if (sizeSlider) sizeSlider.value = String(state.size);
+    if (sizeVal) sizeVal.textContent = `${state.size}px`;
     document.body.style.cursor = state.tool === 'eraser' ? 'cell' : 'crosshair';
   }
+
+  // Custom color picker input events
+  if (customColorInput) {
+    const updateCustomColor = e => {
+      state.color = e.target.value;
+      if (state.tool === 'eraser') state.tool = 'pen';
+      syncBar();
+      if (state.current) { state.current.color = state.color; repaint(); }
+    };
+    customColorInput.addEventListener('input', updateCustomColor);
+    customColorInput.addEventListener('change', updateCustomColor);
+  }
+
+  // Size slider input event
+  if (sizeSlider) {
+    sizeSlider.addEventListener('input', e => {
+      state.size = Math.max(1, Math.min(40, Number(e.target.value) || 1));
+      syncBar();
+      if (state.current) { state.current.size = state.size; repaint(); }
+    });
+  }
+
+  // Mouse wheel over size controls to adjust size smoothly
+  const handleSizeWheel = e => {
+    e.preventDefault();
+    const delta = e.deltaY < 0 ? 1 : -1;
+    state.size = Math.max(1, Math.min(40, state.size + delta));
+    syncBar();
+    if (state.current) { state.current.size = state.size; repaint(); }
+  };
+  if (sizeSliderWrap) sizeSliderWrap.addEventListener('wheel', handleSizeWheel, { passive: false });
+  if (sizesEl) sizesEl.addEventListener('wheel', handleSizeWheel, { passive: false });
 
   bar.addEventListener('click', async e => {
     const tb = e.target.closest('button[data-tool]');

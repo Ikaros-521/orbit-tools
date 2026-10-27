@@ -59,14 +59,61 @@ html, body {
 .swatch {
   appearance: none; width: 22px; height: 22px; border-radius: 50%;
   border: 2px solid rgba(255, 255, 255, .25); cursor: pointer; padding: 0;
+  transition: transform .12s, border-color .12s;
 }
-.swatch.on { border-color: #ffab2e; box-shadow: 0 0 0 2px rgba(255, 171, 46, .35); }
+.swatch:hover { transform: scale(1.15); }
+.swatch.on { border-color: #ffab2e; box-shadow: 0 0 0 2px rgba(255, 171, 46, .35); transform: scale(1.15); }
+
+.color-picker-label {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  margin-left: 2px;
+}
+.color-picker-label input[type="color"] {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  opacity: 0; cursor: pointer;
+  padding: 0; border: 0;
+}
+.color-picker-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 22px; height: 22px; border-radius: 50%;
+  border: 2px dashed rgba(255, 255, 255, .35);
+  font-size: 11px; user-select: none;
+  transition: transform .12s, border-color .12s, background-color .12s;
+}
+.color-picker-btn:hover { transform: scale(1.15); border-color: #ffab2e; }
+.color-picker-btn.on {
+  border: 2px solid #ffab2e;
+  box-shadow: 0 0 0 2px rgba(255, 171, 46, .35);
+  transform: scale(1.15);
+}
+
+.size-slider-wrap {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 0 4px; user-select: none;
+}
+.size-slider-wrap input[type="range"] {
+  width: 58px; height: 4px;
+  accent-color: #ffab2e;
+  background: rgba(255, 255, 255, .2);
+  border-radius: 2px;
+  cursor: pointer;
+  outline: none;
+}
+#sizeVal {
+  font: 11px/1 Consolas, "Bahnschrift", monospace;
+  color: rgba(233, 239, 236, .85);
+  min-width: 26px;
+}
 
 .szdot {
   appearance: none; border: 0; background: transparent; cursor: pointer;
-  width: 26px; height: 26px; border-radius: 8px;
+  width: 24px; height: 24px; border-radius: 6px;
   display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
 }
-.szdot i { display: block; border-radius: 50%; background: #e9efec; }
+.szdot i { display: block; border-radius: 50%; background: #e9efec; transition: background .12s; }
 .szdot.on { background: rgba(255, 171, 46, .3); }
 .szdot.on i { background: #ffab2e; }

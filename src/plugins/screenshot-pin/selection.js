@@ -26,10 +26,18 @@
 
   // --- annotation state ---
   let tool = null;       // null = no tool, 'pen' | 'rect' | 'ellipse' | 'arrow'
-  let color = '#ff5f52';
+  let color = '#ff4d4f';
+  let size = 4;
+  const PRESET_COLORS = ['#ff4d4f', '#ff7a45', '#ffc53d', '#52c41a', '#1677ff', '#ffffff', '#141414'];
   const strokes = [];
   let drawing = false;
   let curStroke = null;
+
+  const customColorInput = document.getElementById('customColor');
+  const customColorBtn = document.getElementById('customColorBtn');
+  const sizeSlider = document.getElementById('sizeSlider');
+  const sizeVal = document.getElementById('sizeVal');
+  const sizeGroup = document.getElementById('sizeGroup');
 
   window.overlay.onImage(({ image, width, height, dipWidth, dipHeight }) => {
     const img = new Image();
@@ -137,7 +145,7 @@
   const applyStyle = s => {
     inkCtx.strokeStyle = s.color;
     inkCtx.fillStyle = s.color;
-    inkCtx.lineWidth = s.tool === 'pen' ? 3 : 2;
+    inkCtx.lineWidth = s.size || (s.tool === 'pen' ? 4 : 3);
     inkCtx.lineCap = 'round';
     inkCtx.lineJoin = 'round';
     inkCtx.globalAlpha = 1;
@@ -150,7 +158,7 @@
     if (pts.length < 2 && (s.tool === 'pen')) {
       // dot
       inkCtx.beginPath();
-      inkCtx.arc(pts[0].x, pts[0].y, inkCtx.lineWidth / 2, 0, Math.PI * 2);
+      inkCtx.arc(pts[0].x, pts[0].y, Math.max(1, inkCtx.lineWidth / 2), 0, Math.PI * 2);
       inkCtx.fill();
       return;
     }
@@ -167,7 +175,7 @@
         inkCtx.lineTo(b.x, b.y);
         inkCtx.stroke();
         const ang = Math.atan2(b.y - a.y, b.x - a.x);
-        const head = 14;
+        const head = Math.max(12, (s.size || 3) * 3.5);
         inkCtx.beginPath();
         inkCtx.moveTo(b.x, b.y);
         inkCtx.lineTo(b.x - head * Math.cos(ang - Math.PI / 7), b.y - head * Math.sin(ang - Math.PI / 7));
@@ -228,11 +236,51 @@
     toolbar.querySelectorAll('[data-tool]').forEach(b => {
       b.classList.toggle('on', b.dataset.tool === tool);
     });
+    const isPreset = PRESET_COLORS.includes(color);
     toolbar.querySelectorAll('[data-color]').forEach(b => {
       b.classList.toggle('on', b.dataset.color === color);
     });
+    if (customColorBtn) {
+      customColorBtn.classList.toggle('on', !isPreset);
+      customColorBtn.style.backgroundColor = !isPreset ? color : 'transparent';
+      customColorBtn.textContent = !isPreset ? '' : '🎨';
+    }
+    if (customColorInput) customColorInput.value = color;
+
+    toolbar.querySelectorAll('[data-size]').forEach(b => {
+      b.classList.toggle('on', Number(b.dataset.size) === size);
+    });
+    if (sizeSlider) sizeSlider.value = String(size);
+    if (sizeVal) sizeVal.textContent = `${size}px`;
+
     document.body.classList.toggle('annotating', !!tool);
   };
+
+  // Wire custom color picker
+  if (customColorInput) {
+    const onCustomColor = e => {
+      color = e.target.value;
+      if (!tool) tool = 'pen';
+      syncToolButtons();
+    };
+    customColorInput.addEventListener('input', onCustomColor);
+    customColorInput.addEventListener('change', onCustomColor);
+  }
+
+  // Wire size slider & wheel
+  if (sizeSlider) {
+    sizeSlider.addEventListener('input', e => {
+      size = Math.max(1, Math.min(32, Number(e.target.value) || 1));
+      syncToolButtons();
+    });
+  }
+  if (sizeGroup) {
+    sizeGroup.addEventListener('wheel', e => {
+      e.preventDefault();
+      size = Math.max(1, Math.min(32, size + (e.deltaY < 0 ? 1 : -1)));
+      syncToolButtons();
+    }, { passive: false });
+  }
 
   // --- enter selected state ---
   const enterSelected = r => {
@@ -255,7 +303,7 @@
         const ly = e.clientY - selRect.y;
         if (lx >= 0 && ly >= 0 && lx <= selRect.width && ly <= selRect.height) {
           drawing = true;
-          curStroke = { tool, color, points: [{ x: lx, y: ly }] };
+          curStroke = { tool, color, size, points: [{ x: lx, y: ly }] };
           repaintInk();
           return;
         }
@@ -388,6 +436,14 @@
     // color selection
     if (btn.dataset.color) {
       color = btn.dataset.color;
+      if (!tool) tool = 'pen';
+      syncToolButtons();
+      return;
+    }
+
+    // size selection
+    if (btn.dataset.size) {
+      size = Number(btn.dataset.size);
       syncToolButtons();
       return;
     }

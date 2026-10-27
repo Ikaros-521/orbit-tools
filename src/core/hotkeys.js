@@ -101,18 +101,18 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
   function applyWithRollback(key, apply, restore) {
     apply();
     registerAll({ allowFallback: false });
-    const row = status.find(r => r.key === key && r.ok);
-    if (!row) {
-      const failRow = status.find(r => r.key === key);
+    const failRow = status.find(r => r.key === key && !r.ok);
+    if (failRow) {
       restore();
       registerAll({ allowFallback: false });
       return {
         ok: false,
-        conflictKey: failRow ? failRow.conflictKey : null,
-        externalOccupied: failRow ? !!failRow.externalOccupied : false,
+        conflictKey: failRow.conflictKey || null,
+        externalOccupied: !!failRow.externalOccupied,
       };
     }
-    return { ok: true, hotkey: row.accel };
+    const successRow = status.find(r => r.key === key && r.ok);
+    return { ok: true, hotkey: successRow ? successRow.accel : undefined };
   }
 
   function setHostHotkey(accel) {
@@ -133,20 +133,28 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
     if (accel) {
       const owner = conflictOwner(key, accel);
       if (owner) return { ok: false, conflictKey: owner, hotkey: prev || undefined };
+      return applyWithRollback(
+        key,
+        () => {
+          const next = { ...cfg.data.pluginHotkeys };
+          next[key] = accel;
+          cfg.set({ pluginHotkeys: next });
+        },
+        () => {
+          const back = { ...cfg.data.pluginHotkeys };
+          if (prev) back[key] = prev; else delete back[key];
+          cfg.set({ pluginHotkeys: back });
+        },
+      );
+    } else {
+      // Clearing the override
+      const next = { ...cfg.data.pluginHotkeys };
+      delete next[key];
+      cfg.set({ pluginHotkeys: next });
+      registerAll({ allowFallback: false });
+      const row = status.find(r => r.key === key && r.ok);
+      return { ok: true, hotkey: row ? row.accel : undefined };
     }
-    return applyWithRollback(
-      key,
-      () => {
-        const next = { ...cfg.data.pluginHotkeys };
-        if (accel) next[key] = accel; else delete next[key];
-        cfg.set({ pluginHotkeys: next });
-      },
-      () => {
-        const back = { ...cfg.data.pluginHotkeys };
-        if (prev) back[key] = prev; else delete back[key];
-        cfg.set({ pluginHotkeys: back });
-      },
-    );
   }
 
   return {

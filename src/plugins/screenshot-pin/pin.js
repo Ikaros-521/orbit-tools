@@ -20,10 +20,18 @@
 
   // --- annotation state ---
   let tool = null; // 'rect' | 'ellipse' | 'arrow' | 'pen' | null
-  let color = '#ff5f52';
+  let color = '#ff4d4f';
+  let size = 4;
+  const PRESET_COLORS = ['#ff4d4f', '#ff7a45', '#ffc53d', '#52c41a', '#1677ff', '#ffffff', '#141414'];
   const strokes = [];
   let isDrawing = false;
   let curStroke = null;
+
+  const customColorInput = document.getElementById('customColor');
+  const customColorBtn = document.getElementById('customColorBtn');
+  const sizeSlider = document.getElementById('sizeSlider');
+  const sizeVal = document.getElementById('sizeVal');
+  const sizeGroup = document.getElementById('sizeGroup');
 
   // ensure toolbar is initially hidden
   toolbar.hidden = true;
@@ -43,7 +51,9 @@
   const applyStrokeStyle = s => {
     ctx2d.strokeStyle = s.color;
     ctx2d.fillStyle = s.color;
-    ctx2d.lineWidth = s.tool === 'pen' ? 4 : 3;
+    const rect = ink.getBoundingClientRect();
+    const ratio = (rect && rect.width) ? (ink.width / rect.width) : 1;
+    ctx2d.lineWidth = (s.size || (s.tool === 'pen' ? 4 : 3)) * ratio;
     ctx2d.lineCap = 'round';
     ctx2d.lineJoin = 'round';
     ctx2d.globalAlpha = 1;
@@ -132,10 +142,49 @@
     toolbar.querySelectorAll('[data-tool]').forEach(b => {
       b.classList.toggle('on', b.dataset.tool === tool);
     });
+    const isPreset = PRESET_COLORS.includes(color);
     toolbar.querySelectorAll('[data-color]').forEach(b => {
       b.classList.toggle('on', b.dataset.color === color);
     });
+    if (customColorBtn) {
+      customColorBtn.classList.toggle('on', !isPreset);
+      customColorBtn.style.backgroundColor = !isPreset ? color : 'transparent';
+      customColorBtn.textContent = !isPreset ? '' : '🎨';
+    }
+    if (customColorInput) customColorInput.value = color;
+
+    toolbar.querySelectorAll('[data-size]').forEach(b => {
+      b.classList.toggle('on', Number(b.dataset.size) === size);
+    });
+    if (sizeSlider) sizeSlider.value = String(size);
+    if (sizeVal) sizeVal.textContent = `${size}px`;
   };
+
+  // Wire custom color picker
+  if (customColorInput) {
+    const onCustomColor = e => {
+      color = e.target.value;
+      if (!tool) setTool('pen');
+      else setTool(tool);
+    };
+    customColorInput.addEventListener('input', onCustomColor);
+    customColorInput.addEventListener('change', onCustomColor);
+  }
+
+  // Wire size slider & wheel
+  if (sizeSlider) {
+    sizeSlider.addEventListener('input', e => {
+      size = Math.max(1, Math.min(32, Number(e.target.value) || 1));
+      setTool(tool);
+    });
+  }
+  if (sizeGroup) {
+    sizeGroup.addEventListener('wheel', e => {
+      e.preventDefault();
+      size = Math.max(1, Math.min(32, size + (e.deltaY < 0 ? 1 : -1)));
+      setTool(tool);
+    }, { passive: false });
+  }
 
   const toggleToolbar = (forceOpen) => {
     const willOpen = forceOpen !== undefined ? forceOpen : toolbar.hidden;
@@ -157,7 +206,7 @@
         // Annotation mode: start drawing
         isDrawing = true;
         const pt = getCanvasCoords(e);
-        curStroke = { tool, color, points: [pt] };
+        curStroke = { tool, color, size, points: [pt] };
         repaintInk();
       } else {
         // Normal mode: start window dragging with fixed anchor
@@ -270,6 +319,12 @@
     if (b.dataset.color) {
       color = b.dataset.color;
       setTool(tool || 'pen');
+      return;
+    }
+
+    if (b.dataset.size) {
+      size = Number(b.dataset.size);
+      setTool(tool);
       return;
     }
 
