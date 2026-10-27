@@ -153,7 +153,8 @@
     const ch = Math.round(selRect.height * dpr);
     const c = document.createElement('canvas');
     c.width = cw; c.height = ch;
-    const cx = c.getContext('2d');
+    const cx = c.getContext('2d', { colorSpace: 'srgb' });
+    cx.imageSmoothingQuality = 'high';
     // draw cropped screenshot
     cx.drawImage(shot,
       selRect.x * dpr, selRect.y * dpr, cw, ch,
@@ -334,9 +335,13 @@
     }
 
     if (act === 'pin') {
-      const dataUrl = compose();
-      if (dataUrl) {
-        window.overlay.selectComposed(dataUrl, selRect);
+      if (strokes.length === 0) {
+        window.overlay.select(selRect);
+      } else {
+        const dataUrl = compose();
+        if (dataUrl) {
+          window.overlay.selectComposed(dataUrl, selRect);
+        }
       }
       return;
     }

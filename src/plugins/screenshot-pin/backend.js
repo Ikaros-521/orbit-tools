@@ -52,19 +52,20 @@ module.exports = {
       }
 
       const displays = screen.getAllDisplays();
+      const maxDim = displays.reduce((acc, d) => ({
+        width: Math.max(acc.width, Math.round(d.bounds.width * d.scaleFactor)),
+        height: Math.max(acc.height, Math.round(d.bounds.height * d.scaleFactor)),
+      }), { width: 0, height: 0 });
+
       const sources = await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: { width: 4096, height: 4096 }, // upper bound; electron scales down to the real size
+        thumbnailSize: maxDim,
       });
 
       for (const d of displays) {
         const src = sources.find(s => s.display_id === String(d.id)) || sources[displays.indexOf(d)];
         if (!src) continue;
-        const img = nativeImage.createFromDataURL(src.thumbnail.toDataURL());
-        // thumbnails come back at most thumbnailSize — real physical size is bounds * scaleFactor
-        const want = { width: Math.round(d.bounds.width * d.scaleFactor), height: Math.round(d.bounds.height * d.scaleFactor) };
-        const shot = (img.getSize().width === want.width && img.getSize().height === want.height)
-          ? img : img.resize(want);
+        const shot = src.thumbnail;
 
         const win = ctx.windows.create({
           x: d.bounds.x, y: d.bounds.y,
@@ -143,6 +144,7 @@ module.exports = {
       });
       const dataUrl = crop.toDataURL();
       teardownOverlays();
+      if (hideHost && host && !host.isDestroyed()) host.show();
       openPin(dataUrl, {
         x: Math.round(display.bounds.x + rect.x),
         y: Math.round(display.bounds.y + rect.y),
@@ -162,6 +164,7 @@ module.exports = {
       if (!entry || !dataUrl || !rect) return;
       const { display } = entry;
       teardownOverlays();
+      if (hideHost && host && !host.isDestroyed()) host.show();
       openPin(dataUrl, {
         x: Math.round(display.bounds.x + rect.x),
         y: Math.round(display.bounds.y + rect.y),
