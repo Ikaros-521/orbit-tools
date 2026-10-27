@@ -7,13 +7,52 @@
 <link rel="stylesheet" href="pin.css">
 </head>
 <body>
-<div id="stage"><img id="img" alt=""></div>
-<div id="bar">
-  <button data-act="copy" title="复制到剪贴板">⧉</button>
-  <button data-act="save" title="保存 PNG">↧</button>
-  <button data-act="dim" title="透明度">◐</button>
-  <button data-act="zoom0" title="重置缩放">1:1</button>
-  <button data-act="close" title="关闭">✕</button>
+<div id="stage">
+  <div id="wrap">
+    <img id="img" alt="" draggable="false">
+    <canvas id="ink"></canvas>
+  </div>
+</div>
+<div id="toolbar" hidden>
+  <div class="tb-group tb-tools">
+    <button type="button" data-tool="rect" title="矩形">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>
+    </button>
+    <button type="button" data-tool="ellipse" title="椭圆">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>
+    </button>
+    <button type="button" data-tool="arrow" title="箭头">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M13 5h6v6"/></svg>
+    </button>
+    <button type="button" data-tool="pen" title="画笔">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+    </button>
+  </div>
+  <div class="tb-group tb-colors">
+    <button type="button" data-color="#ff5f52" class="tb-swatch" style="--sw:#ff5f52" title="红"></button>
+    <button type="button" data-color="#ffab2e" class="tb-swatch" style="--sw:#ffab2e" title="黄"></button>
+    <button type="button" data-color="#5fe3a1" class="tb-swatch" style="--sw:#5fe3a1" title="绿"></button>
+    <button type="button" data-color="#59a7ff" class="tb-swatch" style="--sw:#59a7ff" title="蓝"></button>
+    <button type="button" data-color="#ffffff" class="tb-swatch" style="--sw:#ffffff" title="白"></button>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-group tb-acts">
+    <button type="button" data-act="undo" title="撤销 (Ctrl+Z)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 0 1 15.36-6.36L21 9"/></svg>
+    </button>
+    <button type="button" data-act="copy" title="复制到剪贴板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    </button>
+    <button type="button" data-act="save" title="保存 PNG">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <button type="button" data-act="dim" title="切换透明度">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><path d="M12 3v18a9 9 0 0 0 0-18z" fill="currentColor"/></svg>
+    </button>
+    <button type="button" data-act="close" title="关闭 (ESC)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </div>
 </div>
 <script src="pin.js"></script>
 </body>

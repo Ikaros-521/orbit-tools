@@ -6,22 +6,78 @@ html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:
   overflow: hidden; cursor: move;
   -webkit-app-region: drag; /* the whole pin drags the window */
 }
-#img { max-width: 100%; max-height: 100%; transition: opacity .2s; will-change: transform; }
-
-#bar {
-  position: absolute; top: 4px; right: 4px; z-index: 2;
-  display: flex; gap: 2px; padding: 3px;
-  background: rgba(8, 11, 12, .82); border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 9px; backdrop-filter: blur(6px);
-  opacity: 0; transition: opacity .18s;
+body.annotating #stage {
+  cursor: crosshair;
   -webkit-app-region: no-drag;
 }
-body:hover #bar { opacity: 1; }
-#bar button {
-  appearance: none; border: 0; background: transparent; color: #e9efec;
-  font: 12px/1 "Bahnschrift", "Noto Sans", sans-serif;
-  min-width: 26px; height: 24px; padding: 0 7px; border-radius: 6px; cursor: pointer;
+
+#wrap {
+  position: relative;
+  display: inline-block;
+  transform-origin: center center;
+  will-change: transform;
+  transition: opacity .2s;
 }
-#bar button:hover { background: rgba(255, 171, 46, .22); color: #ffab2e; }
-#bar button[data-act="close"]:hover { background: rgba(255, 95, 82, .25); color: #ff5f52; }
-#bar.flash button[data-act="copy"] { background: rgba(95, 227, 161, .3); color: #5fe3a1; }
+
+#img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  pointer-events: none;
+}
+
+#ink {
+  position: absolute; inset: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 5;
+}
+body.annotating #ink {
+  pointer-events: auto;
+  cursor: crosshair;
+}
+
+/* --- toolbar ------------------------------------------------------------------ */
+#toolbar {
+  position: fixed; z-index: 10;
+  bottom: 8px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; justify-content: center;
+  gap: 3px; flex-wrap: wrap;
+  padding: 5px 8px; max-width: calc(100% - 16px);
+  background: rgba(10, 14, 16, .85);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px -8px rgba(0, 0, 0, .75);
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+}
+
+.tb-group { display: flex; align-items: center; gap: 2px; }
+.tb-sep { width: 1px; height: 20px; background: rgba(255, 255, 255, .14); margin: 0 4px; }
+
+#toolbar button {
+  appearance: none; border: 0; background: transparent;
+  color: rgba(233, 239, 236, .7); cursor: pointer;
+  width: 28px; height: 28px; border-radius: 6px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+  padding: 0; flex-shrink: 0;
+}
+#toolbar button svg { width: 16px; height: 16px; }
+#toolbar button:hover { background: rgba(255, 255, 255, .12); color: #e9efec; }
+#toolbar button.on { background: rgba(255, 171, 46, .22); color: #ffab2e; }
+
+.tb-swatch {
+  width: 18px !important; height: 18px !important;
+  border-radius: 50% !important; padding: 0 !important;
+  background: var(--sw) !important;
+  border: 2px solid transparent !important;
+  margin: 0 1px;
+  transition: border-color .12s, transform .12s;
+}
+.tb-swatch:hover { transform: scale(1.15); }
+.tb-swatch.on { border-color: #fff !important; transform: scale(1.15); }
+
+#toolbar.flash button[data-act="copy"] { background: rgba(95, 227, 161, .3); color: #5fe3a1; }
