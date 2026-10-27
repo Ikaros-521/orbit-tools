@@ -56,18 +56,14 @@ module.exports = {
       host = ctx.getHostWindow && ctx.getHostWindow();
       if (hideHost && host && !host.isDestroyed()) {
         host.hide();
-        await new Promise(r => setTimeout(r, 260)); // let the hide repaint before grabbing
+        await new Promise(r => setTimeout(r, 60)); // brief wait for host window to disappear
       }
 
       const displays = screen.getAllDisplays();
-      const maxDim = displays.reduce((acc, d) => ({
-        width: Math.max(acc.width, Math.round(d.bounds.width * d.scaleFactor)),
-        height: Math.max(acc.height, Math.round(d.bounds.height * d.scaleFactor)),
-      }), { width: 0, height: 0 });
-
+      // Request an upper-bound size so Electron captures the 1:1 raw native resolution without scaling
       const sources = await desktopCapturer.getSources({
         types: ['screen'],
-        thumbnailSize: maxDim,
+        thumbnailSize: { width: 4096, height: 4096 },
       });
 
       for (const d of displays) {
@@ -78,16 +74,19 @@ module.exports = {
         const win = ctx.windows.create({
           x: d.bounds.x, y: d.bounds.y,
           width: d.bounds.width, height: d.bounds.height,
+          useContentSize: true,
           frame: false, transparent: true, resizable: false, movable: false,
-          fullscreen: true, skipTaskbar: true, alwaysOnTop: true,
+          fullscreen: false, fullscreenable: false,
+          skipTaskbar: true, alwaysOnTop: true,
           hasShadow: false, backgroundColor: '#00000000',
+          enableLargerThanScreen: true,
           webPreferences: { preload: path.join(ctx.root, 'overlay-preload.js') },
         });
+        win.setBounds(d.bounds);
         overlays.set(win.id, { win, display: d });
         sessionImages.set(win.id, shot);
         win.setAlwaysOnTop(true, 'screen-saver');
         win.loadURL(ctx.url('selection.html'));
-        win.once('ready-to-show', () => win.show());
       }
       return { ok: true, screens: overlays.size };
     }
@@ -140,10 +139,19 @@ module.exports = {
 
     on(`${P}ready`, (e) => {
       const id = winIdFromSender(e.sender);
-      const win = overlays.get(id);
-      if (!win) return;
+      const entry = overlays.get(id);
+      if (!entry) return;
       const shot = sessionImages.get(id);
       if (shot) send(e.sender, `${P}image`, { image: shot.toDataURL() });
+    });
+
+    on(`${P}displayed`, (e) => {
+      const id = winIdFromSender(e.sender);
+      const entry = overlays.get(id);
+      if (entry && !entry.win.isDestroyed()) {
+        entry.win.show();
+        entry.win.focus();
+      }
     });
 
     on(`${P}select`, (e, { rect }) => {

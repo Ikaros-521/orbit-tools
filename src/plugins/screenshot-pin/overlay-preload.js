@@ -4,6 +4,7 @@ const P = 'screenshot-pin:';
 
 contextBridge.exposeInMainWorld('overlay', {
   ready: () => ipcRenderer.send(`${P}ready`),
+  displayed: () => ipcRenderer.send(`${P}displayed`),
   select: rect => ipcRenderer.send(`${P}select`, { rect }),
   selectComposed: (dataUrl, rect) => ipcRenderer.send(`${P}select-composed`, { dataUrl, rect }),
   copy: dataUrl => ipcRenderer.send(`${P}overlay-copy`, { dataUrl }),

@@ -25,7 +25,14 @@
   let drawing = false;
   let curStroke = null;
 
-  window.overlay.onImage(({ image }) => { shot.src = image; });
+  window.overlay.onImage(({ image }) => {
+    shot.onload = () => {
+      if (typeof window.overlay.displayed === 'function') {
+        window.overlay.displayed();
+      }
+    };
+    shot.src = image;
+  });
   window.overlay.ready();
 
   // --- geometry helpers ---
