@@ -198,6 +198,7 @@ class PluginManager {
     return {
       id: p.id,
       root: p.root,
+      getHostWindow: () => this.getHostWindow(),
       url: rel => `plugin://${p.id}/${String(rel).replace(/^\/+/, '')}`,
       send: (channel, payload) => this.broadcast(p.id, channel, payload),
       ipc: {

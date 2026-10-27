@@ -17,5 +17,12 @@
 }
 .sp-big > span:last-child { font-size: 16px; letter-spacing: .1em; }
 .sp-hint { font-size: 12px; color: var(--ink-faint); letter-spacing: .05em; }
+.sp-opt {
+  display: flex; align-items: center; gap: 12px;
+  font-size: 13px; color: var(--ink-dim);
+  padding: 7px 14px; border-radius: var(--r-sm);
+  background: var(--inset); border: 1px solid var(--line);
+  cursor: pointer; user-select: none;
+}
 .sp-pins { display: flex; align-items: center; gap: 12px; }
 .sp-pins b { font-size: 16px; color: var(--amber); }

@@ -8,7 +8,7 @@
    CSS pixels are DIP, so crop = rect * scaleFactor, pin origin = display +
    rect. All auxiliary windows go through ctx.windows so disable/rescan
    destroys them. */
-const { desktopCapturer, screen, ipcMain, nativeImage, clipboard } = require('electron');
+const { BrowserWindow, desktopCapturer, screen, ipcMain, nativeImage, clipboard } = require('electron');
 const path = require('path');
 
 const P = 'screenshot-pin:'; // ipc channel namespace
@@ -22,8 +22,17 @@ module.exports = {
     let pins = new Map();       // win.id -> win
     let host = null;
 
-    const send = (win, channel, payload) => {
-      if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
+    const initialData = (ctx.data && typeof ctx.data.get === 'function') ? ctx.data.get() : {};
+    let hideHost = initialData.hideHost !== false;
+
+    const send = (target, channel, payload) => {
+      const wc = target?.webContents || target;
+      if (wc && !wc.isDestroyed()) wc.send(channel, payload);
+    };
+
+    const winIdFromSender = (sender) => {
+      const bw = BrowserWindow.fromWebContents(sender);
+      return bw ? bw.id : sender.id;
     };
 
     /* --- selection overlays -------------------------------------------------- */
@@ -37,8 +46,10 @@ module.exports = {
     async function startCapture() {
       if (overlays.size) { teardownOverlays(); return { ok: true }; } // toggle: cancel running capture
       host = ctx.getHostWindow && ctx.getHostWindow();
-      if (host && !host.isDestroyed()) host.hide();
-      await new Promise(r => setTimeout(r, 260)); // let the hide repaint before grabbing
+      if (hideHost && host && !host.isDestroyed()) {
+        host.hide();
+        await new Promise(r => setTimeout(r, 260)); // let the hide repaint before grabbing
+      }
 
       const displays = screen.getAllDisplays();
       const sources = await desktopCapturer.getSources({
@@ -94,7 +105,10 @@ module.exports = {
         send(win, `${P}init`, { image: dataUrl, bounds: { width: bounds.width, height: bounds.height } });
         win.show();
       });
-      win.on('closed', () => pins.delete(win.id));
+      win.on('closed', () => {
+        pins.delete(win.id);
+        ctx.send('pins-changed', { count: pins.size });
+      });
       ctx.send('pins-changed', { count: pins.size });
       return { ok: true };
     }
@@ -106,17 +120,20 @@ module.exports = {
     const handle = (channel, fn) => { ipcMain.handle(channel, fn); listeners.push([channel, fn]); };
 
     on(`${P}ready`, (e) => {
-      const win = overlays.get(e.sender.id);
+      const id = winIdFromSender(e.sender);
+      const win = overlays.get(id);
       if (!win) return;
-      const shot = sessionImages.get(e.sender.id);
-      send(e.sender, `${P}image`, { image: shot.toDataURL() });
+      const shot = sessionImages.get(id);
+      if (shot) send(e.sender, `${P}image`, { image: shot.toDataURL() });
     });
 
     on(`${P}select`, (e, { rect }) => {
-      const entry = overlays.get(e.sender.id);
+      const id = winIdFromSender(e.sender);
+      const entry = overlays.get(id);
       if (!entry || !rect) return;
       const { display } = entry;
-      const shot = sessionImages.get(e.sender.id);
+      const shot = sessionImages.get(id);
+      if (!shot) return;
       const sf = display.scaleFactor;
       const crop = shot.crop({
         x: Math.max(0, Math.round(rect.x * sf)),
@@ -136,17 +153,19 @@ module.exports = {
 
     on(`${P}cancel`, () => {
       teardownOverlays();
-      if (host && !host.isDestroyed()) host.show();
+      if (hideHost && host && !host.isDestroyed()) host.show();
     });
 
     on(`${P}copy-image`, (e, { dataUrl }) => {
       clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
-      if (e.sender.id && pins.has(e.sender.id)) send(e.sender, `${P}copied`, {});
+      const id = winIdFromSender(e.sender);
+      if (pins.has(id)) send(e.sender, `${P}copied`, {});
     });
 
     on(`${P}close-pin`, (e) => {
-      const w = pins.get(e.sender.id);
-      if (w) w.close();
+      const id = winIdFromSender(e.sender);
+      const w = pins.get(id);
+      if (w && !w.isDestroyed()) w.close();
     });
 
     on(`${P}pin-closed`, () => { ctx.send('pins-changed', { count: pins.size }); });
@@ -173,6 +192,12 @@ module.exports = {
       return r;
     });
     ctx.ipc.handle('pins', async () => ({ count: pins.size }));
+    ctx.ipc.handle('getConfig', async () => ({ hideHost }));
+    ctx.ipc.handle('setConfig', async ({ hideHost: val }) => {
+      hideHost = !!val;
+      if (ctx.data && typeof ctx.data.set === 'function') ctx.data.set({ hideHost });
+      return { hideHost };
+    });
     ctx.ipc.handle('closeAllPins', async () => {
       for (const w of pins.values()) { if (!w.isDestroyed()) w.close(); }
       pins.clear();
