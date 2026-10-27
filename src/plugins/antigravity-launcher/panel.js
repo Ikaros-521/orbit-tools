@@ -1,5 +1,6 @@
 /* antigravity-launcher host panel.
-   Integrated into Orbit Toolbox. */
+   Integrated into Orbit Toolbox.
+   Auto-synced with host light/dark themes and language. */
 (function () {
   const DICT = {
     zh: {
@@ -179,8 +180,8 @@
   };
 
   const EYE_ICONS = {
-    show: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
-    hide: `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
+    show: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>`,
+    hide: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/></svg>`,
   };
 
   function maskIp(ip) {
@@ -205,7 +206,7 @@
     };
 
     const state = {
-      platform: 'win32',
+      platform: ctx.platform || 'win32',
       best: null,
       target: null,
       running: [],
@@ -217,8 +218,6 @@
       probing: false,
       logs: [],
     };
-
-    const unsubs = [];
 
     el.innerHTML = `
       <div class="agl-wrap">
@@ -310,7 +309,7 @@
                 <div class="ch-meta mono" id="aglCh03Meta"></div>
               </div>
               <div class="ch-acts">
-                <button type="button" class="btn-sm" id="aglBtnKill" style="display:none; color:#ff5f52; border-color:#ff5f52;">${t('kill')}</button>
+                <button type="button" class="btn-sm" id="aglBtnKill" style="display:none; color:var(--red); border-color:var(--red);">${t('kill')}</button>
               </div>
             </article>
           </main>
@@ -391,6 +390,15 @@
     const lbTarget = el.querySelector('#aglLbTarget');
 
     const consoleBody = el.querySelector('#aglConsoleBody');
+
+    // Pointer spotlight effect on glass cards
+    wrap.querySelectorAll('.glass').forEach(card => {
+      card.addEventListener('pointermove', e => {
+        const r = card.getBoundingClientRect();
+        card.style.setProperty('--mx', `${Math.round(e.clientX - r.left)}px`);
+        card.style.setProperty('--my', `${Math.round(e.clientY - r.top)}px`);
+      });
+    });
 
     const setState = (target, s) => { if (target) target.dataset.state = s; };
 
@@ -787,28 +795,32 @@
       }
     };
 
-    // Subscriptions
-    if (typeof ctx.on === 'function') {
-      const offLog = ctx.on('log', e => {
-        if (e) pushLog(e.level, e.k, e.p);
-      });
-      if (offLog) unsubs.push(offLog);
+    // Subscriptions using host's ctx.onEvent
+    const listen = (ch, fn) => {
+      if (typeof ctx.onEvent === 'function') {
+        ctx.onEvent(ch, fn);
+      } else if (typeof ctx.on === 'function') {
+        ctx.on(ch, fn);
+      }
+    };
 
-      const offCand = ctx.on('probe:candidate', c => {
-        if (c) {
-          pushLog(c.loginOk ? 'ok' : c.kind === 'dead' ? 'err' : 'warn',
-            c.loginOk ? 'log.candidateOk' : 'log.candidateFail',
-            {
-              ep: c.endpoint,
-              origin: c.origin,
-              kind: c.kind,
-              model: t(c.modelOk ? 'log.candPass.yes' : 'log.candPass.no'),
-              detail: c.detail,
-            });
-        }
-      });
-      if (offCand) unsubs.push(offCand);
-    }
+    listen('log', e => {
+      if (e) pushLog(e.level, e.k, e.p);
+    });
+
+    listen('probe:candidate', c => {
+      if (c) {
+        pushLog(c.loginOk ? 'ok' : c.kind === 'dead' ? 'err' : 'warn',
+          c.loginOk ? 'log.candidateOk' : 'log.candidateFail',
+          {
+            ep: c.endpoint,
+            origin: c.origin,
+            kind: c.kind,
+            model: t(c.modelOk ? 'log.candPass.yes' : 'log.candPass.no'),
+            detail: c.detail,
+          });
+      }
+    });
 
     // Boot
     ctx.call('boot').then(bootInfo => {
@@ -825,15 +837,6 @@
       console.error('Boot error:', err);
       doProbe();
     });
-
-    return {
-      unmount() {
-        for (const u of unsubs) {
-          try { u(); } catch { /* ignore */ }
-        }
-        unsubs.length = 0;
-      },
-    };
   }
 
   window.Toolbox.panel({ mount });
