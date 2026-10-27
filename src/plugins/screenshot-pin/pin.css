@@ -1,9 +1,13 @@
 html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; user-select: none; }
-
 [hidden] { display: none !important; }
 
+#container {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+}
+
 #stage {
-  position: absolute; inset: 0;
+  flex: 1 1 auto; min-height: 0; position: relative;
   display: flex; align-items: center; justify-content: center;
   overflow: hidden; cursor: move;
 }
@@ -37,43 +41,43 @@ body.annotating #ink {
   cursor: crosshair;
 }
 
-/* --- toolbar ------------------------------------------------------------------ */
+/* --- toolbar (cleanly located BELOW the image) --- */
 #toolbar[hidden] {
   display: none !important;
 }
 
 #toolbar {
-  position: fixed; z-index: 10;
-  bottom: 8px; left: 50%; transform: translateX(-50%);
+  flex: 0 0 46px; height: 46px;
   display: flex; align-items: center; justify-content: center;
   gap: 3px; flex-wrap: wrap;
-  padding: 5px 8px; max-width: calc(100% - 16px);
-  background: rgba(10, 14, 16, .85);
+  padding: 4px 8px; margin: 0 auto; width: calc(100% - 16px);
+  background: rgba(10, 14, 16, .88);
   backdrop-filter: blur(18px) saturate(1.4);
   -webkit-backdrop-filter: blur(18px) saturate(1.4);
   border: 1px solid rgba(255, 255, 255, .16);
-  border-radius: 10px;
-  box-shadow: 0 8px 32px -8px rgba(0, 0, 0, .75);
+  border-radius: 9px;
+  box-shadow: 0 6px 24px -4px rgba(0, 0, 0, .7);
   pointer-events: auto;
+  box-sizing: border-box;
 }
 
 .tb-group { display: flex; align-items: center; gap: 2px; }
-.tb-sep { width: 1px; height: 20px; background: rgba(255, 255, 255, .14); margin: 0 4px; }
+.tb-sep { width: 1px; height: 18px; background: rgba(255, 255, 255, .14); margin: 0 4px; }
 
 #toolbar button {
   appearance: none; border: 0; background: transparent;
-  color: rgba(233, 239, 236, .7); cursor: pointer;
-  width: 28px; height: 28px; border-radius: 6px;
+  color: rgba(233, 239, 236, .75); cursor: pointer;
+  width: 26px; height: 26px; border-radius: 6px;
   display: flex; align-items: center; justify-content: center;
   transition: background .12s, color .12s;
   padding: 0; flex-shrink: 0;
 }
-#toolbar button svg { width: 16px; height: 16px; }
-#toolbar button:hover { background: rgba(255, 255, 255, .12); color: #e9efec; }
+#toolbar button svg { width: 15px; height: 15px; }
+#toolbar button:hover { background: rgba(255, 255, 255, .14); color: #e9efec; }
 #toolbar button.on { background: rgba(255, 171, 46, .22); color: #ffab2e; }
 
 .tb-swatch {
-  width: 18px !important; height: 18px !important;
+  width: 16px !important; height: 16px !important;
   border-radius: 50% !important; padding: 0 !important;
   background: var(--sw) !important;
   border: 2px solid transparent !important;

@@ -1,10 +1,8 @@
-/* Pinned screenshot window with right-click toolbar for secondary annotation.
+/* Pinned screenshot window.
    Features:
-   - Default: window drags with left mouse, wheel zooms, double-click resets
-   - Right-click: toggles toolbar visibility (defaults to hidden, clean view)
-   - Annotation: rect, ellipse, arrow, pen, color palette, undo (Ctrl+Z)
-   - When tool is active: left mouse draws annotations instead of moving window
-   - Actions: copy, save, dim (opacity), zoom reset, close
+   - Window drag uses anchored coordinates with locked width/height to avoid DPI expansion bugs
+   - Right-click opens native context menu (Annotate, Copy, Save, Opacity, Reset Zoom, Close)
+   - Annotation toolbar appears cleanly BELOW the screenshot without overlapping it
 */
 (() => {
   const stage = document.getElementById('stage');
@@ -16,13 +14,9 @@
 
   let dataUrl = '';
   let scale = 1;
-  const OPACITIES = [1, 0.75, 0.5, 0.3];
-  let opIdx = 0;
 
   // --- window dragging state ---
   let isMoving = false;
-  let lastScreenX = 0;
-  let lastScreenY = 0;
 
   // --- annotation state ---
   let tool = null; // 'rect' | 'ellipse' | 'arrow' | 'pen' | null
@@ -142,10 +136,14 @@
     });
   };
 
-  const toggleToolbar = () => {
-    toolbar.hidden = !toolbar.hidden;
-    if (toolbar.hidden) {
+  const toggleToolbar = (forceOpen) => {
+    const willOpen = forceOpen !== undefined ? forceOpen : toolbar.hidden;
+    toolbar.hidden = !willOpen;
+    window.pin.setAnnotating(willOpen, 50);
+    if (!willOpen) {
       setTool(null);
+    } else if (!tool) {
+      setTool('pen');
     }
   };
 
@@ -161,10 +159,9 @@
         curStroke = { tool, color, points: [pt] };
         repaintInk();
       } else {
-        // Normal mode: start window dragging
+        // Normal mode: start window dragging with fixed anchor
         isMoving = true;
-        lastScreenX = e.screenX;
-        lastScreenY = e.screenY;
+        window.pin.startMove(e.screenX, e.screenY);
       }
     }
   });
@@ -175,13 +172,7 @@
       curStroke.points.push(pt);
       repaintInk();
     } else if (isMoving) {
-      const dx = e.screenX - lastScreenX;
-      const dy = e.screenY - lastScreenY;
-      lastScreenX = e.screenX;
-      lastScreenY = e.screenY;
-      if (dx !== 0 || dy !== 0) {
-        window.pin.move(dx, dy);
-      }
+      window.pin.move(e.screenX, e.screenY);
     }
   });
 
@@ -195,19 +186,40 @@
         curStroke = null;
         repaintInk();
       }
-      isMoving = false;
+      if (isMoving) {
+        isMoving = false;
+        window.pin.endMove();
+      }
     }
   });
 
-  // --- right-click: toggle toolbar visibility ---
+  // --- right-click: open native context menu list ---
   window.addEventListener('contextmenu', e => {
     e.preventDefault();
-    toggleToolbar();
+    window.pin.showMenu();
+  });
+
+  // --- context menu actions from main process ---
+  window.pin.onToggleAnnotate(() => toggleToolbar());
+  window.pin.onTriggerCopy(() => {
+    const merged = composeImage();
+    window.pin.copy(merged);
+  });
+  window.pin.onTriggerSave(async () => {
+    const merged = composeImage();
+    await window.pin.save(merged);
+  });
+  window.pin.onSetOpacity(val => {
+    wrap.style.opacity = String(val);
+  });
+  window.pin.onResetZoom(() => {
+    scale = 1;
+    wrap.style.transform = 'scale(1)';
   });
 
   // --- zoom via wheel (only when not drawing) ---
   window.addEventListener('wheel', e => {
-    if (tool) return; // do not zoom while in annotation mode
+    if (tool) return;
     e.preventDefault();
     const next = Math.min(8, Math.max(0.2, scale * (e.deltaY < 0 ? 1.12 : 1 / 1.12)));
     scale = next;
@@ -229,7 +241,7 @@
         return;
       }
       if (!toolbar.hidden) {
-        toolbar.hidden = true;
+        toggleToolbar(false);
         return;
       }
       window.pin.close();
@@ -287,14 +299,8 @@
       return;
     }
 
-    if (act === 'dim') {
-      opIdx = (opIdx + 1) % OPACITIES.length;
-      wrap.style.opacity = String(OPACITIES[opIdx]);
-      return;
-    }
-
-    if (act === 'close') {
-      window.pin.close();
+    if (act === 'close-tool') {
+      toggleToolbar(false);
     }
   });
 

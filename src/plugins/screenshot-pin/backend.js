@@ -8,7 +8,7 @@
    CSS pixels are DIP, so crop = rect * scaleFactor, pin origin = display +
    rect. All auxiliary windows go through ctx.windows so disable/rescan
    destroys them. */
-const { BrowserWindow, desktopCapturer, screen, ipcMain, nativeImage, clipboard } = require('electron');
+const { BrowserWindow, Menu, desktopCapturer, screen, ipcMain, nativeImage, clipboard } = require('electron');
 const path = require('path');
 
 const P = 'screenshot-pin:'; // ipc channel namespace
@@ -198,11 +198,94 @@ module.exports = {
       if (w && !w.isDestroyed()) w.close();
     });
 
-    on(`${P}move-pin`, (e, { dx, dy }) => {
+    let dragAnchors = new Map(); // winId -> { startBounds, startScreenX, startScreenY }
+
+    on(`${P}start-move-pin`, (e, { screenX, screenY }) => {
       const win = BrowserWindow.fromWebContents(e.sender);
       if (win && !win.isDestroyed()) {
-        const [x, y] = win.getPosition();
-        win.setPosition(Math.round(x + dx), Math.round(y + dy));
+        dragAnchors.set(win.id, {
+          startBounds: win.getBounds(),
+          startScreenX: screenX,
+          startScreenY: screenY,
+        });
+      }
+    });
+
+    on(`${P}move-pin`, (e, { screenX, screenY }) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win && !win.isDestroyed()) {
+        const anchor = dragAnchors.get(win.id);
+        if (anchor) {
+          const dx = Math.round(screenX - anchor.startScreenX);
+          const dy = Math.round(screenY - anchor.startScreenY);
+          win.setBounds({
+            x: anchor.startBounds.x + dx,
+            y: anchor.startBounds.y + dy,
+            width: anchor.startBounds.width,
+            height: anchor.startBounds.height,
+          });
+        }
+      }
+    });
+
+    on(`${P}end-move-pin`, (e) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win) dragAnchors.delete(win.id);
+    });
+
+    on(`${P}show-pin-menu`, (e) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (!win || win.isDestroyed()) return;
+      const menu = Menu.buildFromTemplate([
+        {
+          label: '编辑与标注',
+          click: () => send(win, `${P}toggle-annotate`),
+        },
+        { type: 'separator' },
+        {
+          label: '复制到剪贴板',
+          click: () => send(win, `${P}trigger-copy`),
+        },
+        {
+          label: '另存为图片...',
+          click: () => send(win, `${P}trigger-save`),
+        },
+        {
+          label: '透明度',
+          submenu: [
+            { label: '100%', click: () => send(win, `${P}set-opacity`, 1) },
+            { label: '75%', click: () => send(win, `${P}set-opacity`, 0.75) },
+            { label: '50%', click: () => send(win, `${P}set-opacity`, 0.5) },
+            { label: '30%', click: () => send(win, `${P}set-opacity`, 0.3) },
+          ],
+        },
+        {
+          label: '重置缩放 (1:1)',
+          click: () => send(win, `${P}reset-zoom`),
+        },
+        { type: 'separator' },
+        {
+          label: '关闭贴图 (Esc)',
+          click: () => win.close(),
+        },
+      ]);
+      menu.popup({ window: win });
+    });
+
+    on(`${P}set-pin-annotating`, (e, { annotating, extraHeight = 52 }) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (!win || win.isDestroyed()) return;
+      const b = win.getBounds();
+      const disp = screen.getDisplayMatching(b);
+      const maxY = disp.bounds.y + disp.bounds.height;
+      if (annotating) {
+        let newY = b.y;
+        if (newY + b.height + extraHeight > maxY) {
+          newY = Math.max(disp.bounds.y, maxY - (b.height + extraHeight));
+        }
+        win.setBounds({ x: b.x, y: newY, width: b.width, height: b.height + extraHeight });
+      } else {
+        win.setBounds({ x: b.x, y: b.y, width: b.width, height: Math.max(90, b.height - extraHeight) });
       }
     });
 
