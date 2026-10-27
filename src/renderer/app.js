@@ -422,6 +422,13 @@ els.winctl.addEventListener('click', e => {
   const b = e.target.closest('button[data-act]');
   if (b) window.host.win(b.dataset.act);
 });
+const railEl = document.querySelector('.rail');
+if (railEl) {
+  railEl.addEventListener('dblclick', e => {
+    if (e.target.closest('button, input, [role=tab], .seg, .winctl')) return;
+    window.host.win('maximize');
+  });
+}
 els.btnRescan.addEventListener('click', async () => {
   const res = await window.host.rescanPlugins();
   state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));

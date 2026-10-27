@@ -77,8 +77,10 @@ body {
 .rail {
   display: flex; align-items: center; gap: 18px;
   flex: 0 0 auto;
+  -webkit-app-region: drag;
+  user-select: none;
 }
-.plate { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.plate { display: flex; flex-direction: column; gap: 2px; min-width: 0; pointer-events: none; }
 .plate-model {
   font-size: 19px; letter-spacing: .16em; font-weight: 600;
   color: var(--ink);
@@ -86,17 +88,18 @@ body {
 .plate-model em { font-style: normal; color: var(--amber); font-size: 12px; letter-spacing: .22em; margin-left: 6px; }
 .plate-sub { font-size: 11px; letter-spacing: .34em; color: var(--ink-dim); text-transform: uppercase; }
 
-.tabs { display: flex; gap: 4px; margin-left: 8px; }
+.tabs { display: flex; gap: 4px; margin-left: 8px; -webkit-app-region: no-drag; }
 .tabs button {
   appearance: none; border: 1px solid transparent; background: transparent;
   color: var(--ink-dim); font: inherit; font-size: 14px; letter-spacing: .08em;
   padding: 7px 16px; border-radius: var(--r-sm); cursor: pointer;
   transition: color .15s, background .15s;
+  -webkit-app-region: no-drag;
 }
 .tabs button:hover { color: var(--ink); background: var(--inset); }
 .tabs button.on { color: var(--ink); background: var(--inset); border-color: var(--line); }
 
-.rail-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+.rail-right { margin-left: auto; display: flex; align-items: center; gap: 10px; -webkit-app-region: no-drag; }
 .chip {
   font-size: 11px; letter-spacing: .1em; padding: 4px 10px; border-radius: 999px;
   border: 1px solid var(--line-strong); color: var(--ink-dim);
@@ -104,19 +107,21 @@ body {
 .chip.ghost { border-color: var(--line); }
 .chip.warn { color: var(--red); border-color: var(--red); opacity: .9; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; overflow: hidden; }
+.seg { display: inline-flex; border: 1px solid var(--line-strong); border-radius: 999px; overflow: hidden; -webkit-app-region: no-drag; }
 .seg button {
   appearance: none; border: 0; background: transparent; color: var(--ink-dim);
   font: inherit; font-size: 12px; padding: 5px 12px; cursor: pointer;
+  -webkit-app-region: no-drag;
 }
 .seg button + button { border-left: 1px solid var(--line); }
 .seg button[aria-pressed="true"] { background: var(--amber-soft); color: var(--amber); }
 
-.winctl { display: inline-flex; }
+.winctl { display: inline-flex; -webkit-app-region: no-drag; }
 .platform-darwin .winctl { display: none; }
 .winctl button {
   appearance: none; border: 0; background: transparent; color: var(--ink-dim);
   width: 34px; height: 30px; font-size: 14px; cursor: pointer; border-radius: var(--r-sm);
+  -webkit-app-region: no-drag;
 }
 .winctl button:hover { background: var(--inset); color: var(--ink); }
 .winctl button[data-act="close"]:hover { background: var(--red-soft); color: var(--red); }
@@ -187,8 +192,13 @@ body {
 .empty { color: var(--ink-faint); font-size: 13px; padding: 26px; text-align: center; }
 
 /* plugin panel view --------------------------------------------------------------- */
-.panel-head { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
-.panel-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.panel-head {
+  display: flex; align-items: center; gap: 14px; flex: 0 0 auto;
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.panel-head :is(button, a, input) { -webkit-app-region: no-drag; }
+.panel-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; pointer-events: none; }
 .panel-title b { font-size: 16px; letter-spacing: .04em; }
 .panel-title span { font-size: 11px; color: var(--ink-faint); }
 .panel-host { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; }
