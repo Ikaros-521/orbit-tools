@@ -23,7 +23,9 @@ jobs:
             args: --win
           - os: ubuntu-22.04
             args: --linux
-          - os: macos-14
+          # macos-14 is being retired (its image pool no longer hands out
+          # runners, so jobs sat unassigned for 15 minutes and got cancelled).
+          - os: macos-15
             args: --mac
     runs-on: ${{ matrix.os }}
     steps:
