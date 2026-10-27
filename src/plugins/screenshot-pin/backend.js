@@ -66,6 +66,15 @@ module.exports = {
         thumbnailSize: { width: 4096, height: 4096 },
       });
 
+      try {
+        const fs = require('fs');
+        const dbg = {
+          displays: displays.map(d => ({ id: d.id, bounds: d.bounds, size: d.size, scaleFactor: d.scaleFactor })),
+          sources: sources.map(s => ({ id: s.id, name: s.name, display_id: s.display_id, size: s.thumbnail.getSize() })),
+        };
+        fs.writeFileSync('e:\\Github_Pro\\orbit-tools\\capture-debug.json', JSON.stringify(dbg, null, 2));
+      } catch (e) {}
+
       for (const d of displays) {
         const src = sources.find(s => s.display_id === String(d.id)) || sources[displays.indexOf(d)];
         if (!src) continue;
@@ -82,10 +91,10 @@ module.exports = {
           enableLargerThanScreen: true,
           webPreferences: { preload: path.join(ctx.root, 'overlay-preload.js') },
         });
-        win.setBounds(d.bounds);
         overlays.set(win.id, { win, display: d });
         sessionImages.set(win.id, shot);
         win.setAlwaysOnTop(true, 'screen-saver');
+        win.setBounds(d.bounds);
         win.loadURL(ctx.url('selection.html'));
       }
       return { ok: true, screens: overlays.size };

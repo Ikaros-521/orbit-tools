@@ -3,7 +3,8 @@
    Right-click toggles toolbar visibility when a selection exists.
    All coordinates are CSS px == DIP for this display. */
 (() => {
-  const shot = document.getElementById('shot');
+  const shotCanvas = document.getElementById('shot');
+  const shotCtx = shotCanvas.getContext('2d', { colorSpace: 'srgb', alpha: false });
   const box = document.getElementById('box');
   const hole = document.getElementById('hole');
   const sizeEl = document.getElementById('size');
@@ -17,6 +18,7 @@
   let now = null;
   let selRect = null;    // locked selection {x, y, width, height}
   let tbVisible = true;  // toolbar visibility toggle
+  let shotImage = null;
 
   // --- annotation state ---
   let tool = null;       // null = no tool, 'pen' | 'rect' | 'ellipse' | 'arrow'
@@ -26,12 +28,19 @@
   let curStroke = null;
 
   window.overlay.onImage(({ image }) => {
-    shot.onload = () => {
+    const img = new Image();
+    img.onload = () => {
+      shotImage = img;
+      shotCanvas.width = img.naturalWidth;
+      shotCanvas.height = img.naturalHeight;
+      shotCtx.imageSmoothingEnabled = false;
+      shotCtx.drawImage(img, 0, 0);
+
       if (typeof window.overlay.displayed === 'function') {
         window.overlay.displayed();
       }
     };
-    shot.src = image;
+    img.src = image;
   });
   window.overlay.ready();
 
@@ -42,8 +51,10 @@
   });
 
   const getScale = () => {
-    const rx = (shot.naturalWidth && window.innerWidth) ? (shot.naturalWidth / window.innerWidth) : (window.devicePixelRatio || 1);
-    const ry = (shot.naturalHeight && window.innerHeight) ? (shot.naturalHeight / window.innerHeight) : (window.devicePixelRatio || 1);
+    const nw = shotImage ? shotImage.naturalWidth : (shotCanvas.width || window.innerWidth);
+    const nh = shotImage ? shotImage.naturalHeight : (shotCanvas.height || window.innerHeight);
+    const rx = (nw && window.innerWidth) ? (nw / window.innerWidth) : (window.devicePixelRatio || 1);
+    const ry = (nh && window.innerHeight) ? (nh / window.innerHeight) : (window.devicePixelRatio || 1);
     return { rx, ry };
   };
 
@@ -160,12 +171,14 @@
 
   // --- compose final image ---
   const compose = () => {
-    if (!selRect || !shot.naturalWidth) return null;
+    const nw = shotImage ? shotImage.naturalWidth : shotCanvas.width;
+    const nh = shotImage ? shotImage.naturalHeight : shotCanvas.height;
+    if (!selRect || !nw) return null;
     const { rx, ry } = getScale();
     const sx = Math.max(0, Math.round(selRect.x * rx));
     const sy = Math.max(0, Math.round(selRect.y * ry));
-    const sw = Math.min(shot.naturalWidth - sx, Math.max(1, Math.round(selRect.width * rx)));
-    const sh = Math.min(shot.naturalHeight - sy, Math.max(1, Math.round(selRect.height * ry)));
+    const sw = Math.min(nw - sx, Math.max(1, Math.round(selRect.width * rx)));
+    const sh = Math.min(nh - sy, Math.max(1, Math.round(selRect.height * ry)));
 
     const c = document.createElement('canvas');
     c.width = sw;
@@ -173,7 +186,7 @@
     const cx = c.getContext('2d', { colorSpace: 'srgb' });
     cx.imageSmoothingEnabled = false; // 1:1 直通，避免重采样模糊或颜色漂移
     // draw cropped screenshot
-    cx.drawImage(shot, sx, sy, sw, sh, 0, 0, sw, sh);
+    cx.drawImage(shotCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
     // draw annotation layer on top
     if (strokes.length > 0) {
       cx.drawImage(inkCanvas, 0, 0, sw, sh);
