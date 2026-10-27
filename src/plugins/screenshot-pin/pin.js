@@ -106,7 +106,8 @@
     const ch = img.naturalHeight;
     const c = document.createElement('canvas');
     c.width = cw; c.height = ch;
-    const cx = c.getContext('2d');
+    const cx = c.getContext('2d', { colorSpace: 'srgb' });
+    cx.imageSmoothingEnabled = false;
     cx.drawImage(img, 0, 0, cw, ch);
     if (strokes.length > 0) {
       cx.drawImage(ink, 0, 0, cw, ch);

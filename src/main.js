@@ -1,5 +1,8 @@
 const { app, BrowserWindow, Tray, Menu, protocol, globalShortcut } = require('electron');
 const path = require('path');
+
+// Enforce standard sRGB color profile to avoid screen-capture color shifts across displays
+app.commandLine.appendSwitch('force-color-profile', 'srgb');
 const Config = require('./core/config');
 const PluginManager = require('./core/plugin-manager');
 const { registerPluginProtocol } = require('./core/plugin-protocol');

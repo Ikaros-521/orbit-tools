@@ -34,6 +34,12 @@
     width: Math.abs(now.x - start.x), height: Math.abs(now.y - start.y),
   });
 
+  const getScale = () => {
+    const rx = (shot.naturalWidth && window.innerWidth) ? (shot.naturalWidth / window.innerWidth) : (window.devicePixelRatio || 1);
+    const ry = (shot.naturalHeight && window.innerHeight) ? (shot.naturalHeight / window.innerHeight) : (window.devicePixelRatio || 1);
+    return { rx, ry };
+  };
+
   const paintSelection = r => {
     hole.style.left = `${r.x}px`;
     hole.style.top = `${r.y}px`;
@@ -75,14 +81,14 @@
   // --- ink canvas setup ---
   const setupInk = () => {
     if (!selRect) return;
-    const dpr = window.devicePixelRatio || 1;
+    const { rx, ry } = getScale();
     inkCanvas.style.left = `${selRect.x}px`;
     inkCanvas.style.top = `${selRect.y}px`;
     inkCanvas.style.width = `${selRect.width}px`;
     inkCanvas.style.height = `${selRect.height}px`;
-    inkCanvas.width = Math.round(selRect.width * dpr);
-    inkCanvas.height = Math.round(selRect.height * dpr);
-    inkCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    inkCanvas.width = Math.round(selRect.width * rx);
+    inkCanvas.height = Math.round(selRect.height * ry);
+    inkCtx.setTransform(rx, 0, 0, ry, 0, 0);
   };
 
   // --- stroke rendering ---
@@ -147,21 +153,23 @@
 
   // --- compose final image ---
   const compose = () => {
-    if (!selRect) return null;
-    const dpr = window.devicePixelRatio || 1;
-    const cw = Math.round(selRect.width * dpr);
-    const ch = Math.round(selRect.height * dpr);
+    if (!selRect || !shot.naturalWidth) return null;
+    const { rx, ry } = getScale();
+    const sx = Math.max(0, Math.round(selRect.x * rx));
+    const sy = Math.max(0, Math.round(selRect.y * ry));
+    const sw = Math.min(shot.naturalWidth - sx, Math.max(1, Math.round(selRect.width * rx)));
+    const sh = Math.min(shot.naturalHeight - sy, Math.max(1, Math.round(selRect.height * ry)));
+
     const c = document.createElement('canvas');
-    c.width = cw; c.height = ch;
+    c.width = sw;
+    c.height = sh;
     const cx = c.getContext('2d', { colorSpace: 'srgb' });
-    cx.imageSmoothingQuality = 'high';
+    cx.imageSmoothingEnabled = false; // 1:1 直通，避免重采样模糊或颜色漂移
     // draw cropped screenshot
-    cx.drawImage(shot,
-      selRect.x * dpr, selRect.y * dpr, cw, ch,
-      0, 0, cw, ch);
+    cx.drawImage(shot, sx, sy, sw, sh, 0, 0, sw, sh);
     // draw annotation layer on top
     if (strokes.length > 0) {
-      cx.drawImage(inkCanvas, 0, 0, cw, ch);
+      cx.drawImage(inkCanvas, 0, 0, sw, sh);
     }
     return c.toDataURL('image/png');
   };
@@ -269,6 +277,18 @@
       toolbar.hidden = !tbVisible;
     } else {
       window.overlay.cancel();
+    }
+  });
+
+  // --- double-click inside selection: finish and copy to clipboard (QQ screenshot style) ---
+  window.addEventListener('dblclick', e => {
+    if (phase !== 'selected' || !selRect) return;
+    if (e.target.closest('#toolbar')) return;
+    const lx = e.clientX - selRect.x;
+    const ly = e.clientY - selRect.y;
+    if (lx >= 0 && ly >= 0 && lx <= selRect.width && ly <= selRect.height) {
+      const dataUrl = compose();
+      if (dataUrl) window.overlay.copy(dataUrl);
     }
   });
 

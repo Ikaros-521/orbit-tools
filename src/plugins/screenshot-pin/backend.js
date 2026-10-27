@@ -35,12 +35,20 @@ module.exports = {
       return bw ? bw.id : sender.id;
     };
 
+    const restoreHost = () => {
+      if (hideHost && host && !host.isDestroyed()) {
+        host.show();
+        host.focus();
+      }
+    };
+
     /* --- selection overlays -------------------------------------------------- */
 
     function teardownOverlays() {
       for (const { win } of overlays.values()) { if (!win.isDestroyed()) win.destroy(); }
       overlays.clear();
       sessionImages.clear();
+      restoreHost();
     }
 
     async function startCapture() {
@@ -92,10 +100,20 @@ module.exports = {
     /* --- pin windows ---------------------------------------------------------- */
 
     function openPin(dataUrl, bounds) {
+      const w = Math.max(20, Math.round(bounds.width));
+      const h = Math.max(20, Math.round(bounds.height));
       const win = ctx.windows.create({
-        x: bounds.x, y: bounds.y, width: Math.max(120, bounds.width), height: Math.max(90, bounds.height),
-        frame: false, transparent: true, resizable: true,
-        alwaysOnTop: true, skipTaskbar: true, hasShadow: true,
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: w,
+        height: h,
+        useContentSize: true,
+        frame: false,
+        transparent: true,
+        resizable: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        hasShadow: false,
         backgroundColor: '#00000000',
         webPreferences: { preload: path.join(ctx.root, 'pin-preload.js') },
       });
@@ -103,7 +121,7 @@ module.exports = {
       win.setAlwaysOnTop(true, 'screen-saver');
       win.loadURL(ctx.url('pin.html'));
       win.once('ready-to-show', () => {
-        send(win, `${P}init`, { image: dataUrl, bounds: { width: bounds.width, height: bounds.height } });
+        send(win, `${P}init`, { image: dataUrl, bounds: { width: w, height: h } });
         win.show();
       });
       win.on('closed', () => {
@@ -135,16 +153,17 @@ module.exports = {
       const { display } = entry;
       const shot = sessionImages.get(id);
       if (!shot) return;
-      const sf = display.scaleFactor;
+      const shotSize = shot.getSize();
+      const rx = shotSize.width / display.bounds.width;
+      const ry = shotSize.height / display.bounds.height;
       const crop = shot.crop({
-        x: Math.max(0, Math.round(rect.x * sf)),
-        y: Math.max(0, Math.round(rect.y * sf)),
-        width: Math.max(1, Math.round(rect.width * sf)),
-        height: Math.max(1, Math.round(rect.height * sf)),
+        x: Math.max(0, Math.round(rect.x * rx)),
+        y: Math.max(0, Math.round(rect.y * ry)),
+        width: Math.min(shotSize.width, Math.max(1, Math.round(rect.width * rx))),
+        height: Math.min(shotSize.height, Math.max(1, Math.round(rect.height * ry))),
       });
       const dataUrl = crop.toDataURL();
       teardownOverlays();
-      if (hideHost && host && !host.isDestroyed()) host.show();
       openPin(dataUrl, {
         x: Math.round(display.bounds.x + rect.x),
         y: Math.round(display.bounds.y + rect.y),
@@ -155,7 +174,6 @@ module.exports = {
 
     on(`${P}cancel`, () => {
       teardownOverlays();
-      if (hideHost && host && !host.isDestroyed()) host.show();
     });
 
     on(`${P}select-composed`, (e, { dataUrl, rect }) => {
@@ -164,7 +182,6 @@ module.exports = {
       if (!entry || !dataUrl || !rect) return;
       const { display } = entry;
       teardownOverlays();
-      if (hideHost && host && !host.isDestroyed()) host.show();
       openPin(dataUrl, {
         x: Math.round(display.bounds.x + rect.x),
         y: Math.round(display.bounds.y + rect.y),
@@ -176,7 +193,6 @@ module.exports = {
     on(`${P}overlay-copy`, (e, { dataUrl }) => {
       if (dataUrl) clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
       teardownOverlays();
-      if (hideHost && host && !host.isDestroyed()) host.show();
     });
 
     handle(`${P}overlay-save`, async (e, { dataUrl }) => {
@@ -185,7 +201,6 @@ module.exports = {
       if (!filePath) return { ok: false, canceled: true };
       require('fs').writeFileSync(filePath, nativeImage.createFromDataURL(dataUrl).toPNG());
       teardownOverlays();
-      if (hideHost && host && !host.isDestroyed()) host.show();
       return { ok: true, filePath };
     });
 
@@ -206,8 +221,9 @@ module.exports = {
     on(`${P}start-move-pin`, (e, { screenX, screenY }) => {
       const win = BrowserWindow.fromWebContents(e.sender);
       if (win && !win.isDestroyed()) {
+        const b = typeof win.getContentBounds === 'function' ? win.getContentBounds() : win.getBounds();
         dragAnchors.set(win.id, {
-          startBounds: win.getBounds(),
+          startBounds: b,
           startScreenX: screenX,
           startScreenY: screenY,
         });
@@ -221,12 +237,17 @@ module.exports = {
         if (anchor) {
           const dx = Math.round(screenX - anchor.startScreenX);
           const dy = Math.round(screenY - anchor.startScreenY);
-          win.setBounds({
+          const target = {
             x: anchor.startBounds.x + dx,
             y: anchor.startBounds.y + dy,
             width: anchor.startBounds.width,
             height: anchor.startBounds.height,
-          });
+          };
+          if (typeof win.setContentBounds === 'function') {
+            win.setContentBounds(target);
+          } else {
+            win.setBounds(target);
+          }
         }
       }
     });
@@ -278,7 +299,7 @@ module.exports = {
     on(`${P}set-pin-annotating`, (e, { annotating, extraHeight = 52 }) => {
       const win = BrowserWindow.fromWebContents(e.sender);
       if (!win || win.isDestroyed()) return;
-      const b = win.getBounds();
+      const b = typeof win.getContentBounds === 'function' ? win.getContentBounds() : win.getBounds();
       const disp = screen.getDisplayMatching(b);
       const maxY = disp.bounds.y + disp.bounds.height;
       if (annotating) {
@@ -286,9 +307,13 @@ module.exports = {
         if (newY + b.height + extraHeight > maxY) {
           newY = Math.max(disp.bounds.y, maxY - (b.height + extraHeight));
         }
-        win.setBounds({ x: b.x, y: newY, width: b.width, height: b.height + extraHeight });
+        const target = { x: b.x, y: newY, width: b.width, height: b.height + extraHeight };
+        if (typeof win.setContentBounds === 'function') win.setContentBounds(target);
+        else win.setBounds(target);
       } else {
-        win.setBounds({ x: b.x, y: b.y, width: b.width, height: Math.max(90, b.height - extraHeight) });
+        const target = { x: b.x, y: b.y, width: b.width, height: Math.max(20, b.height - extraHeight) };
+        if (typeof win.setContentBounds === 'function') win.setContentBounds(target);
+        else win.setBounds(target);
       }
     });
 
