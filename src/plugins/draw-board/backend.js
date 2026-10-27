@@ -63,22 +63,25 @@ module.exports = {
           : screen.getPrimaryDisplay();
 
         const displays = screen.getAllDisplays();
+        // desktopCapturer rescales the frame to exactly this size, upscaling
+        // included, so ask for the display's own physical pixels: a fixed 4096
+        // cap inflated a 3840x2160 panel to 4096x2304 and then resize() blurred
+        // it a second time back down.
+        const want = {
+          width: Math.round(d.bounds.width * d.scaleFactor),
+          height: Math.round(d.bounds.height * d.scaleFactor),
+        };
         const sources = await desktopCapturer.getSources({
           types: ['screen'],
-          thumbnailSize: { width: 4096, height: 4096 },
+          thumbnailSize: want,
         });
 
         const src = sources.find(s => s.display_id === String(d.id))
           || sources[displays.findIndex(x => x.id === d.id)]
           || sources[0];
 
-        const want = {
-          width: Math.round(d.bounds.width * d.scaleFactor),
-          height: Math.round(d.bounds.height * d.scaleFactor),
-        };
-
         let backdropDataUrl = null;
-        if (src && src.thumbnail) {
+        if (src && src.thumbnail && !src.thumbnail.isEmpty()) {
           const s = src.thumbnail.getSize();
           const img = (s.width === want.width && s.height === want.height)
             ? src.thumbnail

@@ -18,7 +18,11 @@
   let now = null;
   let selRect = null;    // locked selection {x, y, width, height}
   let tbVisible = true;  // toolbar visibility toggle
-  let shotImage = null;
+  let shotW = 0;         // physical px of the captured frame (authoritative)
+  let shotH = 0;
+  let dipW = 0;          // DIP extent the main process mapped the frame onto
+  let dipH = 0;
+  let base = null;       // lossless crop of the current selection, decoded
 
   // --- annotation state ---
   let tool = null;       // null = no tool, 'pen' | 'rect' | 'ellipse' | 'arrow'
@@ -27,14 +31,20 @@
   let drawing = false;
   let curStroke = null;
 
-  window.overlay.onImage(({ image }) => {
+  window.overlay.onImage(({ image, width, height, dipWidth, dipHeight }) => {
     const img = new Image();
     img.onload = () => {
-      shotImage = img;
-      shotCanvas.width = img.naturalWidth;
-      shotCanvas.height = img.naturalHeight;
+      // Back the canvas with the frame's own pixel size so the freeze-frame maps
+      // 1:1 onto the window; sizing it from the decoded image instead would let a
+      // fractional devicePixelRatio silently rescale the picture.
+      shotW = width || img.naturalWidth;
+      shotH = height || img.naturalHeight;
+      dipW = dipWidth || window.innerWidth;
+      dipH = dipHeight || window.innerHeight;
+      shotCanvas.width = shotW;
+      shotCanvas.height = shotH;
       shotCtx.imageSmoothingEnabled = false;
-      shotCtx.drawImage(img, 0, 0);
+      shotCtx.drawImage(img, 0, 0, shotW, shotH);
 
       if (typeof window.overlay.displayed === 'function') {
         window.overlay.displayed();
@@ -44,19 +54,33 @@
   });
   window.overlay.ready();
 
+  // --- lossless base for the current selection -------------------------------
+  // The visible backdrop is a JPEG preview (cheap to encode, so opening the
+  // capture never stalls the screen); exports must not inherit that, so the
+  // region is re-cropped from the untouched frame in the main process.
+  const loadBase = (rect) => {
+    base = null;
+    return window.overlay.crop(rect).then(res => {
+      if (!res || !res.image) return null;
+      return new Promise(resolve => {
+        const im = new Image();
+        im.onload = () => { base = { img: im, width: res.width, height: res.height, dataUrl: res.image }; resolve(base); };
+        im.onerror = () => resolve(null);
+        im.src = res.image;
+      });
+    }).catch(() => null);
+  };
+
   // --- geometry helpers ---
   const norm = () => ({
     x: Math.min(start.x, now.x), y: Math.min(start.y, now.y),
     width: Math.abs(now.x - start.x), height: Math.abs(now.y - start.y),
   });
 
-  const getScale = () => {
-    const nw = shotImage ? shotImage.naturalWidth : (shotCanvas.width || window.innerWidth);
-    const nh = shotImage ? shotImage.naturalHeight : (shotCanvas.height || window.innerHeight);
-    const rx = (nw && window.innerWidth) ? (nw / window.innerWidth) : (window.devicePixelRatio || 1);
-    const ry = (nh && window.innerHeight) ? (nh / window.innerHeight) : (window.devicePixelRatio || 1);
-    return { rx, ry };
-  };
+  const getScale = () => ({
+    rx: shotW && dipW ? shotW / dipW : (window.devicePixelRatio || 1),
+    ry: shotH && dipH ? shotH / dipH : (window.devicePixelRatio || 1),
+  });
 
   const paintSelection = r => {
     hole.style.left = `${r.x}px`;
@@ -170,24 +194,29 @@
   };
 
   // --- compose final image ---
-  const compose = () => {
-    const nw = shotImage ? shotImage.naturalWidth : shotCanvas.width;
-    const nh = shotImage ? shotImage.naturalHeight : shotCanvas.height;
-    if (!selRect || !nw) return null;
+  const compose = async () => {
+    if (!selRect || !shotW) return null;
     const { rx, ry } = getScale();
     const sx = Math.max(0, Math.round(selRect.x * rx));
     const sy = Math.max(0, Math.round(selRect.y * ry));
-    const sw = Math.min(nw - sx, Math.max(1, Math.round(selRect.width * rx)));
-    const sh = Math.min(nh - sy, Math.max(1, Math.round(selRect.height * ry)));
+    const sw = Math.min(shotW - sx, Math.max(1, Math.round(selRect.width * rx)));
+    const sh = Math.min(shotH - sy, Math.max(1, Math.round(selRect.height * ry)));
+
+    // Use the lossless crop of this exact region; the preview frame is only a
+    // fallback if that request failed.
+    let b = base;
+    if (!b || b.width !== sw || b.height !== sh) b = await loadBase(selRect);
+    const lossless = b && b.width === sw && b.height === sh;
+    // Nothing drawn: the main process already produced the exact lossless PNG.
+    if (lossless && strokes.length === 0) return b.dataUrl;
 
     const c = document.createElement('canvas');
     c.width = sw;
     c.height = sh;
     const cx = c.getContext('2d', { colorSpace: 'srgb' });
     cx.imageSmoothingEnabled = false; // 1:1 直通，避免重采样模糊或颜色漂移
-    // draw cropped screenshot
-    cx.drawImage(shotCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
-    // draw annotation layer on top
+    if (lossless) cx.drawImage(b.img, 0, 0, sw, sh);
+    else cx.drawImage(shotCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
     if (strokes.length > 0) {
       cx.drawImage(inkCanvas, 0, 0, sw, sh);
     }
@@ -213,6 +242,7 @@
     setupInk();
     positionToolbar();
     syncToolButtons();
+    loadBase(r); // overlaps the lossless round-trip with the user's annotation time
   };
 
   // --- mouse events for region selection ---
@@ -301,13 +331,13 @@
   });
 
   // --- double-click inside selection: finish and copy to clipboard (QQ screenshot style) ---
-  window.addEventListener('dblclick', e => {
+  window.addEventListener('dblclick', async e => {
     if (phase !== 'selected' || !selRect) return;
     if (e.target.closest('#toolbar')) return;
     const lx = e.clientX - selRect.x;
     const ly = e.clientY - selRect.y;
     if (lx >= 0 && ly >= 0 && lx <= selRect.width && ly <= selRect.height) {
-      const dataUrl = compose();
+      const dataUrl = await compose();
       if (dataUrl) window.overlay.copy(dataUrl);
     }
   });
@@ -378,7 +408,7 @@
       if (strokes.length === 0) {
         window.overlay.select(selRect);
       } else {
-        const dataUrl = compose();
+        const dataUrl = await compose();
         if (dataUrl) {
           window.overlay.selectComposed(dataUrl, selRect);
         }
@@ -387,13 +417,13 @@
     }
 
     if (act === 'copy') {
-      const dataUrl = compose();
+      const dataUrl = await compose();
       if (dataUrl) window.overlay.copy(dataUrl);
       return;
     }
 
     if (act === 'save') {
-      const dataUrl = compose();
+      const dataUrl = await compose();
       if (dataUrl) await window.overlay.save(dataUrl);
       return;
     }

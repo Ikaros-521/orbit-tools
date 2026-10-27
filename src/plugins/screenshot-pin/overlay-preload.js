@@ -10,5 +10,6 @@ contextBridge.exposeInMainWorld('overlay', {
   copy: dataUrl => ipcRenderer.send(`${P}overlay-copy`, { dataUrl }),
   save: dataUrl => ipcRenderer.invoke(`${P}overlay-save`, { dataUrl }),
   cancel: () => ipcRenderer.send(`${P}cancel`),
+  crop: rect => ipcRenderer.invoke(`${P}crop`, { rect }),
   onImage: fn => ipcRenderer.on(`${P}image`, (_e, payload) => fn(payload)),
 });

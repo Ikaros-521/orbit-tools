@@ -57,11 +57,50 @@ module.exports = {
 
     /* --- selection overlays -------------------------------------------------- */
 
+    /* The freeze-frame is only a backdrop for choosing a region, so it ships as
+       JPEG: PNG-encoding a full 4K frame on the main thread is what froze the
+       screen for a beat at capture time. Anything the user keeps (pin/clipboard/
+       file) is cropped from the untouched nativeImage instead, so quality never
+       rides on this preview. */
+    const previewDataURL = (img) => 'data:image/jpeg;base64,' + img.toJPEG(92).toString('base64');
+
     function teardownOverlays() {
       for (const { win } of overlays.values()) { if (!win.isDestroyed()) win.destroy(); }
       overlays.clear();
       sessionImages.clear();
       restoreHost();
+    }
+
+    /* desktopCapturer scales the grabbed frame to exactly thumbnailSize, and it
+       upscales too: asking for a fixed 4096 cap turned a 3840x2160 screen into
+       4096x2304 (+6.7%), which is why the freeze-frame looked enlarged the
+       instant it appeared. Request each display's own physical size instead.
+       display.bounds is DIP and Windows rounds it up, so bounds*scaleFactor can
+       overshoot by <scale pixels; that sub-pixel error beats a resample of the
+       whole frame, and every crop below derives its ratio from the real shot. */
+    const physicalSize = (d) => ({
+      width: Math.round(d.bounds.width * d.scaleFactor),
+      height: Math.round(d.bounds.height * d.scaleFactor),
+    });
+
+    async function grabDisplays(displays) {
+      const groups = new Map(); // "WxH" -> { size, list }
+      for (const d of displays) {
+        const size = physicalSize(d);
+        const key = `${size.width}x${size.height}`;
+        if (!groups.has(key)) groups.set(key, { size, list: [] });
+        groups.get(key).list.push(d);
+      }
+      const shots = new Map(); // display.id -> nativeImage
+      for (const { size, list } of groups.values()) {
+        const sources = await desktopCapturer.getSources({ types: ['screen'], thumbnailSize: size });
+        for (const d of list) {
+          const src = sources.find(s => s.display_id === String(d.id)) || sources[displays.indexOf(d)];
+          const shot = src && src.thumbnail;
+          if (shot && !shot.isEmpty()) shots.set(d.id, shot);
+        }
+      }
+      return shots;
     }
 
     async function startCapture() {
@@ -73,26 +112,13 @@ module.exports = {
       }
 
       const displays = screen.getAllDisplays();
-      // Request an upper-bound size so Electron captures the 1:1 raw native resolution without scaling
-      const sources = await desktopCapturer.getSources({
-        types: ['screen'],
-        thumbnailSize: { width: 4096, height: 4096 },
-      });
-
-      try {
-        const fs = require('fs');
-        const dbg = {
-          displays: displays.map(d => ({ id: d.id, bounds: d.bounds, size: d.size, scaleFactor: d.scaleFactor })),
-          sources: sources.map(s => ({ id: s.id, name: s.name, display_id: s.display_id, size: s.thumbnail.getSize() })),
-        };
-        fs.writeFileSync('e:\\Github_Pro\\orbit-tools\\capture-debug.json', JSON.stringify(dbg, null, 2));
-      } catch (e) {}
+      /* getSources needs well over a second here (the log shows the DXGI
+         duplication timing out on a still desktop), so start building the
+         overlays while that runs. They are neither shown nor painted, so they
+         cannot leak into the very frame they are waiting for. */
+      const pending = grabDisplays(displays);
 
       for (const d of displays) {
-        const src = sources.find(s => s.display_id === String(d.id)) || sources[displays.indexOf(d)];
-        if (!src) continue;
-        const shot = src.thumbnail;
-
         const win = ctx.windows.create({
           x: d.bounds.x, y: d.bounds.y,
           width: d.bounds.width, height: d.bounds.height,
@@ -104,12 +130,23 @@ module.exports = {
           enableLargerThanScreen: true,
           webPreferences: { preload: path.join(ctx.root, 'overlay-preload.js') },
         });
-        overlays.set(win.id, { win, display: d });
-        sessionImages.set(win.id, shot);
+        overlays.set(win.id, { win, display: d, ready: false, sent: false });
         win.setAlwaysOnTop(true, 'screen-saver');
-        win.setBounds(d.bounds);
+        // Content (not frame) bounds: an inset of a few px here would squeeze the
+        // full-screen freeze-frame and read as the picture shrinking/growing.
+        if (typeof win.setContentBounds === 'function') win.setContentBounds(d.bounds);
+        else win.setBounds(d.bounds);
         win.loadURL(ctx.url('selection.html'));
       }
+
+      const shots = await pending;
+      for (const [id, entry] of [...overlays]) {
+        const shot = shots.get(entry.display.id);
+        if (!shot) { entry.win.destroy(); overlays.delete(id); continue; }
+        sessionImages.set(id, shot);
+        sendImage(id, entry);
+      }
+      if (!overlays.size) restoreHost();
       return { ok: true, screens: overlays.size };
     }
 
@@ -159,12 +196,53 @@ module.exports = {
     const on = (channel, fn) => { ipcMain.on(channel, fn); listeners.push([channel, fn]); };
     const handle = (channel, fn) => { ipcMain.handle(channel, fn); listeners.push([channel, fn]); };
 
+    /* Map a selection rect (DIP inside the display) onto shot pixels. The ratio
+       comes from the captured frame itself, so it stays right even when
+       bounds*scaleFactor is a fraction off the panel's real resolution. */
+    function cropShot(shot, display, rect) {
+      const size = shot.getSize();
+      const rx = size.width / display.bounds.width;
+      const ry = size.height / display.bounds.height;
+      return shot.crop({
+        x: Math.max(0, Math.round(rect.x * rx)),
+        y: Math.max(0, Math.round(rect.y * ry)),
+        width: Math.min(size.width, Math.max(1, Math.round(rect.width * rx))),
+        height: Math.min(size.height, Math.max(1, Math.round(rect.height * ry))),
+      });
+    }
+
+    // Either side can arrive first: the frame, or the overlay asking for it.
+    function sendImage(id, entry) {
+      const shot = sessionImages.get(id);
+      if (!shot || !entry.ready || entry.sent) return;
+      entry.sent = true;
+      const { width, height } = shot.getSize();
+      // Ship the DIP extent too: if the overlay derived the ratio from
+      // window.innerWidth instead, a viewport a pixel off display.bounds would
+      // make the renderer and this process disagree on the crop size.
+      send(entry.win, `${P}image`, {
+        image: previewDataURL(shot),
+        width, height,
+        dipWidth: entry.display.bounds.width,
+        dipHeight: entry.display.bounds.height,
+      });
+    }
+
     on(`${P}ready`, (e) => {
       const id = winIdFromSender(e.sender);
       const entry = overlays.get(id);
-      if (!entry) return;
-      const shot = sessionImages.get(id);
-      if (shot) send(e.sender, `${P}image`, { image: shot.toDataURL() });
+      if (entry) { entry.ready = true; sendImage(id, entry); }
+    });
+
+    // Lossless region for annotating/compositing, encoded at selection size only.
+    handle(`${P}crop`, (e, { rect }) => {
+      const id = winIdFromSender(e.sender);
+      const entry = overlays.get(id);
+      const shot = entry && sessionImages.get(id);
+      if (!shot || !rect) return null;
+      const crop = cropShot(shot, entry.display, rect);
+      const { width, height } = crop.getSize();
+      return { image: crop.toDataURL(), width, height };
     });
 
     on(`${P}displayed`, (e) => {
@@ -183,16 +261,7 @@ module.exports = {
       const { display } = entry;
       const shot = sessionImages.get(id);
       if (!shot) return;
-      const shotSize = shot.getSize();
-      const rx = shotSize.width / display.bounds.width;
-      const ry = shotSize.height / display.bounds.height;
-      const crop = shot.crop({
-        x: Math.max(0, Math.round(rect.x * rx)),
-        y: Math.max(0, Math.round(rect.y * ry)),
-        width: Math.min(shotSize.width, Math.max(1, Math.round(rect.width * rx))),
-        height: Math.min(shotSize.height, Math.max(1, Math.round(rect.height * ry))),
-      });
-      const dataUrl = crop.toDataURL();
+      const dataUrl = cropShot(shot, display, rect).toDataURL();
       teardownOverlays();
       openPin(dataUrl, {
         x: Math.round(display.bounds.x + rect.x),
