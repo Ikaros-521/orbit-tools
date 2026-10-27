@@ -8,7 +8,7 @@
    CSS pixels are DIP, so crop = rect * scaleFactor, pin origin = display +
    rect. All auxiliary windows go through ctx.windows so disable/rescan
    destroys them. */
-const { BrowserWindow, Menu, desktopCapturer, screen, ipcMain, nativeImage, clipboard } = require('electron');
+const { BrowserWindow, Menu, desktopCapturer, dialog, screen, ipcMain, nativeImage, clipboard } = require('electron');
 const path = require('path');
 
 const P = 'screenshot-pin:'; // ipc channel namespace
@@ -40,6 +40,19 @@ module.exports = {
         host.show();
         host.focus();
       }
+    };
+
+    const chooseSavePngPath = async (defaultName = 'screenshot.png') => {
+      if (typeof ctx.chooseSavePng === 'function') {
+        const p = await ctx.chooseSavePng();
+        if (p) return p;
+      }
+      const res = await dialog.showSaveDialog({
+        title: '保存截图图片',
+        defaultPath: defaultName,
+        filters: [{ name: 'PNG Image (*.png)', extensions: ['png'] }],
+      });
+      return res.canceled ? null : res.filePath;
     };
 
     /* --- selection overlays -------------------------------------------------- */
@@ -214,7 +227,7 @@ module.exports = {
 
     handle(`${P}overlay-save`, async (e, { dataUrl }) => {
       if (!dataUrl) return { ok: false };
-      const filePath = await ctx.chooseSavePng();
+      const filePath = await chooseSavePngPath();
       if (!filePath) return { ok: false, canceled: true };
       require('fs').writeFileSync(filePath, nativeImage.createFromDataURL(dataUrl).toPNG());
       teardownOverlays();
@@ -337,7 +350,7 @@ module.exports = {
     on(`${P}pin-closed`, () => { ctx.send('pins-changed', { count: pins.size }); });
 
     handle(`${P}save`, async (e, { dataUrl }) => {
-      const filePath = await ctx.chooseSavePng();
+      const filePath = await chooseSavePngPath();
       if (!filePath) return { ok: false, canceled: true };
       nativeImage.createFromDataURL(dataUrl).toPNG();
       require('fs').writeFileSync(filePath, nativeImage.createFromDataURL(dataUrl).toPNG());

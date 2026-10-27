@@ -3,13 +3,22 @@
    replayed with destination-out, so undo/redo is just stack surgery followed
    by a full repaint — cheap at annotation scale. Coordinates are CSS px. */
 (() => {
-  const canvas = document.getElementById('ink');
-  const backdrop = document.getElementById('backdrop');
-  const ctx2d = canvas.getContext('2d');
+  const inkCanvas = document.getElementById('ink');
+  const backdropCanvas = document.getElementById('backdrop');
+  const inkCtx = inkCanvas.getContext('2d');
+  const backdropCtx = backdropCanvas.getContext('2d', { colorSpace: 'srgb', alpha: true });
+
+  const bar = document.getElementById('bar');
+  const dragHandle = document.getElementById('drag-handle');
+  const toolsEl = document.getElementById('tools');
+  const colorsEl = document.getElementById('colors');
+  const sizesEl = document.getElementById('sizes');
+
+  let backdropImage = null;
 
   const TOOLS = [
     { id: 'pen', title: '画笔', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>' },
-    { id: 'highlighter', title: '荧光笔', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4z"/></svg>' },
+    { id: 'highlighter', title: '荧光笔', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6 a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4z"/></svg>' },
     { id: 'line', title: '直线', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/></svg>' },
     { id: 'arrow', title: '箭头', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M13 5h6v6"/></svg>' },
     { id: 'rect', title: '矩形', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>' },
@@ -23,19 +32,37 @@
     tool: 'pen', color: COLORS[0], size: SIZES[1],
     strokes: [], redo: [],
     drawing: false, current: null,
-    dpr: 1, w: 0, h: 0,
+    dpr: window.devicePixelRatio || 1, w: 0, h: 0,
   };
 
-  /* --- canvas sizing --------------------------------------------------------- */
+  /* --- canvas sizing & backdrop render ---------------------------------------- */
+  function renderBackdrop() {
+    if (!backdropImage) return;
+    backdropCtx.imageSmoothingEnabled = false;
+    backdropCtx.clearRect(0, 0, backdropCanvas.width, backdropCanvas.height);
+    backdropCtx.drawImage(backdropImage, 0, 0, backdropCanvas.width, backdropCanvas.height);
+  }
+
   function resize() {
     state.dpr = window.devicePixelRatio || 1;
     state.w = window.innerWidth;
     state.h = window.innerHeight;
-    canvas.width = Math.round(state.w * state.dpr);
-    canvas.height = Math.round(state.h * state.dpr);
-    canvas.style.width = `${state.w}px`;
-    canvas.style.height = `${state.h}px`;
-    ctx2d.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+
+    const pw = Math.round(state.w * state.dpr);
+    const ph = Math.round(state.h * state.dpr);
+
+    backdropCanvas.width = pw;
+    backdropCanvas.height = ph;
+    backdropCanvas.style.width = `${state.w}px`;
+    backdropCanvas.style.height = `${state.h}px`;
+    renderBackdrop();
+
+    inkCanvas.width = pw;
+    inkCanvas.height = ph;
+    inkCanvas.style.width = `${state.w}px`;
+    inkCanvas.style.height = `${state.h}px`;
+    inkCtx.setTransform(state.dpr, 0, 0, state.dpr, 0, 0);
+
     repaint();
   }
   window.addEventListener('resize', resize);
@@ -43,67 +70,68 @@
   /* --- stroke rendering -------------------------------------------------------- */
   function strokeStyle(s) {
     if (s.tool === 'highlighter') {
-      ctx2d.globalAlpha = 0.4;
-      ctx2d.lineWidth = Math.max(14, s.size * 4);
-      ctx2d.globalCompositeOperation = 'multiply';
+      inkCtx.globalAlpha = 0.4;
+      inkCtx.lineWidth = Math.max(14, s.size * 4);
+      inkCtx.globalCompositeOperation = 'multiply';
     } else if (s.tool === 'eraser') {
-      ctx2d.globalAlpha = 1;
-      ctx2d.lineWidth = Math.max(20, s.size * 5);
-      ctx2d.globalCompositeOperation = 'destination-out';
+      inkCtx.globalAlpha = 1;
+      inkCtx.lineWidth = Math.max(20, s.size * 5);
+      inkCtx.globalCompositeOperation = 'destination-out';
     } else {
-      ctx2d.globalAlpha = 1;
-      ctx2d.lineWidth = s.size;
-      ctx2d.globalCompositeOperation = 'source-over';
+      inkCtx.globalAlpha = 1;
+      inkCtx.lineWidth = s.size;
+      inkCtx.globalCompositeOperation = 'source-over';
     }
-    ctx2d.strokeStyle = s.color;
-    ctx2d.fillStyle = s.color;
-    ctx2d.lineCap = 'round';
-    ctx2d.lineJoin = 'round';
+    inkCtx.strokeStyle = s.color;
+    inkCtx.fillStyle = s.color;
+    inkCtx.lineCap = 'round';
+    inkCtx.lineJoin = 'round';
   }
 
   function drawStroke(s) {
     strokeStyle(s);
     const pts = s.points;
-    ctx2d.beginPath();
+    if (!pts || pts.length === 0) return;
+    inkCtx.beginPath();
     if (s.tool === 'pen' || s.tool === 'highlighter' || s.tool === 'eraser') {
       if (pts.length === 1) { // dot
-        ctx2d.arc(pts[0].x, pts[0].y, Math.max(1, ctx2d.lineWidth / 2), 0, Math.PI * 2);
-        ctx2d.fill();
+        inkCtx.arc(pts[0].x, pts[0].y, Math.max(1, inkCtx.lineWidth / 2), 0, Math.PI * 2);
+        inkCtx.fill();
         return;
       }
-      ctx2d.moveTo(pts[0].x, pts[0].y);
-      for (let i = 1; i < pts.length; i++) ctx2d.lineTo(pts[i].x, pts[i].y);
-      ctx2d.stroke();
+      inkCtx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) inkCtx.lineTo(pts[i].x, pts[i].y);
+      inkCtx.stroke();
     } else {
       const a = pts[0], b = pts[pts.length - 1];
       if (s.tool === 'line' || s.tool === 'arrow') {
-        ctx2d.moveTo(a.x, a.y);
-        ctx2d.lineTo(b.x, b.y);
-        ctx2d.stroke();
+        inkCtx.moveTo(a.x, a.y);
+        inkCtx.lineTo(b.x, b.y);
+        inkCtx.stroke();
         if (s.tool === 'arrow') {
           const ang = Math.atan2(b.y - a.y, b.x - a.x);
           const head = Math.max(12, s.size * 4);
-          ctx2d.beginPath();
-          ctx2d.moveTo(b.x, b.y);
-          ctx2d.lineTo(b.x - head * Math.cos(ang - Math.PI / 7), b.y - head * Math.sin(ang - Math.PI / 7));
-          ctx2d.moveTo(b.x, b.y);
-          ctx2d.lineTo(b.x - head * Math.cos(ang + Math.PI / 7), b.y - head * Math.sin(ang + Math.PI / 7));
-          ctx2d.stroke();
+          inkCtx.beginPath();
+          inkCtx.moveTo(b.x, b.y);
+          inkCtx.lineTo(b.x - head * Math.cos(ang - Math.PI / 7), b.y - head * Math.sin(ang - Math.PI / 7));
+          inkCtx.moveTo(b.x, b.y);
+          inkCtx.lineTo(b.x - head * Math.cos(ang + Math.PI / 7), b.y - head * Math.sin(ang + Math.PI / 7));
+          inkCtx.stroke();
         }
       } else if (s.tool === 'rect') {
-        ctx2d.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-        ctx2d.stroke();
+        inkCtx.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
+        inkCtx.stroke();
       } else if (s.tool === 'ellipse') {
-        ctx2d.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, 0, 0, Math.PI * 2);
-        ctx2d.stroke();
+        inkCtx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.max(1, Math.abs(b.x - a.x) / 2), Math.max(1, Math.abs(b.y - a.y) / 2), 0, 0, Math.PI * 2);
+        inkCtx.stroke();
       }
     }
-    ctx2d.globalAlpha = 1;
-    ctx2d.globalCompositeOperation = 'source-over';
+    inkCtx.globalAlpha = 1;
+    inkCtx.globalCompositeOperation = 'source-over';
   }
 
   function repaint() {
-    ctx2d.clearRect(0, 0, state.w, state.h);
+    inkCtx.clearRect(0, 0, state.w, state.h);
     for (const s of state.strokes) drawStroke(s);
     if (state.current) drawStroke(state.current);
   }
@@ -118,13 +146,15 @@
     state.current = { tool: state.tool, color: state.color, size: state.size, points: [pos(e)] };
     repaint();
   });
+
   window.addEventListener('pointermove', e => {
-    if (!state.drawing) return;
+    if (!state.drawing || !state.current) return;
     state.current.points.push(pos(e));
     repaint();
   });
+
   window.addEventListener('pointerup', () => {
-    if (!state.drawing) return;
+    if (!state.drawing || !state.current) return;
     state.drawing = false;
     state.strokes.push(state.current);
     state.redo = [];
@@ -132,12 +162,7 @@
     repaint();
   });
 
-  /* --- toolbar ---------------------------------------------------------------------- */
-  const bar = document.getElementById('bar');
-  const toolsEl = document.getElementById('tools');
-  const colorsEl = document.getElementById('colors');
-  const sizesEl = document.getElementById('sizes');
-
+  /* --- toolbar DOM setup ------------------------------------------------------------- */
   for (const tool of TOOLS) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -190,34 +215,100 @@
     else if (act === 'save') await save();
   });
 
+  /* --- toolbar dragging ------------------------------------------------------------- */
+  let isDraggingBar = false;
+  let dragOffset = { x: 0, y: 0 };
+
+  const canDragFrom = target => target === dragHandle || target === bar || target.classList.contains('sep') || target.classList.contains('grp');
+
+  bar.addEventListener('pointerdown', e => {
+    if (e.button !== 0 || !canDragFrom(e.target)) return;
+    isDraggingBar = true;
+    const rect = bar.getBoundingClientRect();
+    dragOffset = { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    bar.style.transform = 'none';
+    bar.style.left = `${rect.left}px`;
+    bar.style.top = `${rect.top}px`;
+    bar.setPointerCapture(e.pointerId);
+  });
+
+  bar.addEventListener('pointermove', e => {
+    if (!isDraggingBar) return;
+    const bw = bar.offsetWidth;
+    const bh = bar.offsetHeight;
+    const nx = Math.max(10, Math.min(window.innerWidth - bw - 10, e.clientX - dragOffset.x));
+    const ny = Math.max(10, Math.min(window.innerHeight - bh - 10, e.clientY - dragOffset.y));
+    bar.style.left = `${nx}px`;
+    bar.style.top = `${ny}px`;
+  });
+
+  const stopBarDrag = e => {
+    if (!isDraggingBar) return;
+    isDraggingBar = false;
+    try { bar.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
+  };
+  bar.addEventListener('pointerup', stopBarDrag);
+  bar.addEventListener('pointercancel', stopBarDrag);
+
+  /* --- save logic ------------------------------------------------------------------- */
   async function save() {
-    // flatten backdrop + strokes at physical resolution
     const out = document.createElement('canvas');
-    out.width = canvas.width;
-    out.height = canvas.height;
-    const octx = out.getContext('2d');
-    if (backdrop.src) {
-      octx.drawImage(backdrop, 0, 0, out.width, out.height);
+    out.width = inkCanvas.width;
+    out.height = inkCanvas.height;
+    const octx = out.getContext('2d', { colorSpace: 'srgb' });
+    octx.imageSmoothingEnabled = false;
+
+    // Draw backdrop if available
+    if (backdropCanvas.width > 0 && backdropCanvas.height > 0) {
+      octx.drawImage(backdropCanvas, 0, 0, out.width, out.height);
     }
-    octx.drawImage(canvas, 0, 0);
-    await window.board.save(out.toDataURL('image/png'));
+    // Draw user annotations
+    octx.drawImage(inkCanvas, 0, 0);
+
+    const dataUrl = out.toDataURL('image/png');
+    await window.board.save(dataUrl);
   }
 
+  /* --- keyboard shortcuts ----------------------------------------------------------- */
   window.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { window.board.exit(); return; }
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      window.board.exit();
+      return;
+    }
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); const s = e.shiftKey ? state.redo.pop() : state.strokes.pop(); if (s) (e.shiftKey ? state.strokes : state.redo).push(s); repaint(); }
-    else if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); const s = state.redo.pop(); if (s) state.strokes.push(s); repaint(); }
-    else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); save(); }
+    if (mod && e.key.toLowerCase() === 'z') {
+      e.preventDefault();
+      const s = e.shiftKey ? state.redo.pop() : state.strokes.pop();
+      if (s) (e.shiftKey ? state.strokes : state.redo).push(s);
+      repaint();
+    } else if (mod && e.key.toLowerCase() === 'y') {
+      e.preventDefault();
+      const s = state.redo.pop();
+      if (s) state.strokes.push(s);
+      repaint();
+    } else if (mod && e.key.toLowerCase() === 's') {
+      e.preventDefault();
+      save();
+    }
   });
 
-  /* --- boot ---------------------------------------------------------------------------- */
+  /* --- boot & IPC handshake --------------------------------------------------------- */
   window.board.onInit(({ image, dpr }) => {
-    if (image) backdrop.src = image;
-    void dpr; // devicePixelRatio is already correct inside the renderer
-    resize();
+    if (dpr) state.dpr = dpr;
+    if (image) {
+      const img = new Image();
+      img.onload = () => {
+        backdropImage = img;
+        resize();
+      };
+      img.src = image;
+    } else {
+      resize();
+    }
   });
-  resize(); // paint an empty board immediately in case init is late
-  window.board.ready();
+
+  resize(); // initialize immediately with empty canvas
   syncBar();
+  window.board.ready(); // announce readiness to backend
 })();
