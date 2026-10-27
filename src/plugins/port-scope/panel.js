@@ -14,16 +14,20 @@
     }[L === 'en' ? 'en' : 'zh'];
 
     let rows = [];
+    let currentList = [];
+    let renderedCount = 0;
+    const PAGE_SIZE = 80;
     let filter = '';
     let protoOn = { TCP: true, UDP: true };
     let listenOnly = true;
     let busy = false;
     let sortKey = 'port';
     let sortDir = 1;
+    let filterTimer = null;
 
     el.innerHTML = `
       <div class="tool-bar">
-        <div class="seg"><button data-proto="TCP" class="on">TCP</button><button data-proto="UDP" class="on">UDP</button></div>
+        <div class="seg"><button data-proto="TCP" class="on" aria-pressed="true">TCP</button><button data-proto="UDP" class="on" aria-pressed="true">UDP</button></div>
         <button type="button" class="btn" data-act="refresh">${T.refresh}</button>
         <button type="button" class="btn ghost on" data-act="listen" aria-pressed="true">${T.listen}</button>
         <input class="input" data-role="filter" placeholder="${T.filterPh}" spellcheck="false">
@@ -49,13 +53,14 @@
         <div class="ps-empty" hidden>${T.empty}</div>
       </div>`;
 
+    const bodyEl = el.querySelector('.ps-body');
     const tbody = el.querySelector('tbody');
     const statEl = el.querySelector('[data-role=stat]');
     const filterEl = el.querySelector('[data-role=filter]');
     const table = el.querySelector('.ps-table');
     const emptyEl = el.querySelector('.ps-empty');
 
-    const rendered = () => {
+    const computeList = () => {
       let out = rows;
       if (listenOnly) out = out.filter(r => !r.state || /LISTEN|listening/i.test(r.state));
       if (!protoOn.TCP) out = out.filter(r => r.proto !== 'TCP');
@@ -70,60 +75,55 @@
       return out;
     };
 
-    const render = () => {
-      const list = rendered();
-      tbody.innerHTML = '';
-      for (const r of list) {
-        const tr = document.createElement('tr');
-        const cells = [
-          r.proto === 'TCP' ? 'TCP' : 'UDP',
-          r.local,
-          String(r.port),
-          r.state || '—',
-          r.pid ? String(r.pid) : '—',
-          r.process || '—',
-          r.remote || '—',
-        ];
-        for (const c of cells) {
-          const td = document.createElement('td');
-          td.textContent = c;
-          tr.appendChild(td);
-        }
-        const act = document.createElement('td');
-        if (r.pid) {
-          const b = document.createElement('button');
-          b.type = 'button';
-          b.className = 'btn danger small';
-          b.textContent = T.kill;
-          b.addEventListener('click', async () => {
-            const name = r.process || `pid ${r.pid}`;
-            if (!window.confirm(T.confirmKill.replace('{name}', name).replace('{pid}', r.pid))) return;
-            b.disabled = true;
-            const stat = el.querySelector('[data-role=stat]');
-            try {
-              // graceful first; windowless processes survive taskkill without /F,
-              // so retry forced when the polite attempt fails
-              try {
-                await ctx.call('kill', { pid: r.pid, force: false });
-              } catch (graceErr) {
-                if (!/no such process|not found|找不到|无法找到/i.test(String(graceErr.message))) {
-                  await ctx.call('kill', { pid: r.pid, force: true });
-                }
-              }
-              stat.textContent = T.killed.replace('{pid}', r.pid);
-            } catch (err) {
-              stat.textContent = `${T.killFail}: ${err.message}`;
-              b.disabled = false;
-              return;
-            }
-            setTimeout(refresh, 350);
-          });
-          act.appendChild(b);
-        }
-        tr.appendChild(act);
-        tbody.appendChild(tr);
+    const createRow = r => {
+      const tr = document.createElement('tr');
+      const cells = [
+        r.proto === 'TCP' ? 'TCP' : 'UDP',
+        r.local,
+        String(r.port),
+        r.state || '—',
+        r.pid ? String(r.pid) : '—',
+        r.process || '—',
+        r.remote || '—',
+      ];
+      for (const c of cells) {
+        const td = document.createElement('td');
+        td.textContent = c;
+        tr.appendChild(td);
       }
-      emptyEl.hidden = list.length > 0;
+      const act = document.createElement('td');
+      if (r.pid) {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn danger small';
+        b.textContent = T.kill;
+        b.dataset.act = 'kill';
+        b.dataset.pid = String(r.pid);
+        b.dataset.process = r.process || '';
+        act.appendChild(b);
+      }
+      tr.appendChild(act);
+      return tr;
+    };
+
+    const renderBatch = count => {
+      if (renderedCount >= currentList.length) return;
+      const end = Math.min(renderedCount + count, currentList.length);
+      const frag = document.createDocumentFragment();
+      for (let i = renderedCount; i < end; i++) {
+        frag.appendChild(createRow(currentList[i]));
+      }
+      tbody.appendChild(frag);
+      renderedCount = end;
+    };
+
+    const resetAndRender = () => {
+      currentList = computeList();
+      statEl.textContent = `${currentList.length} / ${rows.length}`;
+      tbody.innerHTML = '';
+      renderedCount = 0;
+      renderBatch(PAGE_SIZE);
+      emptyEl.hidden = currentList.length > 0;
       statEl.title = '';
     };
 
@@ -138,20 +138,49 @@
         statEl.textContent = err.message;
       }
       busy = false;
-      renderStatAndTable();
+      resetAndRender();
     }
-    const renderStatAndTable = () => {
-      const list = rendered();
-      statEl.textContent = `${list.length} / ${rows.length}`;
-      render();
-    };
+
+    // Event delegation for kill buttons
+    tbody.addEventListener('click', async e => {
+      const b = e.target.closest('button[data-act="kill"]');
+      if (!b || b.disabled) return;
+      const pid = Number(b.dataset.pid);
+      const name = b.dataset.process || `pid ${pid}`;
+      if (!window.confirm(T.confirmKill.replace('{name}', name).replace('{pid}', pid))) return;
+      b.disabled = true;
+      try {
+        try {
+          await ctx.call('kill', { pid, force: false });
+        } catch (graceErr) {
+          if (!/no such process|not found|找不到|无法找到/i.test(String(graceErr.message))) {
+            await ctx.call('kill', { pid, force: true });
+          }
+        }
+        statEl.textContent = T.killed.replace('{pid}', pid);
+      } catch (err) {
+        statEl.textContent = `${T.killFail}: ${err.message}`;
+        b.disabled = false;
+        return;
+      }
+      setTimeout(refresh, 350);
+    });
+
+    // Lazy load remaining rows on scroll
+    bodyEl.addEventListener('scroll', () => {
+      if (bodyEl.scrollTop + bodyEl.clientHeight >= bodyEl.scrollHeight - 200) {
+        renderBatch(PAGE_SIZE);
+      }
+    }, { passive: true });
 
     el.addEventListener('click', e => {
       const pb = e.target.closest('button[data-proto]');
       if (pb) {
-        protoOn[pb.dataset.proto] = !protoOn[pb.dataset.proto];
-        pb.classList.toggle('on', protoOn[pb.dataset.proto]);
-        renderStatAndTable();
+        const proto = pb.dataset.proto;
+        protoOn[proto] = !protoOn[proto];
+        pb.classList.toggle('on', protoOn[proto]);
+        pb.setAttribute('aria-pressed', String(protoOn[proto]));
+        resetAndRender();
         return;
       }
       const act = e.target.closest('button[data-act]');
@@ -161,17 +190,25 @@
         listenOnly = !listenOnly;
         act.classList.toggle('on', listenOnly);
         act.setAttribute('aria-pressed', String(listenOnly));
-        renderStatAndTable();
+        resetAndRender();
       }
     });
-    filterEl.addEventListener('input', () => { filter = filterEl.value; renderStatAndTable(); });
+
+    filterEl.addEventListener('input', () => {
+      clearTimeout(filterTimer);
+      filterTimer = setTimeout(() => {
+        filter = filterEl.value;
+        resetAndRender();
+      }, 120);
+    });
+
     table.addEventListener('click', e => {
       const th = e.target.closest('th[data-sort]');
       if (!th) return;
       const key = th.dataset.sort;
       if (sortKey === key) sortDir = -sortDir;
       else { sortKey = key; sortDir = 1; }
-      render();
+      resetAndRender();
     });
 
     refresh();

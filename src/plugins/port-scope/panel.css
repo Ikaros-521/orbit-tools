@@ -16,3 +16,17 @@
 .ps-table tbody tr:hover td { background: var(--inset); }
 .ps-table .btn.small { padding: 3px 10px; font-size: 11px; }
 .ps-empty { padding: 30px; text-align: center; color: var(--ink-faint); font-size: 13px; }
+
+/* Active toggle button states */
+.tool-bar .seg button.on,
+.tool-bar .seg button[aria-pressed="true"] {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.tool-bar .btn.ghost.on,
+.tool-bar .btn.ghost[aria-pressed="true"] {
+  background: var(--amber-soft);
+  color: var(--amber);
+  border-color: var(--amber);
+}

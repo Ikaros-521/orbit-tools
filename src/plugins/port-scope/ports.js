@@ -100,12 +100,44 @@ function parseSs(text) {
 
 /* --- listing ------------------------------------------------------------------ */
 
+let winNameCache = { map: new Map(), ts: 0 };
+const CACHE_TTL_MS = 5000;
+
+function updateWinNameCache(out) {
+  if (!out) return;
+  const names = new Map();
+  for (const line of out.split(/\r?\n/)) {
+    const cols = line.match(/"([^"]*)"/g);
+    if (!cols || cols.length < 2) continue;
+    const name = cols[0].slice(1, -1);
+    const pid = Number(cols[1].slice(1, -1));
+    if (pid) names.set(pid, name);
+  }
+  winNameCache = { map: names, ts: Date.now() };
+}
+
+function attachWindowsNames(rows) {
+  for (const r of rows) {
+    if (r.pid) r.process = winNameCache.map.get(r.pid) || '';
+  }
+}
+
 async function listPorts() {
   if (process.platform === 'win32') {
-    const out = await run('netstat', ['-aon', '-p', 'tcp']).catch(() => '');
-    const outUdp = await run('netstat', ['-aon', '-p', 'udp']).catch(() => '');
-    const rows = [...parseNetstat(out), ...parseNetstat(outUdp)];
-    await attachWindowsNames(rows);
+    const needTasklist = Date.now() - winNameCache.ts >= CACHE_TTL_MS;
+    const tasks = [
+      run('netstat', ['-aon', '-p', 'tcp']).catch(() => ''),
+      run('netstat', ['-aon', '-p', 'udp']).catch(() => ''),
+    ];
+    if (needTasklist) {
+      tasks.push(run('tasklist', ['/FO', 'CSV', '/NH']).catch(() => ''));
+    }
+    const [outTcp, outUdp, outTasklist] = await Promise.all(tasks);
+    if (outTasklist) {
+      updateWinNameCache(outTasklist);
+    }
+    const rows = [...parseNetstat(outTcp), ...parseNetstat(outUdp)];
+    attachWindowsNames(rows);
     return rows;
   }
   if (process.platform === 'darwin') {
@@ -120,24 +152,6 @@ async function listPorts() {
     rows = parseLsof(out);
   }
   return rows;
-}
-
-// Windows netstat gives bare pids; resolve names with tasklist so the table
-// shows "node.exe (1234)" like the unix paths do.
-async function attachWindowsNames(rows) {
-  const pids = [...new Set(rows.map(r => r.pid).filter(p => p > 0))];
-  if (!pids.length) return;
-  const out = await run('tasklist', ['/FO', 'CSV', '/NH']).catch(() => '');
-  if (!out) return;
-  const names = new Map();
-  for (const line of out.split(/\r?\n/)) {
-    const cols = line.match(/"([^"]*)"/g);
-    if (!cols || cols.length < 2) continue;
-    const name = cols[0].slice(1, -1);
-    const pid = Number(cols[1].slice(1, -1));
-    if (pid) names.set(pid, name);
-  }
-  for (const r of rows) r.process = names.get(r.pid) || '';
 }
 
 /* --- kill ---------------------------------------------------------------------- */
@@ -157,10 +171,14 @@ async function killPid(pid, { force = false } = {}) {
   }
   try {
     await run(cmd, args, 8000);
+    winNameCache.map.delete(pid);
     return { ok: true };
   } catch (err) {
     const msg = String(err.message || err);
-    if (/no such process|not found|找不到|无法找到/i.test(msg)) return { ok: true };
+    if (/no such process|not found|找不到|无法找到/i.test(msg)) {
+      winNameCache.map.delete(pid);
+      return { ok: true };
+    }
     throw err;
   }
 }
