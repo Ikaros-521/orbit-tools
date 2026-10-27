@@ -68,13 +68,24 @@ function createWindow() {
   });
 }
 
+function bringToForeground(targetWin) {
+  if (!targetWin || targetWin.isDestroyed()) return;
+  if (targetWin.isMinimized()) targetWin.restore();
+  targetWin.show();
+  if (process.platform === 'win32') {
+    targetWin.setAlwaysOnTop(true);
+    targetWin.setAlwaysOnTop(false);
+    targetWin.moveTop();
+  }
+  targetWin.focus();
+}
+
 function toggleWindow() {
   if (!win) return;
-  if (win.isVisible() && win.isFocused()) win.hide();
-  else {
-    if (win.isMinimized()) win.restore();
-    win.show();
-    win.focus();
+  if (win.isVisible() && win.isFocused()) {
+    win.hide();
+  } else {
+    bringToForeground(win);
     win.webContents.send('palette-focus');
   }
 }
@@ -109,7 +120,7 @@ if (!app.requestSingleInstanceLock()) {
 
     manager.discover();
     for (const p of manager.plugins.values()) if (p.enabled) manager.activate(p.id);
-    hotkeys.registerAll();
+    hotkeys.registerAll({ allowFallback: true });
 
     createWindow();
     createTray();

@@ -10,15 +10,18 @@ A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or
 
 | 插件 | 功能 | 默认热键 |
 |---|---|---|
-| 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存 | `Ctrl+Alt+A` |
-| 屏幕画板 Draw Board | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG | `Ctrl+Alt+D` |
-| 反重力代理启动器 Antigravity Launcher | Google Antigravity 进程级代理启动器：握手探测、网络诊断、终端代理与一键拉起 | `Ctrl+Alt+A` |
+| 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存 | `Ctrl+Shift+A` |
+| 屏幕画板 Draw Board | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG | `Ctrl+Shift+D` |
+| 反重力代理启动器 Antigravity Launcher | Google Antigravity 进程级代理启动器：握手探测、网络诊断、终端代理与一键拉起 | `Ctrl+Shift+G` |
 | 端口与进程 Port Scope | 查 TCP/UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | — |
 | 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转 | — |
 
-工具箱本身的呼出热键默认 `Alt+Space`，可在设置里改。
+工具箱本身的呼出热键默认 `Alt+Shift+Space`，可在设置里自定义。
 
-**热键冲突检测**：应用内所有热键（呼出键 + 各插件动作键）共享一个注册表——把某个键改成已被占用的组合时会被拒绝，并提示「与『XX』冲突」，配置不会写入无效值。注意 Electron 检测不到**其他程序**占用的组合键（如 QQ 截图默认的 `Ctrl+Alt+A`）：注册会静默失败，若热键不生效，先换一个组合试试。
+**热键智能检测与防冲突**：
+- 应用内所有热键（呼出键 + 各插件动作键）共享注册表，应用内重复分配会被拒绝并提示「与『XX』冲突」。
+- 严格校验系统与外部程序占用：当热键被外部软件（如 QQ、uTools、系统热键等）独占时，准确捕获失败状态并在设置页标黄提示「注册失败，可能被占用」，杜绝假成功。
+- 启动时自动降级 fallback：若配置的呼出键被外部占用，自动尝试备用热键注册，确保任何环境下主窗口始终可通过热键唤醒。
 
 ## 快速开始
 
@@ -57,6 +60,7 @@ src/
 │   └── ipc.js               # 宿主 IPC 面（boot / plugin-call / 设置 / 对话框）
 ├── renderer/                # 宿主 UI：搜索面板、插件面板容器、设置页、i18n、主题
 └── plugins/
+    ├── antigravity-launcher/# 反重力代理启动器（探测 / 诊断 / 终端 / 代理拉起）
     ├── codec-lab/           # 编码转换（纯面板插件，无后端）
     ├── port-scope/          # 端口进程（后端拆分 ports.js 平台层 + backend.js IPC 层）
     ├── screenshot-pin/      # 截图悬浮（选区覆盖窗口 + 贴图窗口，各自独立 preload）

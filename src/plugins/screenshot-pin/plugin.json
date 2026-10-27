@@ -10,6 +10,6 @@
   "backend": "backend.js",
   "panel": { "script": "panel.js", "style": "panel.css" },
   "actions": [
-    { "id": "capture", "label": { "zh": "框选截图", "en": "Capture region" }, "method": "startCapture", "hotkey": "Ctrl+Alt+A" }
+    { "id": "capture", "label": { "zh": "框选截图", "en": "Capture region" }, "method": "startCapture", "hotkey": "Ctrl+Shift+A" }
   ]
 }

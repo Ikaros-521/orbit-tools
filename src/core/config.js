@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const DEFAULTS = {
-  hotkey: 'Alt+Space',
+  hotkey: 'Alt+Shift+Space',
   lang: 'zh',
   theme: 'auto',
   enabled: {},          // pluginId -> bool; absent = manifest default

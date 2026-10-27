@@ -69,12 +69,15 @@ app.whenReady().then(async () => {
   check('css-applied', await page(`getComputedStyle(document.querySelector('.chassis')).display`) === 'flex');
   const visibleViews = await page(`['viewHome','viewPanel','viewSettings'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
   check('single-view-visible', visibleViews.length === 1 && visibleViews[0] === 'viewHome');
-  check('deck-has-4-cards', await page(`document.querySelectorAll('#deck .card').length`) === 4);
-  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 4);
+  check('deck-has-5-cards', await page(`document.querySelectorAll('#deck .card').length`) === 5);
+  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 5);
   await shot('home');
 
-  /* --- open a plugin panel (codec-lab sorts first) -------------------------- */
-  await page(`document.querySelectorAll('.card')[0].click()`);
+  /* --- open a plugin panel (codec-lab) -------------------------------------- */
+  await page(`(() => {
+    const card = Array.from(document.querySelectorAll('#deck .card')).find(c => c.textContent.includes('编码转换'));
+    if (card) card.click();
+  })()`);
   await sleep(700);
   check('panel-view-visible', await page(`getComputedStyle(document.getElementById('viewPanel')).display`) !== 'none');
   check('codec-panel-mounted', await page(`!!document.querySelector('.cdc-ta')`) === true);
@@ -114,14 +117,14 @@ app.whenReady().then(async () => {
   await sleep(300);
   check('settings-visible', await page(`getComputedStyle(document.getElementById('viewSettings')).display`) !== 'none'
     && await page(`getComputedStyle(document.getElementById('viewHome')).display`) === 'none');
-  check('plugin-rows-4', await page(`document.querySelectorAll('.prow').length`) === 4);
-  check('switches-4', await page(`document.querySelectorAll('.switch').length`) === 4);
+  check('plugin-rows-5', await page(`document.querySelectorAll('.prow').length`) === 5);
+  check('switches-5', await page(`document.querySelectorAll('.switch').length`) === 5);
   await shot('settings');
 
   /* --- hotkey conflicts -------------------------------------------------------- */
   const conflict = hotkeys.setPluginHotkey('draw-board:start', cfg.data.hotkey);
   check('plugin-vs-host-conflict-detected', conflict.ok === false && conflict.conflictKey === 'host');
-  const conflict2 = hotkeys.setPluginHotkey('draw-board:start', 'Ctrl+Alt+A'); // screenshot-pin owns it
+  const conflict2 = hotkeys.setPluginHotkey('draw-board:start', 'Ctrl+Shift+A'); // screenshot-pin owns it
   check('plugin-vs-plugin-conflict-detected', conflict2.ok === false && conflict2.conflictKey === 'screenshot-pin:capture');
   check('conflict-reverted-in-config', cfg.data.pluginHotkeys['draw-board:start'] === undefined);
   const okSet = hotkeys.setPluginHotkey('draw-board:start', 'Ctrl+Alt+Shift+D');

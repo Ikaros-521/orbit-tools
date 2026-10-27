@@ -10,6 +10,6 @@
   "backend": "backend.js",
   "panel": { "script": "panel.js", "style": "panel.css" },
   "actions": [
-    { "id": "start", "label": { "zh": "打开画板", "en": "Open draw board" }, "method": "start", "hotkey": "Ctrl+Alt+D" }
+    { "id": "start", "label": { "zh": "打开画板", "en": "Open draw board" }, "method": "start", "hotkey": "Ctrl+Shift+D" }
   ]
 }

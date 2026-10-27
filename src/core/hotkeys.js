@@ -1,15 +1,14 @@
-/* Global hotkey registry with in-app conflict detection.
-   Electron cannot tell us when another APPLICATION already owns an accelerator
-   (register() fails silently), but every conflict inside this app — the summon
-   hotkey vs a plugin action, or two plugin actions — is caught here: the second
-   registration is refused, reported in status[], and the rejected change is
-   reverted so config never holds a hotkey that isn't actually live. */
+/* Global hotkey registry with in-app & OS conflict detection.
+   Electron's globalShortcut.register() returns boolean false when another
+   application or the OS already owns an accelerator. Internal conflicts
+   (between plugins or summon hotkey) and external occupation are caught here. */
 const { globalShortcut } = require('electron');
 
 const HOST_KEY = 'host';
+const HOST_FALLBACKS = ['Alt+Shift+Space', 'Ctrl+Shift+Space', 'Alt+O'];
 
 module.exports = function createHotkeys({ cfg, manager, onSummon }) {
-  let status = []; // [{key, accel, ok, conflictKey, error}]
+  let status = []; // [{key, accel, ok, conflictKey, externalOccupied, error}]
 
   const actionOf = key => {
     const [pluginId, actionId] = key.split(':');
@@ -42,7 +41,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
     return null;
   }
 
-  function registerAll() {
+  function registerAll({ allowFallback = true } = {}) {
     globalShortcut.unregisterAll();
     const owners = new Map(); // accel -> key (the registry of what WE hold)
     status = [];
@@ -51,19 +50,37 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
       const holder = owners.get(accel);
       if (holder && holder !== key) {
         status.push({ key, accel, ok: false, conflictKey: holder });
-        return;
+        return false;
       }
       try {
-        globalShortcut.register(accel, fn);
+        const ok = globalShortcut.register(accel, fn);
+        if (!ok) {
+          status.push({ key, accel, ok: false, conflictKey: null, externalOccupied: true });
+          return false;
+        }
       } catch (err) {
         status.push({ key, accel, ok: false, conflictKey: null, error: String(err && err.message || err) });
-        return;
+        return false;
       }
       owners.set(accel, key);
       status.push({ key, accel, ok: true });
+      return true;
     };
 
-    if (cfg.data.hotkey) put(HOST_KEY, cfg.data.hotkey, onSummon);
+    if (cfg.data.hotkey) {
+      const hostOk = put(HOST_KEY, cfg.data.hotkey, onSummon);
+      if (!hostOk && allowFallback) {
+        // cfg.data.hotkey failed to register (e.g. Alt+Space is occupied by uTools/system).
+        // Try fallback summon hotkeys so the host window is never left unreachable.
+        for (const fb of HOST_FALLBACKS) {
+          if (fb === cfg.data.hotkey) continue;
+          if (put(HOST_KEY, fb, onSummon)) {
+            cfg.set({ hotkey: fb });
+            break;
+          }
+        }
+      }
+    }
 
     for (const p of manager.plugins.values()) {
       if (!p.enabled || !Array.isArray(p.manifest.actions)) continue;
@@ -83,14 +100,19 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
      apply-then-verify stays as a safety net that reverts on any surprise. */
   function applyWithRollback(key, apply, restore) {
     apply();
-    registerAll();
-    const row = status.find(r => r.key === key);
-    if (row && !row.ok) {
+    registerAll({ allowFallback: false });
+    const row = status.find(r => r.key === key && r.ok);
+    if (!row) {
+      const failRow = status.find(r => r.key === key);
       restore();
-      registerAll();
-      return { ok: false, conflictKey: row.conflictKey || null };
+      registerAll({ allowFallback: false });
+      return {
+        ok: false,
+        conflictKey: failRow ? failRow.conflictKey : null,
+        externalOccupied: failRow ? !!failRow.externalOccupied : false,
+      };
     }
-    return { ok: true, hotkey: row ? row.accel : undefined };
+    return { ok: true, hotkey: row.accel };
   }
 
   function setHostHotkey(accel) {

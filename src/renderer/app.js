@@ -281,10 +281,24 @@ function renderSettings() {
     initial: state.config.hotkey,
     onApply: async accel => {
       const res = await window.host.setHotkey(accel);
-      if (res.ok) { state.config.hotkey = res.hotkey; els.hotHint.textContent = res.hotkey; }
+      if (res.ok) {
+        state.config.hotkey = res.hotkey;
+        els.hotHint.textContent = res.hotkey;
+        state.hotkeys = await window.host.hotkeys();
+        renderSettings();
+      }
       return res;
     },
   }));
+  const hostRow = hotkeyRow('host');
+  if (hostRow && !hostRow.ok) {
+    const chip = document.createElement('span');
+    chip.className = 'chip warn';
+    chip.textContent = hostRow.conflictKey
+      ? t('conflictWith', { name: labelForKey(hostRow.conflictKey) })
+      : t('hotkeyBad');
+    els.hotkeyCtrl.appendChild(chip);
+  }
 
   els.pluginList.innerHTML = '';
   for (const p of state.plugins) {
@@ -334,6 +348,7 @@ function renderSettings() {
               a.hotkey = res.hotkey || null;
               state.hotkeys = await window.host.hotkeys();
               renderDeck();
+              renderSettings();
             }
             return res;
           },
@@ -342,7 +357,9 @@ function renderSettings() {
         if (row && !row.ok) {
           const chip = document.createElement('span');
           chip.className = 'chip warn';
-          chip.textContent = t('conflictWith', { name: labelForKey(row.conflictKey) });
+          chip.textContent = row.conflictKey
+            ? t('conflictWith', { name: labelForKey(row.conflictKey) })
+            : t('hotkeyBad');
           acts.append(chip);
         }
       }
@@ -375,6 +392,8 @@ async function init() {
   state.plugins = [...boot.plugins].sort((a, b) => a.id.localeCompare(b.id));
   state.config = { ...state.config, ...boot.config };
   state.hotkeys = boot.hotkeys || [];
+  const hostRow = state.hotkeys.find(r => r.key === 'host');
+  if (hostRow && hostRow.ok) state.config.hotkey = hostRow.accel;
   document.body.className = `platform-${boot.platform} lang-${state.config.lang}`;
   els.aboutVer.textContent = `${boot.name.en} · ${boot.name.zh}  v${boot.appVersion}`;
   els.hotHint.textContent = state.config.hotkey;

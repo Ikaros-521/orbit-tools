@@ -10,7 +10,7 @@
   "backend": "backend.js",
   "panel": { "script": "panel.js", "style": "panel.css" },
   "actions": [
-    { "id": "launch", "label": { "zh": "启动反重力", "en": "Launch Antigravity" }, "method": "launch", "hotkey": "Ctrl+Alt+A" },
+    { "id": "launch", "label": { "zh": "启动反重力", "en": "Launch Antigravity" }, "method": "launch", "hotkey": "Ctrl+Shift+G" },
     { "id": "terminal", "label": { "zh": "打开代理终端", "en": "Open Proxy Terminal" }, "method": "terminal" }
   ]
 }
