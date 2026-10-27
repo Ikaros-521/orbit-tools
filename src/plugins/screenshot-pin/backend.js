@@ -156,6 +156,36 @@ module.exports = {
       if (hideHost && host && !host.isDestroyed()) host.show();
     });
 
+    on(`${P}select-composed`, (e, { dataUrl, rect }) => {
+      const id = winIdFromSender(e.sender);
+      const entry = overlays.get(id);
+      if (!entry || !dataUrl || !rect) return;
+      const { display } = entry;
+      teardownOverlays();
+      openPin(dataUrl, {
+        x: Math.round(display.bounds.x + rect.x),
+        y: Math.round(display.bounds.y + rect.y),
+        width: Math.round(rect.width),
+        height: Math.round(rect.height),
+      });
+    });
+
+    on(`${P}overlay-copy`, (e, { dataUrl }) => {
+      if (dataUrl) clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
+      teardownOverlays();
+      if (hideHost && host && !host.isDestroyed()) host.show();
+    });
+
+    handle(`${P}overlay-save`, async (e, { dataUrl }) => {
+      if (!dataUrl) return { ok: false };
+      const filePath = await ctx.chooseSavePng();
+      if (!filePath) return { ok: false, canceled: true };
+      require('fs').writeFileSync(filePath, nativeImage.createFromDataURL(dataUrl).toPNG());
+      teardownOverlays();
+      if (hideHost && host && !host.isDestroyed()) host.show();
+      return { ok: true, filePath };
+    });
+
     on(`${P}copy-image`, (e, { dataUrl }) => {
       clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
       const id = winIdFromSender(e.sender);

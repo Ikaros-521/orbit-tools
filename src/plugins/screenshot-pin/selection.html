@@ -13,7 +13,49 @@
   <i id="hole"></i>
   <span id="size" class="mono"></span>
 </div>
-<div id="tip">拖拽框选区域 · ESC 取消</div>
+<canvas id="ink"></canvas>
+<div id="toolbar" hidden>
+  <div class="tb-group tb-tools">
+    <button type="button" data-tool="rect" title="矩形">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>
+    </button>
+    <button type="button" data-tool="ellipse" title="椭圆">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>
+    </button>
+    <button type="button" data-tool="arrow" title="箭头">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M13 5h6v6"/></svg>
+    </button>
+    <button type="button" data-tool="pen" title="画笔">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+    </button>
+  </div>
+  <div class="tb-group tb-colors">
+    <button type="button" data-color="#ff5f52" class="tb-swatch" style="--sw:#ff5f52" title="红"></button>
+    <button type="button" data-color="#ffab2e" class="tb-swatch" style="--sw:#ffab2e" title="黄"></button>
+    <button type="button" data-color="#5fe3a1" class="tb-swatch" style="--sw:#5fe3a1" title="绿"></button>
+    <button type="button" data-color="#59a7ff" class="tb-swatch" style="--sw:#59a7ff" title="蓝"></button>
+    <button type="button" data-color="#ffffff" class="tb-swatch" style="--sw:#ffffff" title="白"></button>
+  </div>
+  <div class="tb-sep"></div>
+  <div class="tb-group tb-acts">
+    <button type="button" data-act="undo" title="撤销 (Ctrl+Z)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7v6h6"/><path d="M3 13a9 9 0 0 1 15.36-6.36L21 9"/></svg>
+    </button>
+    <button type="button" data-act="copy" title="复制到剪贴板">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+    </button>
+    <button type="button" data-act="save" title="保存文件">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    </button>
+    <button type="button" data-act="pin" class="tb-primary" title="悬浮贴图">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 17v5"/><path d="M5 17h14v-1.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V6h1a2 2 0 0 0 0-4H8a2 2 0 0 0 0 4h1v4.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24z"/></svg>
+    </button>
+    <button type="button" data-act="cancel" title="取消 (ESC)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+    </button>
+  </div>
+</div>
+<div id="tip">拖拽框选区域 · 右键显隐工具栏 · ESC 取消</div>
 <script src="selection.js"></script>
 </body>
 </html>

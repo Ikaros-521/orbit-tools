@@ -31,3 +31,57 @@ html, body { width: 100%; height: 100%; overflow: hidden; background: transparen
   padding: 9px 22px; pointer-events: none;
 }
 body.dragging #tip { opacity: 0; }
+body.selected #tip { display: none; }
+
+/* --- annotation canvas -------------------------------------------------------- */
+#ink {
+  position: fixed; pointer-events: none;
+  display: none; z-index: 5;
+}
+body.selected #ink { display: block; }
+body.annotating #ink { pointer-events: auto; cursor: crosshair; }
+
+/* --- toolbar ------------------------------------------------------------------ */
+#toolbar {
+  position: fixed; z-index: 10;
+  display: flex; align-items: center; gap: 3px;
+  padding: 5px 8px;
+  background: rgba(10, 14, 16, .82);
+  backdrop-filter: blur(18px) saturate(1.4);
+  -webkit-backdrop-filter: blur(18px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, .14);
+  border-radius: 10px;
+  box-shadow: 0 8px 32px -8px rgba(0, 0, 0, .7);
+  pointer-events: auto;
+}
+
+.tb-group { display: flex; align-items: center; gap: 2px; }
+.tb-sep { width: 1px; height: 22px; background: rgba(255, 255, 255, .14); margin: 0 5px; }
+
+#toolbar button {
+  appearance: none; border: 0; background: transparent;
+  color: rgba(233, 239, 236, .7); cursor: pointer;
+  width: 30px; height: 30px; border-radius: 7px;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s, color .12s;
+  padding: 0;
+}
+#toolbar button svg { width: 18px; height: 18px; }
+#toolbar button:hover { background: rgba(255, 255, 255, .1); color: #e9efec; }
+#toolbar button.on { background: rgba(255, 171, 46, .2); color: #ffab2e; }
+#toolbar button.tb-primary {
+  background: rgba(255, 171, 46, .2); color: #ffab2e;
+}
+#toolbar button.tb-primary:hover { background: rgba(255, 171, 46, .35); }
+
+/* color swatches */
+.tb-swatch {
+  width: 20px !important; height: 20px !important;
+  border-radius: 50% !important; padding: 0 !important;
+  background: var(--sw) !important;
+  border: 2px solid transparent !important;
+  margin: 0 1px;
+  transition: border-color .12s, transform .12s;
+}
+.tb-swatch:hover { transform: scale(1.15); }
+.tb-swatch.on { border-color: #fff !important; transform: scale(1.15); }
