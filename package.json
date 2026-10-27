@@ -1,0 +1,77 @@
+{
+  "name": "orbit-tools",
+  "version": "0.1.0",
+  "description": "A uTools-style pluggable developer toolbox — 截图悬浮 / 画板 / 端口进程 / 编码转换，皆可插拔",
+  "main": "src/main.js",
+  "author": {
+    "name": "Ikaros-521",
+    "email": "327209194@qq.com"
+  },
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "icon": "node tools/make-icon.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win --x64",
+    "dist:linux": "electron-builder --linux AppImage deb",
+    "dist:mac": "electron-builder --mac"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "dev.peroperoyui.orbittools",
+    "productName": "Orbit Toolbox",
+    "copyright": "MIT",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "win": {
+      "icon": "build/icon.png",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "artifactName": "${productName}-${version}-win-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "shortcutName": "轨道工具箱",
+      "artifactName": "${productName}-Setup-${version}-win-${arch}.${ext}"
+    },
+    "mac": {
+      "icon": "build/icon.png",
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
+      "category": "public.app-category.developer-tools",
+      "hardenedRuntime": false,
+      "identity": null,
+      "artifactName": "${productName}-${version}-mac-${arch}.${ext}"
+    },
+    "linux": {
+      "icon": "build/icon.png",
+      "target": [
+        { "target": "AppImage", "arch": ["x64", "arm64"] },
+        { "target": "deb", "arch": ["x64", "arm64"] }
+      ],
+      "category": "Development",
+      "artifactName": "${productName}-${version}-linux-${arch}.${ext}",
+      "desktop": {
+        "Name": "Orbit Toolbox",
+        "GenericName": "轨道工具箱",
+        "Comment": "Pluggable developer toolbox",
+        "StartupWMClass": "orbit-tools"
+      }
+    }
+  }
+}

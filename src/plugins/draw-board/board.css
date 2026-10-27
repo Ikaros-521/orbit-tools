@@ -1,0 +1,39 @@
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; user-select: none; cursor: crosshair; }
+
+#backdrop { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+#ink { position: fixed; inset: 0; }
+
+#bar {
+  position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 6px; padding: 7px 9px;
+  background: rgba(8, 11, 12, .86); border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 13px; backdrop-filter: blur(8px);
+  box-shadow: 0 14px 34px -18px rgba(0, 0, 0, .9);
+}
+#bar .grp { display: flex; align-items: center; gap: 3px; }
+#bar .sep { width: 1px; height: 20px; background: rgba(255, 255, 255, .14); }
+#bar button {
+  appearance: none; border: 0; background: transparent; color: #e9efec;
+  min-width: 30px; height: 30px; padding: 0 8px; border-radius: 8px;
+  font: 13px/1 "Bahnschrift", "Noto Sans", sans-serif; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+#bar button:hover { background: rgba(255, 171, 46, .2); color: #ffab2e; }
+#bar button.on { background: rgba(255, 171, 46, .3); color: #ffab2e; }
+#bar button[data-act="exit"]:hover { background: rgba(255, 95, 82, .25); color: #ff5f52; }
+#bar button svg { width: 16px; height: 16px; }
+
+.swatch {
+  appearance: none; width: 22px; height: 22px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .25); cursor: pointer; padding: 0;
+}
+.swatch.on { border-color: #ffab2e; box-shadow: 0 0 0 2px rgba(255, 171, 46, .35); }
+
+.szdot {
+  appearance: none; border: 0; background: transparent; cursor: pointer;
+  width: 26px; height: 26px; border-radius: 8px;
+  display: inline-flex; align-items: center; justify-content: center;
+}
+.szdot i { display: block; border-radius: 50%; background: #e9efec; }
+.szdot.on { background: rgba(255, 171, 46, .3); }
+.szdot.on i { background: #ffab2e; }

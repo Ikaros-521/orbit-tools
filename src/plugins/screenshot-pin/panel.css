@@ -1,0 +1,21 @@
+/* screenshot-pin host panel */
+.sp-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; }
+.sp-big {
+  appearance: none; font: inherit; cursor: pointer;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  padding: 34px 56px; border-radius: var(--r-lg);
+  color: var(--ink); border: 1px solid var(--line-strong);
+  background: linear-gradient(160deg, var(--panel-hi), var(--panel-lo));
+  transition: transform .18s, border-color .18s, box-shadow .18s;
+}
+.sp-big:hover { transform: translateY(-2px); border-color: var(--amber); box-shadow: 0 18px 40px -22px rgba(0,0,0,.7); }
+.sp-big-ic {
+  width: 64px; height: 64px; border-radius: 18px;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--amber-soft); color: var(--amber);
+  border: 1px solid var(--line);
+}
+.sp-big > span:last-child { font-size: 16px; letter-spacing: .1em; }
+.sp-hint { font-size: 12px; color: var(--ink-faint); letter-spacing: .05em; }
+.sp-pins { display: flex; align-items: center; gap: 12px; }
+.sp-pins b { font-size: 16px; color: var(--amber); }

@@ -1,0 +1,19 @@
+/* codec-lab panel internals */
+.cdc-body { flex: 1 1 auto; min-height: 0; display: flex; gap: 12px; padding: 14px; }
+.cdc-pane {
+  flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px;
+}
+.cdc-pane-head {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-size: 11px; letter-spacing: .22em; color: var(--ink-faint);
+}
+.cdc-ta {
+  flex: 1; resize: none; outline: none;
+  font-family: var(--font-mono); font-size: 13px; line-height: 1.55;
+  color: var(--ink); background: var(--inset);
+  border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 12px; overflow: auto; user-select: text; -webkit-user-select: text;
+}
+.cdc-ta:focus { border-color: var(--amber); }
+.cdc-ta.err { border-color: var(--red); }
+.cdc-ta::placeholder { color: var(--ink-faint); }

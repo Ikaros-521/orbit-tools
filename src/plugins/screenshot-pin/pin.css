@@ -1,0 +1,27 @@
+html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background: transparent; user-select: none; }
+
+#stage {
+  position: absolute; inset: 0;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; cursor: move;
+  -webkit-app-region: drag; /* the whole pin drags the window */
+}
+#img { max-width: 100%; max-height: 100%; transition: opacity .2s; will-change: transform; }
+
+#bar {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  display: flex; gap: 2px; padding: 3px;
+  background: rgba(8, 11, 12, .82); border: 1px solid rgba(255, 255, 255, .16);
+  border-radius: 9px; backdrop-filter: blur(6px);
+  opacity: 0; transition: opacity .18s;
+  -webkit-app-region: no-drag;
+}
+body:hover #bar { opacity: 1; }
+#bar button {
+  appearance: none; border: 0; background: transparent; color: #e9efec;
+  font: 12px/1 "Bahnschrift", "Noto Sans", sans-serif;
+  min-width: 26px; height: 24px; padding: 0 7px; border-radius: 6px; cursor: pointer;
+}
+#bar button:hover { background: rgba(255, 171, 46, .22); color: #ffab2e; }
+#bar button[data-act="close"]:hover { background: rgba(255, 95, 82, .25); color: #ff5f52; }
+#bar.flash button[data-act="copy"] { background: rgba(95, 227, 161, .3); color: #5fe3a1; }

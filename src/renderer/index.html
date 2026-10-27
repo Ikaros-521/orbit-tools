@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="auto">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' plugin:; style-src 'self' 'unsafe-inline' plugin:; img-src 'self' data: plugin:; script-src 'self' plugin:; connect-src 'self' plugin:">
+<title>Orbit Toolbox</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body class="platform-unknown lang-zh">
+<div class="ambient" aria-hidden="true"><i></i><i></i><i></i></div>
+<div class="grain" aria-hidden="true"></div>
+
+<div class="chassis">
+  <header class="rail">
+    <div class="plate">
+      <h1 class="plate-model">ORBIT·TOOLBOX <em>MK-1</em></h1>
+      <p class="plate-sub" data-i18n="subtitle">插件化开发工具箱</p>
+    </div>
+    <nav class="tabs" id="tabs" role="tablist">
+      <button type="button" data-view="home" data-i18n="tabTools">工具</button>
+      <button type="button" data-view="settings" data-i18n="tabSettings">设置</button>
+    </nav>
+    <div class="rail-right">
+      <div class="seg" id="langSeg" role="group" aria-label="语言 / Language">
+        <button type="button" data-lang="zh">中</button>
+        <button type="button" data-lang="en">EN</button>
+      </div>
+      <div class="seg" id="themeSeg" role="group" aria-label="主题 / Theme">
+        <button type="button" data-theme="auto" title="跟随系统" aria-label="跟随系统">◐</button>
+        <button type="button" data-theme="light" title="浅色" aria-label="浅色">☀</button>
+        <button type="button" data-theme="dark" title="深色" aria-label="深色">☾</button>
+      </div>
+      <span class="winctl" id="winctl">
+        <button type="button" data-act="minimize" aria-label="minimize">–</button>
+        <button type="button" data-act="maximize" id="btnMax" aria-label="maximize">▢</button>
+        <button type="button" data-act="close" aria-label="close">×</button>
+      </span>
+    </div>
+  </header>
+
+  <main class="stage">
+    <!-- 工具面板 / tool palette -->
+    <section class="view" id="viewHome">
+      <div class="palette">
+        <svg class="pal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+        <input id="search" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="searchPh" placeholder="搜索工具…">
+        <kbd id="hotHint" title="呼出热键">Alt+Space</kbd>
+      </div>
+      <p class="deck-meta" id="deckMeta"></p>
+      <div class="deck" id="deck"></div>
+      <p class="empty" id="empty" hidden></p>
+    </section>
+
+    <!-- 插件面板视图 / plugin view -->
+    <section class="view" id="viewPanel" hidden>
+      <header class="panel-head">
+        <button type="button" class="btn ghost" id="btnBack">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          <span data-i18n="back">返回</span>
+        </button>
+        <span class="panel-icon" id="panelIcon"></span>
+        <div class="panel-title">
+          <b id="panelName"></b>
+          <span class="mono" id="panelMeta"></span>
+        </div>
+      </header>
+      <div class="panel-host" id="panelHost"></div>
+    </section>
+
+    <!-- 设置 / settings -->
+    <section class="view" id="viewSettings" hidden>
+      <div class="set-group">
+        <div class="etiquette">GENERAL<span class="cn" data-i18n="setGeneral">／ 通用</span></div>
+        <div class="set-row">
+          <div class="set-label"><b data-i18n="hotkey">呼出热键</b><span data-i18n="hotkeyHint">显示 / 隐藏工具箱的全局快捷键</span></div>
+          <div class="set-ctrl" id="hotkeyCtrl"></div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><b data-i18n="langLabel">语言</b></div>
+          <div class="seg" id="langSeg2">
+            <button type="button" data-lang="zh">中文</button>
+            <button type="button" data-lang="en">English</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><b data-i18n="themeLabel">主题</b></div>
+          <div class="seg" id="themeSeg2">
+            <button type="button" data-theme="auto" data-i18n="themeAuto">跟随系统</button>
+            <button type="button" data-theme="light" data-i18n="themeLight">浅色</button>
+            <button type="button" data-theme="dark" data-i18n="themeDark">深色</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="set-group">
+        <div class="etiquette">PLUGINS<span class="cn" data-i18n="setPlugins">／ 插件</span></div>
+        <div class="set-tools">
+          <button type="button" class="btn" id="btnRescan" data-i18n="rescan">重新扫描插件</button>
+          <button type="button" class="btn ghost" id="btnUserPlugins" data-i18n="openUserPlugins">打开用户插件目录</button>
+        </div>
+        <p class="set-hint" data-i18n="userPluginsHint">把插件文件夹放进该目录即可安装；同名 id 会覆盖内置插件。禁用的插件不会加载后端代码。</p>
+        <div id="pluginList"></div>
+      </div>
+
+      <div class="set-group">
+        <div class="etiquette">ABOUT<span class="cn" data-i18n="setAbout">／ 关于</span></div>
+        <div class="set-row about-row">
+          <span id="aboutVer" class="mono"></span>
+          <button type="button" class="btn ghost" id="btnRepo">GitHub</button>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script src="i18n.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

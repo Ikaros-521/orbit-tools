@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>pin</title>
+<link rel="stylesheet" href="pin.css">
+</head>
+<body>
+<div id="stage"><img id="img" alt=""></div>
+<div id="bar">
+  <button data-act="copy" title="复制到剪贴板">⧉</button>
+  <button data-act="save" title="保存 PNG">↧</button>
+  <button data-act="dim" title="透明度">◐</button>
+  <button data-act="zoom0" title="重置缩放">1:1</button>
+  <button data-act="close" title="关闭">✕</button>
+</div>
+<script src="pin.js"></script>
+</body>
+</html>

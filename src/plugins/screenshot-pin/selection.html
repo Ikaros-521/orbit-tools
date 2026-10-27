@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>select region</title>
+<link rel="stylesheet" href="selection.css">
+</head>
+<body>
+<div id="dim"></div>
+<img id="shot" alt="" draggable="false">
+<div id="box" hidden>
+  <i id="hole"></i>
+  <span id="size" class="mono"></span>
+</div>
+<div id="tip">拖拽框选区域 · ESC 取消</div>
+<script src="selection.js"></script>
+</body>
+</html>

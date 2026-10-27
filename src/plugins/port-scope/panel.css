@@ -1,0 +1,18 @@
+/* port-scope panel internals */
+.ps-body { padding: 0 !important; display: flex; flex-direction: column; }
+.ps-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ps-table th {
+  position: sticky; top: 0; z-index: 1;
+  text-align: left; font-weight: 600; letter-spacing: .08em; font-size: 11px;
+  color: var(--ink-dim); background: var(--inset);
+  padding: 9px 12px; border-bottom: 1px solid var(--line-strong);
+  cursor: pointer; user-select: none; white-space: nowrap;
+}
+.ps-table td {
+  padding: 7px 12px; border-bottom: 1px dashed var(--line);
+  font-family: var(--font-mono); color: var(--ink); white-space: nowrap;
+}
+.ps-table td:nth-child(2), .ps-table td:nth-child(7) { color: var(--ink-dim); }
+.ps-table tbody tr:hover td { background: var(--inset); }
+.ps-table .btn.small { padding: 3px 10px; font-size: 11px; }
+.ps-empty { padding: 30px; text-align: center; color: var(--ink-faint); font-size: 13px; }
