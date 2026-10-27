@@ -19,11 +19,25 @@ const state = {
   appVersion: '0.0.0',
   plugins: [],
   config: { hotkey: 'Alt+Space', lang: 'zh', theme: 'auto' },
+  hotkeys: [],           // [{key, accel, ok, conflictKey}] from main
   view: 'home',          // home | panel | settings
   openId: null,          // plugin whose panel is showing
   mounted: null,         // {def, ctx, unsubscribers[]}
   query: '',
 };
+
+/* Human name for a hotkey key ('host' or 'pluginId:actionId') — used to say
+   WHAT a conflicting accelerator belongs to. */
+function labelForKey(key) {
+  if (key === 'host') return t('hotkey');
+  const pid = key.split(':')[0];
+  const p = state.plugins.find(x => x.id === pid);
+  const a = p && p.actions.find(x => x.key === key);
+  const an = a ? (window.I18N.lang === 'en' ? a.label.en : a.label.zh) : key;
+  const pn = p ? (window.I18N.lang === 'en' ? p.name.en : p.name.zh) : pid;
+  return `${an} · ${pn}`;
+}
+const hotkeyRow = key => state.hotkeys.find(r => r.key === key);
 
 /* --- panel registry: plugin scripts call Toolbox.panel() when injected ------- */
 const panelDefs = new Map();
@@ -77,6 +91,11 @@ function renderDeck() {
       }
     }
     card.addEventListener('click', () => openPlugin(p.id));
+    card.addEventListener('mousemove', e => {
+      const r = card.getBoundingClientRect();
+      card.style.setProperty('--mx', `${e.clientX - r.left}px`);
+      card.style.setProperty('--my', `${e.clientY - r.top}px`);
+    });
     els.deck.appendChild(card);
   }
   const enabledCount = state.plugins.filter(p => p.enabled).length;
@@ -237,8 +256,16 @@ function hotkeyEditor({ initial, allowClear = false, onApply }) {
     apply.disabled = true;
     const res = await onApply(candidate);
     apply.disabled = false;
-    if (res && res.ok === false) { status.textContent = t('hotkeyBad'); status.classList.add('bad'); }
-    else { status.textContent = '✓'; status.classList.remove('bad'); input.value = res && res.hotkey ? res.hotkey : candidate; }
+    status.classList.remove('bad');
+    if (res && res.ok === false) {
+      status.textContent = res.conflictKey
+        ? t('conflictWith', { name: labelForKey(res.conflictKey) })
+        : t('hotkeyBad');
+      status.classList.add('bad');
+    } else {
+      status.textContent = '✓';
+      input.value = res && res.hotkey ? res.hotkey : candidate;
+    }
   });
   clear.addEventListener('click', async () => {
     candidate = null; input.value = ''; status.textContent = '';
@@ -305,11 +332,19 @@ function renderSettings() {
             const res = await window.host.setPluginHotkey(a.key, accel);
             if (res.ok) {
               a.hotkey = res.hotkey || null;
+              state.hotkeys = await window.host.hotkeys();
               renderDeck();
             }
             return res;
           },
         }));
+        const row = hotkeyRow(a.key);
+        if (row && !row.ok) {
+          const chip = document.createElement('span');
+          chip.className = 'chip warn';
+          chip.textContent = t('conflictWith', { name: labelForKey(row.conflictKey) });
+          acts.append(chip);
+        }
       }
       mid.append(acts);
     }
@@ -320,8 +355,9 @@ function renderSettings() {
     sw.setAttribute('role', 'switch');
     sw.setAttribute('aria-checked', String(p.enabled));
     sw.addEventListener('click', async () => {
-      const list = await window.host.setPluginEnabled(p.id, !p.enabled);
-      state.plugins = list;
+      const res = await window.host.setPluginEnabled(p.id, !p.enabled);
+      state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
+      state.hotkeys = res.hotkeys;
       if (state.openId === p.id) { closePanel(); setView('home'); }
       renderDeck(); renderSettings();
     });
@@ -338,6 +374,7 @@ async function init() {
   state.appVersion = boot.appVersion;
   state.plugins = [...boot.plugins].sort((a, b) => a.id.localeCompare(b.id));
   state.config = { ...state.config, ...boot.config };
+  state.hotkeys = boot.hotkeys || [];
   document.body.className = `platform-${boot.platform} lang-${state.config.lang}`;
   els.aboutVer.textContent = `${boot.name.en} · ${boot.name.zh}  v${boot.appVersion}`;
   els.hotHint.textContent = state.config.hotkey;
@@ -386,7 +423,9 @@ els.winctl.addEventListener('click', e => {
   if (b) window.host.win(b.dataset.act);
 });
 els.btnRescan.addEventListener('click', async () => {
-  state.plugins = [...await window.host.rescanPlugins()].sort((a, b) => a.id.localeCompare(b.id));
+  const res = await window.host.rescanPlugins();
+  state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
+  state.hotkeys = res.hotkeys;
   renderDeck(); renderSettings();
 });
 els.btnUserPlugins.addEventListener('click', () => window.host.openUserPlugins());

@@ -17,6 +17,8 @@ A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or
 
 工具箱本身的呼出热键默认 `Alt+Space`，可在设置里改。
 
+**热键冲突检测**：应用内所有热键（呼出键 + 各插件动作键）共享一个注册表——把某个键改成已被占用的组合时会被拒绝，并提示「与『XX』冲突」，配置不会写入无效值。注意 Electron 检测不到**其他程序**占用的组合键（如 QQ 截图默认的 `Ctrl+Alt+A`）：注册会静默失败，若热键不生效，先换一个组合试试。
+
 ## 快速开始
 
 ```bash
@@ -39,11 +41,14 @@ npm start
 
 ```
 src/
-├── main.js                  # 主进程：宿主窗口、托盘、全局热键、单实例、plugin:// 协议
+├── main.js                  # 主进程：宿主窗口、托盘、单实例、装配核心模块
 ├── preload.js               # 宿主 contextBridge（sandbox 兼容）
 ├── core/
 │   ├── config.js            # JSON 持久化（热键 / 语言 / 主题 / 插件启停）
-│   └── plugin-manager.js    # 发现 / 启停 / IPC 路由 / 窗口跟踪 / 每插件数据目录
+│   ├── plugin-manager.js    # 发现 / 启停 / IPC 路由 / 窗口跟踪 / 每插件数据目录
+│   ├── plugin-protocol.js   # plugin:// 协议（路径越界防护）
+│   ├── hotkeys.js           # 全局热键注册表 + 应用内冲突检测
+│   └── ipc.js               # 宿主 IPC 面（boot / plugin-call / 设置 / 对话框）
 ├── renderer/                # 宿主 UI：搜索面板、插件面板容器、设置页、i18n、主题
 └── plugins/
     ├── codec-lab/           # 编码转换（纯面板插件，无后端）
@@ -51,6 +56,8 @@ src/
     ├── screenshot-pin/      # 截图悬浮（选区覆盖窗口 + 贴图窗口，各自独立 preload）
     └── draw-board/          # 屏幕画板（全屏透明画布 + 屏幕底图快照）
 ```
+
+测试：`node tools/test-port-parsers.js`（解析器单测）、`electron tools/smoke-plugins.js`（插件系统冒烟）、`electron tools/uitest.js`（真实窗口 UI 回归，含热键冲突，截图输出到 dist/）。
 
 安全边界：插件面板脚本运行在宿主渲染进程（contextIsolation、无 Node），只能通过 `Toolbox` 上下文调用宿主能力；插件后端模块运行在主进程，通过 `ctx` 拿到受控的窗口创建 / IPC / 持久化 API。插件自有窗口通过 `plugin://<id>/...` 协议加载资源，路径越界直接 403。
 

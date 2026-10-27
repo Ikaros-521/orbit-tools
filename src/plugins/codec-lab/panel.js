@@ -5,7 +5,11 @@
   const enc = new TextEncoder();
   const dec = new TextDecoder('utf-8', { fatal: false });
   const b64encode = s => btoa(String.fromCharCode(...enc.encode(s)));
-  const b64decode = s => dec.decode(Uint8Array.from(atob(s.replace(/\s+/g, '')), c => c.charCodeAt(0)));
+  // accept padded and unpadded / base64url input
+  const b64decode = s => {
+    const norm = s.replace(/\s+/g, '').replace(/-/g, '+').replace(/_/g, '/');
+    return dec.decode(Uint8Array.from(atob(norm + '='.repeat((4 - (norm.length % 4)) % 4)), c => c.charCodeAt(0)));
+  };
 
   const CODECS = {
     base64: {

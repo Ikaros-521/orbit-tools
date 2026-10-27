@@ -106,6 +106,8 @@ module.exports = {
 
 `method` 是 backend 的 IPC handler 名；`hotkey` 是默认值，用户可以在 设置 → 插件 里改绑或清除（`hotkey` 省略则默认无热键）。同 `pluginId:actionId` 的用户配置存于 config，覆盖 manifest。
 
+热键冲突：宿主维护全部热键（呼出键 + 所有已启用插件的动作键）的注册表，新绑定撞上已有绑定时会被拒绝并回滚（UI 显示「与『XX』冲突」）。所以插件作者不必处理冲突，但也别指望默认热键一定可用——比如 `Ctrl+Alt+A` 常被截图软件占用，而 Electron 检测不到外部占用（注册静默失败）。
+
 ## 调试
 
 ```bash

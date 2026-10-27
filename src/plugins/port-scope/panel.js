@@ -99,11 +99,20 @@
             const name = r.process || `pid ${r.pid}`;
             if (!window.confirm(T.confirmKill.replace('{name}', name).replace('{pid}', r.pid))) return;
             b.disabled = true;
+            const stat = el.querySelector('[data-role=stat]');
             try {
-              const res = await ctx.call('kill', { pid: r.pid, force: false });
-              if (res && res.ok) statEl.textContent = T.killed.replace('{pid}', r.pid);
+              // graceful first; windowless processes survive taskkill without /F,
+              // so retry forced when the polite attempt fails
+              try {
+                await ctx.call('kill', { pid: r.pid, force: false });
+              } catch (graceErr) {
+                if (!/no such process|not found|找不到|无法找到/i.test(String(graceErr.message))) {
+                  await ctx.call('kill', { pid: r.pid, force: true });
+                }
+              }
+              stat.textContent = T.killed.replace('{pid}', r.pid);
             } catch (err) {
-              statEl.textContent = `${T.killFail}: ${err.message}`;
+              stat.textContent = `${T.killFail}: ${err.message}`;
               b.disabled = false;
               return;
             }

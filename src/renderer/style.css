@@ -31,6 +31,10 @@ html[data-theme="auto"] { color-scheme: light dark; }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* Views rely on the hidden attribute; any display rule above UA default would
+   override it ([hidden] is UA-level), so enforce it globally. */
+[hidden] { display: none !important; }
+
 body {
   height: 100vh; overflow: hidden;
   font-family: var(--font-display); color: var(--ink);

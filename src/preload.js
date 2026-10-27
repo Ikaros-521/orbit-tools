@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('host', {
   rescanPlugins: () => ipcRenderer.invoke('plugin-rescan'),
   setHotkey: accel => ipcRenderer.invoke('set-hotkey', accel),
   setPluginHotkey: (key, accel) => ipcRenderer.invoke('set-plugin-hotkey', { key, accel }),
+  hotkeys: () => ipcRenderer.invoke('hotkeys'),
   setPref: (k, v) => ipcRenderer.invoke('set-pref', { k, v }),
   openExternal: url => ipcRenderer.invoke('open-external', { url }),
   openUserPlugins: () => ipcRenderer.invoke('open-user-plugins'),
