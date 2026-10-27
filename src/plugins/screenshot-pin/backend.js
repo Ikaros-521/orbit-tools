@@ -198,6 +198,14 @@ module.exports = {
       if (w && !w.isDestroyed()) w.close();
     });
 
+    on(`${P}move-pin`, (e, { dx, dy }) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win && !win.isDestroyed()) {
+        const [x, y] = win.getPosition();
+        win.setPosition(Math.round(x + dx), Math.round(y + dy));
+      }
+    });
+
     on(`${P}pin-closed`, () => { ctx.send('pins-changed', { count: pins.size }); });
 
     handle(`${P}save`, async (e, { dataUrl }) => {

@@ -1,9 +1,9 @@
 /* Pinned screenshot window with right-click toolbar for secondary annotation.
    Features:
-   - Default: window drags natively (-webkit-app-region: drag), wheel zooms, double-click resets
-   - Right-click: toggles toolbar visibility
+   - Default: window drags with left mouse, wheel zooms, double-click resets
+   - Right-click: toggles toolbar visibility (defaults to hidden, clean view)
    - Annotation: rect, ellipse, arrow, pen, color palette, undo (Ctrl+Z)
-   - When tool is active: drag is temporarily disabled to allow drawing
+   - When tool is active: left mouse draws annotations instead of moving window
    - Actions: copy, save, dim (opacity), zoom reset, close
 */
 (() => {
@@ -19,12 +19,20 @@
   const OPACITIES = [1, 0.75, 0.5, 0.3];
   let opIdx = 0;
 
+  // --- window dragging state ---
+  let isMoving = false;
+  let lastScreenX = 0;
+  let lastScreenY = 0;
+
   // --- annotation state ---
   let tool = null; // 'rect' | 'ellipse' | 'arrow' | 'pen' | null
   let color = '#ff5f52';
   const strokes = [];
-  let drawing = false;
+  let isDrawing = false;
   let curStroke = null;
+
+  // ensure toolbar is initially hidden
+  toolbar.hidden = true;
 
   // --- initialize image & canvas ---
   window.pin.onInit(({ image }) => {
@@ -141,33 +149,57 @@
     }
   };
 
-  // --- mouse drawing events ---
+  // --- mouse events for moving window vs drawing ---
   stage.addEventListener('mousedown', e => {
-    if (e.button !== 0 || !tool) return;
-    drawing = true;
-    const pt = getCanvasCoords(e);
-    curStroke = { tool, color, points: [pt] };
-    repaintInk();
+    if (e.target.closest('#toolbar')) return;
+
+    if (e.button === 0) {
+      if (tool) {
+        // Annotation mode: start drawing
+        isDrawing = true;
+        const pt = getCanvasCoords(e);
+        curStroke = { tool, color, points: [pt] };
+        repaintInk();
+      } else {
+        // Normal mode: start window dragging
+        isMoving = true;
+        lastScreenX = e.screenX;
+        lastScreenY = e.screenY;
+      }
+    }
   });
 
   window.addEventListener('mousemove', e => {
-    if (!drawing || !curStroke) return;
-    const pt = getCanvasCoords(e);
-    curStroke.points.push(pt);
-    repaintInk();
+    if (isDrawing && curStroke) {
+      const pt = getCanvasCoords(e);
+      curStroke.points.push(pt);
+      repaintInk();
+    } else if (isMoving) {
+      const dx = e.screenX - lastScreenX;
+      const dy = e.screenY - lastScreenY;
+      lastScreenX = e.screenX;
+      lastScreenY = e.screenY;
+      if (dx !== 0 || dy !== 0) {
+        window.pin.move(dx, dy);
+      }
+    }
   });
 
   window.addEventListener('mouseup', e => {
-    if (e.button !== 0 || !drawing) return;
-    drawing = false;
-    if (curStroke && curStroke.points.length >= 1) {
-      strokes.push(curStroke);
+    if (e.button === 0) {
+      if (isDrawing) {
+        isDrawing = false;
+        if (curStroke && curStroke.points.length >= 1) {
+          strokes.push(curStroke);
+        }
+        curStroke = null;
+        repaintInk();
+      }
+      isMoving = false;
     }
-    curStroke = null;
-    repaintInk();
   });
 
-  // --- right-click: toggle toolbar ---
+  // --- right-click: toggle toolbar visibility ---
   window.addEventListener('contextmenu', e => {
     e.preventDefault();
     toggleToolbar();
