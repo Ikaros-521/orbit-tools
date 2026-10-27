@@ -19,7 +19,7 @@ app.whenReady().then(async () => {
   const info = manager.serialize();
   console.log('discovered:', found.map(p => `${p.id}(${p.source})`).join(', '));
 
-  const expect = ['codec-lab', 'draw-board', 'port-scope', 'screenshot-pin'];
+  const expect = ['antigravity-launcher', 'codec-lab', 'draw-board', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
   if (info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have no backend');

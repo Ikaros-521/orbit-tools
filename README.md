@@ -12,6 +12,7 @@ A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or
 |---|---|---|
 | 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存 | `Ctrl+Alt+A` |
 | 屏幕画板 Draw Board | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG | `Ctrl+Alt+D` |
+| 反重力代理启动器 Antigravity Launcher | Google Antigravity 进程级代理启动器：握手探测、网络诊断、终端代理与一键拉起 | `Ctrl+Alt+A` |
 | 端口与进程 Port Scope | 查 TCP/UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | — |
 | 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转 | — |
 
@@ -26,7 +27,12 @@ npm install
 npm start
 ```
 
-打包：`npm run dist:win` / `dist:mac` / `dist:linux`（electron-builder，配置在 package.json）。
+## 打包与发布
+
+- 本地打包：`npm run dist:win` / `npm run dist:mac` / `npm run dist:linux`（基于 `electron-builder`）。
+- 自动发布：已配置 GitHub Actions 跨平台 CI/CD 工作流（`.github/workflows/release.yml`）。
+  - 推送 `v*` tag（例如 `git tag v1.0.0 && git push origin v1.0.0`）会自动并行在 Windows / macOS / Linux 三端 runner 上编译打包所有产物，并自动汇总创建 GitHub Release 挂载附件。
+  - 也可在 GitHub Actions 界面通过 `workflow_dispatch` 手动触发构建或发布。
 
 ## 插拔设计
 
