@@ -8,6 +8,7 @@ const PluginManager = require('./core/plugin-manager');
 const { registerPluginProtocol } = require('./core/plugin-protocol');
 const createHotkeys = require('./core/hotkeys');
 const registerIpc = require('./core/ipc');
+const { captureActiveSelection } = require('./core/selection');
 
 const APP_NAME = { en: 'Orbit Toolbox', zh: '轨道工具箱' };
 
@@ -132,7 +133,7 @@ function openWorkbench(opts = {}) {
   win.webContents.send('navigate-to', opts);
 }
 
-function toggleActionPalette() {
+async function toggleActionPalette() {
   if (!paletteWin || paletteWin.isDestroyed()) {
     createPaletteWindow();
   }
@@ -140,6 +141,16 @@ function toggleActionPalette() {
     paletteWin.hide();
     return;
   }
+
+  // 外部呼出瞬间，在窗口抢焦前尝试捕获当前活动软件中划选的文本
+  let selectedText = null;
+  try {
+    const selRes = await captureActiveSelection({ timeoutMs: 90 });
+    if (selRes && selRes.ok) {
+      selectedText = selRes.text;
+    }
+  } catch { /* ignore */ }
+
   try {
     const point = screen.getCursorScreenPoint();
     const curDisplay = screen.getDisplayNearestPoint(point) || screen.getPrimaryDisplay();
@@ -152,7 +163,7 @@ function toggleActionPalette() {
   }
 
   bringToForeground(paletteWin);
-  paletteWin.webContents.send('palette-focus');
+  paletteWin.webContents.send('palette-focus', { selectedText });
 }
 
 /* --- tray --------------------------------------------------------------------- */

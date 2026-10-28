@@ -17,6 +17,9 @@ const els = {
   viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'), viewWorkflows: $('viewWorkflows'),
   wfSelect: $('wfSelect'), btnWfNew: $('btnWfNew'), btnWfSave: $('btnWfSave'), btnWfDelete: $('btnWfDelete'),
   wfTestInput: $('wfTestInput'), btnWfRun: $('btnWfRun'), wfLibList: $('wfLibList'),
+  wfNameInput: $('wfNameInput'), wfDescInput: $('wfDescInput'), wfEnabledToggle: $('wfEnabledToggle'),
+  wfLibSearch: $('wfLibSearch'),
+  wfInspector: $('wfInspector'), wfInspType: $('wfInspType'), wfInspClose: $('wfInspClose'), wfInspBody: $('wfInspBody'),
   wfSidebar: $('wfSidebar'), wfSidebarResizer: $('wfSidebarResizer'), wfConsoleResizer: $('wfConsoleResizer'),
   wfCanvasArea: $('wfCanvasArea'), wfCanvasViewport: $('wfCanvasViewport'), wfCanvasControls: $('wfCanvasControls'),
   wfSvgLayer: $('wfSvgLayer'), wfNodesContainer: $('wfNodesContainer'),
@@ -79,6 +82,8 @@ const state = {
   workflows: [],
   currentWorkflowId: null,
   wfConnectingFrom: null,
+  workflowsInited: false,
+  wfLibQuery: '',
   // Plugins center state
   pluginQuery: '',
   pluginCat: 'all',
@@ -1266,12 +1271,32 @@ function startDraftConnection(node, portEl, fromType) {
 
 async function initWorkflowsView() {
   if (!window.host.listWorkflows) return;
+  // Re-fetching on every view switch would silently discard unsaved canvas
+  // edits, so bootstrap once; selectWorkflow() refreshes on demand instead.
+  if (state.workflowsInited) {
+    renderWorkflowLib();
+    return;
+  }
+  state.workflowsInited = true;
   state.workflows = await window.host.listWorkflows().catch(() => []);
   if (state.workflows.length > 0 && !state.currentWorkflowId) {
     state.currentWorkflowId = state.workflows[0].id;
   }
   renderWorkflowSelector();
   renderWorkflowLib();
+  loadCurrentWorkflow();
+  setTimeout(() => { fitWorkflowCanvas(); }, 40);
+}
+
+async function selectWorkflow(id) {
+  if (!window.host.listWorkflows) return;
+  if (!state.workflows.length || !state.workflows.some(w => w.id === id)) {
+    state.workflows = await window.host.listWorkflows().catch(() => state.workflows);
+    state.workflowsInited = true;
+  }
+  if (!state.workflows.some(w => w.id === id)) return;
+  state.currentWorkflowId = id;
+  renderWorkflowSelector();
   loadCurrentWorkflow();
   setTimeout(() => { fitWorkflowCanvas(); }, 40);
 }
@@ -1298,6 +1323,148 @@ function loadCurrentWorkflow() {
   wfCanvas.selectedEdgeId = null;
   applyCanvasTransform();
   renderWorkflowCanvas();
+  renderWorkflowMeta();
+}
+
+/* --- workflow meta editor (name / desc / auto-trigger switch) ----------------- */
+function renderWorkflowMeta() {
+  if (!els.wfNameInput) return;
+  const has = !!currentWorkflow;
+  els.wfNameInput.disabled = !has;
+  els.wfDescInput.disabled = !has;
+  els.wfEnabledToggle.disabled = !has;
+  els.wfNameInput.value = has ? (currentWorkflow.name || '') : '';
+  els.wfDescInput.value = has ? (currentWorkflow.desc || '') : '';
+  els.wfEnabledToggle.checked = has ? currentWorkflow.enabled !== false : false;
+}
+
+let wfAutosaveTimer = null;
+function scheduleWfAutosave() {
+  clearTimeout(wfAutosaveTimer);
+  wfAutosaveTimer = setTimeout(async () => {
+    if (!currentWorkflow) return;
+    try {
+      state.workflows = await window.host.saveWorkflow(currentWorkflow);
+      renderWorkflowSelector();
+    } catch { /* keep editing; 保存 button still works */ }
+  }, 500);
+}
+
+/* --- node library catalogue ----------------------------------------------------
+   Built-in nodes cover triggers, data sources and composable text/JSON
+   utilities; plugin capabilities are appended dynamically below. */
+const WF_TRIGGER_TYPE_OPTIONS = [
+  ['any', '任意文本'],
+  ['application/json', 'JSON'],
+  ['text/timestamp', '时间戳'],
+  ['text/base64', 'Base64'],
+  ['text/url', 'URL'],
+  ['text/jwt', 'JWT'],
+  ['system/port', '端口号'],
+  ['text/plain', '纯文本 (未识别类型)'],
+];
+
+const WF_LIB_CATALOG = [
+  {
+    id: 'triggers', title: '⚡ 触发器 · Triggers', items: [
+      { type: 'trigger/clipboard', title: '剪贴板监听', icon: '📋', desc: '剪贴板出现匹配内容时自动运行', config: { type: 'any' } },
+      { type: 'trigger/manual', title: '手动 / 快捷键', icon: '🖱️', desc: '点击「运行测试」或从动作抽屉触发' },
+    ]
+  },
+  {
+    id: 'sources', title: '📄 数据源 · Sources', items: [
+      { type: 'source/text', title: '静态文本', icon: '🔤', desc: '以固定文本作为流程起点', config: { text: '', type: 'text/plain' } },
+    ]
+  },
+  {
+    id: 'utils', title: '🧰 内置工具 · Utilities', items: [
+      { type: 'util/text-template', title: '文本模板', icon: '🧵', desc: '拼接输出，支持 {{value}} {{type}} {{date}}', config: { template: '{{value}}' } },
+      { type: 'util/regex-extract', title: '正则提取', icon: '🔎', desc: '按正则提取命中的内容/捕获组', config: { pattern: '', flags: '', group: 0 } },
+      { type: 'util/replace', title: '查找替换', icon: '🔁', desc: '普通文本或正则模式替换', config: { find: '', replace: '', regex: false } },
+      { type: 'util/json-field', title: 'JSON 字段提取', icon: '🗂️', desc: '按 a.b[0].c 路径取出字段值', config: { path: '' } },
+      { type: 'util/condition', title: '条件判断', icon: '🚦', desc: '不满足时终止该分支下游节点', config: { mode: 'contains', value: '' } },
+      { type: 'util/delay', title: '延时等待', icon: '⏱️', desc: '延迟指定毫秒后继续 (0-15000)', config: { ms: 300 } },
+    ]
+  },
+  { id: 'plugins', title: '🧩 插件能力 · Plugin Actions', dynamic: true },
+  {
+    id: 'outputs', title: '📤 交付输出 · Outputs', items: [
+      { type: 'output/clipboard', title: '写入系统剪贴板', icon: '📝', desc: '把结果写回系统剪贴板' },
+      { type: 'output/notification', title: '显示系统通知', icon: '🔔', desc: '以系统通知弹窗展示结果' },
+      { type: 'output/panel', title: '唤起对应面板', icon: '🚀', desc: '打开指定插件的工具面板' },
+    ]
+  },
+];
+
+function wfPluginLibItems() {
+  const items = [];
+  state.plugins.forEach(p => {
+    if (!p.enabled) return;
+    const caps = Array.isArray(p.capabilities) ? p.capabilities : [];
+    caps.forEach(cap => {
+      const capTitle = cap.title ? (cap.title.zh || cap.title.en || cap.id) : cap.id;
+      items.push({
+        type: 'action/plugin',
+        title: `${p.name.zh || p.id}: ${capTitle}`,
+        icon: '🧩',
+        desc: `由插件 ${p.id} 提供 · 能力 ${cap.id}`,
+        extra: { pluginId: p.id, capabilityId: cap.id }
+      });
+    });
+  });
+  return items;
+}
+
+function renderWorkflowLib() {
+  if (!els.wfLibList) return;
+  const q = (state.wfLibQuery || '').trim().toLowerCase();
+  els.wfLibList.innerHTML = '';
+
+  WF_LIB_CATALOG.forEach(group => {
+    const items = group.dynamic ? wfPluginLibItems() : (group.items || []);
+    const matched = q
+      ? items.filter(it => `${it.title} ${it.desc || ''} ${it.type}`.toLowerCase().includes(q))
+      : items;
+    if (matched.length === 0) return;
+
+    const box = document.createElement('details');
+    box.className = 'wf-lib-group';
+    box.open = true;
+    const summary = document.createElement('summary');
+    summary.className = 'wf-lib-group-title';
+    summary.textContent = `${group.title} (${matched.length})`;
+    box.appendChild(summary);
+
+    matched.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'wf-lib-item';
+      el.setAttribute('draggable', 'true');
+      el.innerHTML = `
+        <span class="icon">${item.icon || '🧩'}</span>
+        <span class="wf-lib-item-text">
+          <span class="wf-lib-item-title">${escapeHtml(item.title)}</span>
+          <span class="wf-lib-item-desc">${escapeHtml(item.desc || '')}</span>
+        </span>`;
+      el.title = `${item.desc || ''} (点击或拖拽至画布)`;
+      el.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', JSON.stringify({
+          type: item.type, title: item.title, config: item.config || null, extra: item.extra || null
+        }));
+      });
+      el.addEventListener('click', () => addNodeToCanvas(item.type, item.title, {
+        ...(item.config || {}), ...(item.extra || {})
+      }));
+      box.appendChild(el);
+    });
+    els.wfLibList.appendChild(box);
+  });
+
+  if (!els.wfLibList.querySelector('.wf-lib-group')) {
+    const empty = document.createElement('div');
+    empty.className = 'wf-lib-empty';
+    empty.textContent = q ? '没有匹配的节点' : '暂无可用插件能力';
+    els.wfLibList.appendChild(empty);
+  }
 }
 
 function renderWorkflowLib() {
@@ -1385,6 +1552,7 @@ function renderWorkflowLib() {
 
 function addNodeToCanvas(type, title, extra = {}) {
   if (!currentWorkflow) return;
+  const { config, ...rest } = extra;
   const id = `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
   const newNode = {
     id,
@@ -1392,11 +1560,186 @@ function addNodeToCanvas(type, title, extra = {}) {
     title,
     x: extra.x !== undefined ? extra.x : (120 + (currentWorkflow.nodes.length % 5) * 40),
     y: extra.y !== undefined ? extra.y : (90 + (currentWorkflow.nodes.length % 5) * 40),
-    ...extra
+    ...(config && Object.keys(config).length ? { config: { ...config } } : {}),
+    ...rest
   };
   currentWorkflow.nodes.push(newNode);
+  wfCanvas.selectedNodeId = id;
   renderWorkflowCanvas();
-  logToWfConsole(`+ 已添加节点 [${title}]`);
+  logToWfConsole(`+ 已添加节点 [${title}]，可在右侧检查器配置参数`);
+}
+
+/* --- per-node-type config summary shown on the canvas card ------------------- */
+function wfNodeConfigSummary(node) {
+  const cfg = node.config || {};
+  switch (node.type) {
+    case 'trigger/clipboard': {
+      const found = WF_TRIGGER_TYPE_OPTIONS.find(([v]) => v === (cfg.type || 'any'));
+      return `匹配: ${found ? found[1] : cfg.type || '任意文本'}`;
+    }
+    case 'source/text': {
+      const txt = String(cfg.text ?? '');
+      return txt ? `文本: ${txt.slice(0, 26)}${txt.length > 26 ? '…' : ''}` : '(未设置文本)';
+    }
+    case 'util/text-template': return `模板: ${String(cfg.template ?? '{{value}}').slice(0, 30)}`;
+    case 'util/regex-extract': return `/${cfg.pattern || '?'}/${cfg.flags || ''}`;
+    case 'util/replace': return `${cfg.find || '?'} → ${String(cfg.replace ?? '').slice(0, 12)}`;
+    case 'util/json-field': return `路径: ${cfg.path || '?'}`;
+    case 'util/condition': {
+      const labels = { contains: '包含', equals: '等于', startsWith: '开头为', regex: '匹配正则', notEmpty: '非空', empty: '为空' };
+      const m = labels[cfg.mode || 'contains'] || cfg.mode;
+      return `若 ${m} ${cfg.mode === 'notEmpty' || cfg.mode === 'empty' ? '' : String(cfg.value ?? '').slice(0, 14)}`.trim();
+    }
+    case 'util/delay': return `延迟 ${cfg.ms || 0}ms`;
+    case 'action/plugin': return `${node.pluginId || '?'} : ${node.capabilityId || '?'}`;
+    default: return '';
+  }
+}
+
+/* --- node inspector: edit title & type-specific config for the selection ----- */
+const WF_NODE_FIELDS = {
+  'trigger/clipboard': [
+    { key: 'type', label: '匹配内容类型', kind: 'select', options: WF_TRIGGER_TYPE_OPTIONS, def: 'any' }
+  ],
+  'source/text': [
+    { key: 'text', label: '静态文本内容', kind: 'textarea', def: '' },
+    { key: 'type', label: 'MIME 类型', kind: 'text', def: 'text/plain' }
+  ],
+  'util/text-template': [
+    { key: 'template', label: '模板 (支持 {{value}} {{type}} {{date}})', kind: 'textarea', def: '{{value}}' }
+  ],
+  'util/regex-extract': [
+    { key: 'pattern', label: '正则表达式', kind: 'text', def: '' },
+    { key: 'flags', label: '标志 (如 gi)', kind: 'text', def: '' },
+    { key: 'group', label: '捕获组序号 (0=整体)', kind: 'number', def: 0 }
+  ],
+  'util/replace': [
+    { key: 'find', label: '查找内容', kind: 'text', def: '' },
+    { key: 'replace', label: '替换为', kind: 'text', def: '' },
+    { key: 'regex', label: '按正则模式替换', kind: 'checkbox', def: false }
+  ],
+  'util/json-field': [
+    { key: 'path', label: '字段路径 (a.b[0].c)', kind: 'text', def: '' }
+  ],
+  'util/condition': [
+    {
+      key: 'mode', label: '判断方式', kind: 'select', def: 'contains',
+      options: [['contains', '包含…'], ['equals', '等于…'], ['startsWith', '以…开头'], ['regex', '匹配正则…'], ['notEmpty', '内容非空'], ['empty', '内容为空']]
+    },
+    { key: 'value', label: '判断值 (非空/为空时忽略)', kind: 'text', def: '' }
+  ],
+  'util/delay': [
+    { key: 'ms', label: '延迟毫秒 (0-15000)', kind: 'number', def: 300 }
+  ],
+};
+
+function syncWfInspector() {
+  if (!els.wfInspector) return;
+  const node = currentWorkflow && wfCanvas.selectedNodeId
+    ? currentWorkflow.nodes.find(n => n.id === wfCanvas.selectedNodeId)
+    : null;
+  if (!node) {
+    els.wfInspector.hidden = true;
+    return;
+  }
+  renderWfInspector(node);
+}
+
+function renderWfInspector(node) {
+  els.wfInspector.hidden = false;
+  els.wfInspType.textContent = node.type;
+  els.wfInspBody.innerHTML = '';
+
+  const makeField = (labelText, inputEl, hint) => {
+    const field = document.createElement('label');
+    field.className = 'wf-insp-field';
+    const lab = document.createElement('span');
+    lab.className = 'wf-insp-label';
+    lab.textContent = labelText;
+    field.append(lab, inputEl);
+    if (hint) {
+      const h = document.createElement('span');
+      h.className = 'wf-insp-hint';
+      h.textContent = hint;
+      field.appendChild(h);
+    }
+    return field;
+  };
+
+  // title (all node types)
+  const titleInput = document.createElement('input');
+  titleInput.type = 'text';
+  titleInput.className = 'wf-insp-input';
+  titleInput.value = node.title || '';
+  titleInput.addEventListener('input', () => {
+    node.title = titleInput.value;
+    renderWorkflowCanvas();
+  });
+  els.wfInspBody.appendChild(makeField('节点标题', titleInput));
+
+  // plugin info (read-only)
+  if (node.type === 'action/plugin') {
+    const info = document.createElement('div');
+    info.className = 'wf-insp-info mono';
+    info.textContent = `插件 ${node.pluginId || '?'} · 能力 ${node.capabilityId || '?'}，由插件后端或内置转换执行`;
+    els.wfInspBody.appendChild(info);
+  }
+
+  const fields = WF_NODE_FIELDS[node.type] || [];
+  if (fields.length === 0 && node.type !== 'action/plugin') {
+    const info = document.createElement('div');
+    info.className = 'wf-insp-info';
+    info.textContent = '此节点类型无可配置参数';
+    els.wfInspBody.appendChild(info);
+  }
+
+  fields.forEach(f => {
+    if (!node.config) node.config = {};
+    let input;
+    if (f.kind === 'select') {
+      input = document.createElement('select');
+      input.className = 'wf-insp-input';
+      (f.options || []).forEach(([v, label]) => {
+        const opt = document.createElement('option');
+        opt.value = v;
+        opt.textContent = label;
+        input.appendChild(opt);
+      });
+      input.value = node.config[f.key] ?? f.def;
+      input.addEventListener('change', () => {
+        node.config[f.key] = input.value;
+        renderWorkflowCanvas();
+      });
+    } else if (f.kind === 'checkbox') {
+      input = document.createElement('input');
+      input.type = 'checkbox';
+      input.className = 'wf-insp-check';
+      input.checked = !!node.config[f.key];
+      input.addEventListener('change', () => {
+        node.config[f.key] = input.checked;
+        renderWorkflowCanvas();
+      });
+    } else if (f.kind === 'textarea') {
+      input = document.createElement('textarea');
+      input.className = 'wf-insp-input wf-insp-textarea';
+      input.rows = 3;
+      input.value = node.config[f.key] ?? f.def;
+      input.addEventListener('input', () => {
+        node.config[f.key] = input.value;
+        renderWorkflowCanvas();
+      });
+    } else {
+      input = document.createElement('input');
+      input.type = f.kind === 'number' ? 'number' : 'text';
+      input.className = 'wf-insp-input';
+      input.value = node.config[f.key] ?? f.def;
+      input.addEventListener('input', () => {
+        node.config[f.key] = f.kind === 'number' ? Number(input.value) : input.value;
+        renderWorkflowCanvas();
+      });
+    }
+    els.wfInspBody.appendChild(makeField(f.label, input));
+  });
 }
 
 function renderWorkflowCanvas() {
@@ -1421,8 +1764,17 @@ function renderWorkflowCanvas() {
 
     const headClass = isPluginDisabled
       ? 'warn'
-      : (node.type.startsWith('trigger') ? 'trigger' : (node.type.startsWith('output') ? 'output' : 'action'));
+      : (node.type.startsWith('trigger')
+        ? 'trigger'
+        : node.type.startsWith('output')
+          ? 'output'
+          : node.type.startsWith('util/')
+            ? 'util'
+            : node.type.startsWith('source/')
+              ? 'source'
+              : 'action');
 
+    const cfgSummary = wfNodeConfigSummary(node);
     el.innerHTML = `
       <div class="wf-node-head ${headClass}">
         <span>${escapeHtml(node.title)}</span>
@@ -1430,6 +1782,7 @@ function renderWorkflowCanvas() {
       </div>
       <div class="wf-node-body">
         <span class="mono">${escapeHtml(node.type)}</span>
+        ${cfgSummary ? `<span class="wf-node-cfg">${escapeHtml(cfgSummary)}</span>` : ''}
         ${isPluginDisabled ? '<span class="wf-node-warn">⚠️ 所属插件已禁用 (熔断保护)</span>' : ''}
       </div>
       ${!node.type.startsWith('trigger') ? '<div class="wf-port in" title="连线入口 (拖拽或点击成线)"></div>' : ''}
@@ -1469,6 +1822,7 @@ function renderWorkflowCanvas() {
       document.querySelectorAll('.wf-node.selected').forEach(n => { if (n !== el) n.classList.remove('selected'); });
       el.classList.add('selected');
       el.style.zIndex = 30; // 拖动时提升至最顶层
+      syncWfInspector();
 
       let startX = e.clientX, startY = e.clientY;
       let origX = node.x || 0, origY = node.y || 0;
@@ -1642,6 +1996,8 @@ function renderWorkflowCanvas() {
     g.appendChild(badge);
     els.wfSvgLayer.appendChild(g);
   });
+
+  syncWfInspector();
 }
 
 function updateSvgEdgesOnly() {
@@ -1677,13 +2033,29 @@ function logToWfConsole(msg) {
 async function runCurrentWorkflow() {
   if (!currentWorkflow) return;
   const testInputVal = els.wfTestInput ? els.wfTestInput.value.trim() : '';
-  const initialPayload = { type: 'text/plain', value: testInputVal || '{"appName":"orbit","demo":true}' };
+  let initialPayload;
+  if (testInputVal) {
+    initialPayload = { type: 'text/plain', value: testInputVal };
+    logToWfConsole(`▶ 使用输入框测试数据执行 [${currentWorkflow.name}]…`);
+  } else {
+    const clip = await window.host.readClipboardText().catch(() => '');
+    if (clip && clip.trim()) {
+      initialPayload = { type: 'text/plain', value: clip };
+      logToWfConsole(`▶ 输入框为空，已改用剪贴板内容 (${clip.length} 字符) 执行 [${currentWorkflow.name}]…`);
+    } else {
+      initialPayload = { type: 'text/plain', value: '' };
+      logToWfConsole(`▶ 输入框与剪贴板均为空，以空数据执行 [${currentWorkflow.name}]…`);
+    }
+  }
 
-  logToWfConsole(`▶ 开始执行工作流 [${currentWorkflow.name}]…`);
   const paths = els.wfSvgLayer.querySelectorAll('path');
   paths.forEach(p => p.classList.add('active'));
 
   try {
+    // Run Test executes against the main-process copy — sync unsaved canvas
+    // edits first so what you see is exactly what runs.
+    state.workflows = await window.host.saveWorkflow(currentWorkflow);
+    renderWorkflowSelector();
     const res = await window.host.runWorkflow(currentWorkflow.id, initialPayload);
     paths.forEach(p => p.classList.remove('active'));
 
@@ -1691,13 +2063,17 @@ async function runCurrentWorkflow() {
       const totalMs = (res.logs || []).reduce((acc, l) => acc + (l.duration || 0), 0);
       logToWfConsole(`✓ 工作流执行成功！总耗时: ${totalMs}ms`);
       (res.logs || []).forEach(l => {
-        logToWfConsole(`  ├─ 节点 [${l.title}]: ${l.summary || 'OK'} (${l.duration}ms)`);
+        if (!l.ok) logToWfConsole(`  ├─ ❌ 节点 [${l.title}]: ${l.error || '执行失败'}`);
+        else logToWfConsole(`  ├─ ${l.skipped ? '⏭' : '✓'} 节点 [${l.title}]: ${l.summary || 'OK'}${l.duration ? ` (${l.duration}ms)` : ''}`);
       });
       if (res.finalOutput) {
-        logToWfConsole(`  └─ 最终输出: ${JSON.stringify(res.finalOutput.value || res.finalOutput)}`);
+        logToWfConsole(`  └─ 最终输出: ${JSON.stringify(res.finalOutput.value ?? res.finalOutput)}`);
       }
     } else {
       logToWfConsole(`❌ 执行异常: ${res.error}`);
+      (res.logs || []).filter(l => !l.ok).forEach(l => {
+        logToWfConsole(`  ├─ ❌ 节点 [${l.title}]: ${l.error || ''}`);
+      });
     }
   } catch (err) {
     paths.forEach(p => p.classList.remove('active'));
@@ -1714,6 +2090,7 @@ if (els.wfCanvasArea) {
       if (wfCanvas.selectedNodeId) {
         wfCanvas.selectedNodeId = null;
         document.querySelectorAll('.wf-node.selected').forEach(n => n.classList.remove('selected'));
+        syncWfInspector();
       }
       if (wfCanvas.selectedEdgeId) {
         wfCanvas.selectedEdgeId = null;
@@ -1909,12 +2286,12 @@ if (els.wfSelect) {
   });
 }
 if (els.btnWfNew) {
-  els.btnWfNew.addEventListener('click', () => {
+  els.btnWfNew.addEventListener('click', async () => {
     const id = `wf-${Date.now()}`;
     const newWf = {
       id,
       name: `新建工作流 ${state.workflows.length + 1}`,
-      desc: '自定义编排流',
+      desc: '',
       enabled: true,
       nodes: [
         { id: 'node-1', type: 'trigger/manual', title: '手动触发', x: 80, y: 120 }
@@ -1925,14 +2302,60 @@ if (els.btnWfNew) {
     state.currentWorkflowId = id;
     renderWorkflowSelector();
     loadCurrentWorkflow();
-    window.host.saveWorkflow(newWf);
-    logToWfConsole(`✓ 已创建新工作流: ${newWf.name}`);
+    await window.host.saveWorkflow(newWf).catch(() => {});
+    state.workflows = await window.host.listWorkflows().catch(() => state.workflows);
+    renderWorkflowSelector();
+    logToWfConsole(`✓ 已创建新工作流，直接在上方输入名称与描述即可 (自动保存)`);
+    // 引导用户立即命名：聚焦并全选名称输入框
+    if (els.wfNameInput) {
+      els.wfNameInput.focus();
+      els.wfNameInput.select();
+    }
+  });
+}
+if (els.wfNameInput) {
+  els.wfNameInput.addEventListener('input', () => {
+    if (!currentWorkflow) return;
+    currentWorkflow.name = els.wfNameInput.value;
+    renderWorkflowSelector();
+    scheduleWfAutosave();
+  });
+}
+if (els.wfDescInput) {
+  els.wfDescInput.addEventListener('input', () => {
+    if (!currentWorkflow) return;
+    currentWorkflow.desc = els.wfDescInput.value;
+    scheduleWfAutosave();
+  });
+}
+if (els.wfEnabledToggle) {
+  els.wfEnabledToggle.addEventListener('change', () => {
+    if (!currentWorkflow) return;
+    currentWorkflow.enabled = els.wfEnabledToggle.checked;
+    scheduleWfAutosave();
+    logToWfConsole(currentWorkflow.enabled
+      ? '⚡ 已启用自动触发：匹配的剪贴板内容变化将自动运行此工作流'
+      : '🛑 已禁用自动触发：仅可手动运行测试');
+  });
+}
+if (els.wfLibSearch) {
+  els.wfLibSearch.addEventListener('input', () => {
+    state.wfLibQuery = els.wfLibSearch.value;
+    renderWorkflowLib();
+  });
+}
+if (els.wfInspClose) {
+  els.wfInspClose.addEventListener('click', () => {
+    wfCanvas.selectedNodeId = null;
+    document.querySelectorAll('.wf-node.selected').forEach(n => n.classList.remove('selected'));
+    syncWfInspector();
   });
 }
 if (els.btnWfSave) {
   els.btnWfSave.addEventListener('click', async () => {
     if (!currentWorkflow) return;
-    await window.host.saveWorkflow(currentWorkflow);
+    state.workflows = await window.host.saveWorkflow(currentWorkflow);
+    renderWorkflowSelector();
     const orig = els.btnWfSave.textContent;
     els.btnWfSave.textContent = '✓ 已保存';
     setTimeout(() => { if (els.btnWfSave) els.btnWfSave.textContent = orig; }, 1000);
@@ -1967,6 +2390,28 @@ window.host.onPaletteFocus(() => {
     checkClipboardSmartPeek();
   }
 });
+
+// 自动触发 (剪贴板监听等) 的执行结果实时镜像到工作流控制台
+if (window.host.onWorkflowEvent) {
+  window.host.onWorkflowEvent(p => {
+    if (!p || p.event !== 'auto-run') return;
+    if (p.ok) {
+      const totalMs = (p.logs || []).reduce((acc, l) => acc + (l.duration || 0), 0);
+      logToWfConsole(`⚡ 自动触发 [${p.name}] (剪贴板 · ${p.detectedType}) ✓ 成功 · ${totalMs}ms`);
+    } else {
+      logToWfConsole(`⚡ 自动触发 [${p.name}] (剪贴板 · ${p.detectedType}) ❌ 失败: ${p.error || '未知错误'}`);
+    }
+  });
+}
+
+// 供 UI 自动化测试驱动工作流视图
+window.__wfTestApi = {
+  selectWorkflow,
+  runCurrentWorkflow,
+  addNodeToCanvas,
+  getCurrentWorkflow: () => currentWorkflow,
+  getCanvasState: () => ({ ...wfCanvas }),
+};
 if (window.host.onOpenPlugin) {
   window.host.onOpenPlugin(id => {
     openPlugin(id);
@@ -2045,7 +2490,10 @@ async function collectActionPaletteItems() {
   }
 
   // 2. 跨插件管道流转 (Pipeline)
-  const currentText = els.search.value.trim() || (await window.host.readClipboardText().catch(() => ''));
+  let windowSel = '';
+  try { windowSel = window.getSelection ? window.getSelection().toString().trim() : ''; } catch {}
+  const currentText = windowSel || els.search.value.trim() || (await window.host.readClipboardText().catch(() => ''));
+  const isFromSel = !!windowSel;
   if (currentText) {
     let type = 'text/plain';
     if (/^\s*[\{\[]/.test(currentText)) {
@@ -2060,15 +2508,18 @@ async function collectActionPaletteItems() {
 
     const envelope = { type, value: currentText };
     const pipeActions = await window.host.getPipelineActions(envelope).catch(() => []);
+    const groupTitle = isZh
+      ? (isFromSel ? '⚡ 划选内容管道流转 (Selection)' : '⚡ 跨插件管道流转 (Pipeline)')
+      : (isFromSel ? '⚡ Selection Transit' : '⚡ Pipeline Transit');
     for (const pa of pipeActions) {
       const pTitle = isZh ? (pa.title.zh || pa.title.en) : (pa.title.en || pa.title.zh);
       items.push({
-        group: isZh ? '⚡ 跨插件管道流转 (Pipeline)' : '⚡ Pipeline Transit',
+        group: groupTitle,
         icon: '⚡',
         title: pTitle,
         sub: `${type} ➔ ${pa.pluginId}`,
-        badge: 'Transit',
-        searchKey: `pipeline 流转 管道 ${pTitle} ${pa.pluginId}`.toLowerCase(),
+        badge: isFromSel ? (isZh ? '划选直达' : 'Selection') : 'Transit',
+        searchKey: `pipeline 流转 管道 划选 ${pTitle} ${pa.pluginId}`.toLowerCase(),
         run: () => openPlugin(pa.pluginId, { payload: envelope }),
       });
     }

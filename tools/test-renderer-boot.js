@@ -284,6 +284,25 @@ app.whenReady().then(async () => {
   if (!standalonePalState.hasWrapper || standalonePalState.totalItems === 0 || standalonePalState.screenshotMatchesCount === 0) {
     throw new Error('Standalone Palette window failed to render or search plugins!');
   }
+
+  // Test selection text trigger in standalone palette
+  palWin.webContents.send('palette-focus', { selectedText: '{"appName":"orbit","version":"0.1.0"}' });
+  await new Promise(r => setTimeout(r, 300));
+  const selectionPipelineTest = await palWin.webContents.executeJavaScript(`
+    (async () => {
+      const items = Array.from(document.querySelectorAll('.ap-item')).map(el => el.textContent);
+      const jsonPipelineItem = items.find(txt => txt.includes('JSON') || txt.includes('投递'));
+      return {
+        hasJsonPipeline: !!jsonPipelineItem,
+        itemText: jsonPipelineItem || null,
+      };
+    })()
+  `);
+  console.log('Selection pipeline test output:', selectionPipelineTest);
+  if (!selectionPipelineTest.hasJsonPipeline) {
+    throw new Error('Selection pipeline failed to detect JSON payload!');
+  }
+
   palWin.close();
 
   manager.deactivateAll();

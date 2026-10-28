@@ -5,7 +5,14 @@ const fs = require('fs');
 const { WorkflowManager } = require('./workflows');
 
 module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindow, getPaletteWindow, openWorkbench, toggleActionPalette }) {
-  const workflowManager = new WorkflowManager(cfg, manager);
+  const workflowManager = new WorkflowManager(cfg, manager, {
+    // auto-runs (clipboard triggers etc.) are mirrored to the host window so
+    // the workflow console can show them live while the canvas is open
+    onEvent: payload => {
+      const host = getHostWindow && getHostWindow();
+      if (host && !host.isDestroyed()) host.webContents.send('workflow-event', payload);
+    }
+  });
 
   ipcMain.handle('boot', () => ({
     platform: process.platform,
@@ -53,6 +60,14 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   ipcMain.handle('read-clipboard-text', () => {
     const { clipboard } = require('electron');
     return clipboard.readText();
+  });
+  ipcMain.handle('capture-selection', async () => {
+    try {
+      const { captureActiveSelection } = require('./selection');
+      return await captureActiveSelection({ timeoutMs: 90 });
+    } catch {
+      return { ok: false, text: null };
+    }
   });
   ipcMain.handle('write-clipboard-text', (e, text) => {
     const { clipboard } = require('electron');

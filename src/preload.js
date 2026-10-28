@@ -36,9 +36,11 @@ contextBridge.exposeInMainWorld('host', {
   detectSmartPeek: text => ipcRenderer.invoke('smart-peek-detect', text),
   getPipelineActions: envelope => ipcRenderer.invoke('get-pipeline-actions', envelope),
   readClipboardText: () => ipcRenderer.invoke('read-clipboard-text'),
+  captureSelection: () => ipcRenderer.invoke('capture-selection'),
   writeClipboardText: text => ipcRenderer.invoke('write-clipboard-text', text),
   listWorkflows: () => ipcRenderer.invoke('workflow-list'),
   saveWorkflow: wf => ipcRenderer.invoke('workflow-save', wf),
   deleteWorkflow: id => ipcRenderer.invoke('workflow-delete', id),
   runWorkflow: (id, input) => ipcRenderer.invoke('workflow-run', { id, input }),
+  onWorkflowEvent: fn => on('workflow-event', fn),
 });

@@ -104,6 +104,32 @@ Orbit Toolbox 支持两类插件目录（用户插件在 ID 冲突时具有更�
 | `panel` | object | ✓ | 主界面点击进入的面板配置：`{ "script": "panel.js", "style": "panel.css" }` |
 | `backend` | string | | 主进程入口文件（如 `"backend.js"`），若无需后台逻辑可省略 |
 | `actions` | array | | 全局热键动作配置项数组，定义用户可在后台直接快捷触发的动作 |
+| `consumes` | string[] | | 声明可接收的输入信封类型（如 `["application/json", "text/plain"]`），用于跨插件管道流转推荐 |
+| `capabilities` | array | | 声明可被工作流编排的能力节点，详见下节 |
+
+### 工作流能力声明 (capabilities)
+
+`capabilities` 让插件的能力出现在工作流画布的「插件能力」节点库中，可被用户拖入流程编排：
+
+```json
+"capabilities": [
+  {
+    "id": "shout",
+    "type": "text/plain",
+    "method": "makeLoud",
+    "title": { "zh": "文本大喊", "en": "Shout" }
+  }
+]
+```
+
+| 字段 | 说明 |
+|---|---|
+| `id` | 能力唯一标识（工作流节点保存 `capabilityId`） |
+| `type` | 声明该能力消费/匹配的信封类型；若属于内置识别类型（`application/json`、`text/timestamp`、`text/jwt`、`text/base64`、`text/url`、`system/port`），即使没有 backend 也能自动获得内置转换 |
+| `method` | 可选，backend 中处理该能力的 IPC 方法名；缺省等于 `id` |
+| `title` | 节点库中展示的双语标题 |
+
+工作流执行 `action/plugin` 节点时按顺序解析：**① backend 处理器**（以 `method` 为方法名，收到 `{ value, type, config }` 信封，返回字符串 / `{ value, type }` 信封 / 任意 JSON 均可）→ **② 按 `type` 的内置转换** → ③ 都没有则明确报错。同一能力同时服务于面板、全局热键与工作流，无需重复实现。
 
 ---
 

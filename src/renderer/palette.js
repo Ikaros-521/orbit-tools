@@ -15,6 +15,7 @@
     filtered: [],
     index: 0,
     lang: 'zh',
+    selectedText: null, // 划选/选中文本
   };
 
   function escapeHtml(s) {
@@ -38,9 +39,44 @@
     state.lang = lang;
     document.body.className = `lang-${lang}`;
     if (window.I18N) window.I18N.lang = lang;
-    els.input.placeholder = lang === 'en'
-      ? 'Search actions, plugins or commands…'
-      : '输入动作、插件名称或命令…';
+    updatePlaceholder();
+  }
+
+  function updatePlaceholder() {
+    const isZh = state.lang !== 'en';
+    if (state.selectedText) {
+      const preview = state.selectedText.length > 24
+        ? `${state.selectedText.slice(0, 24)}…`
+        : state.selectedText;
+      els.input.placeholder = isZh
+        ? `针对划选「${preview}」搜索处理动作或插件…`
+        : `Search actions for selection "${preview}"…`;
+    } else {
+      els.input.placeholder = isZh
+        ? '输入动作、插件名称或命令…'
+        : 'Search actions, plugins or commands…';
+    }
+  }
+
+  function detectPayload(raw) {
+    if (!raw || !raw.trim()) return null;
+    const text = raw.trim();
+    if (/^\s*[\{\[]/.test(text)) {
+      try {
+        JSON.parse(text);
+        return { type: 'application/json', labelZh: 'JSON 数据', labelEn: 'JSON' };
+      } catch {}
+    }
+    if (/^\d{10}(\d{3})?$/.test(text)) {
+      return { type: 'text/timestamp', labelZh: 'Unix 时间戳', labelEn: 'Timestamp' };
+    }
+    if (/^ey[A-Za-z0-9_-]+\.ey/.test(text)) {
+      return { type: 'text/jwt', labelZh: 'JWT 令牌', labelEn: 'JWT' };
+    }
+    if (/^https?:\/\//i.test(text)) {
+      return { type: 'text/url', labelZh: 'URL 网址', labelEn: 'URL' };
+    }
+    return { type: 'text/plain', labelZh: '文本内容', labelEn: 'Text' };
   }
 
   async function collectItems() {
@@ -48,30 +84,57 @@
     const isZh = state.lang !== 'en';
 
     // 1. 跨插件管道流转 (Pipeline)
-    const currentText = els.input.value.trim() || (await window.host.readClipboardText().catch(() => ''));
-    if (currentText) {
-      let type = 'text/plain';
-      if (/^\s*[\{\[]/.test(currentText)) {
-        try { JSON.parse(currentText); type = 'application/json'; } catch {}
-      } else if (/^\d{10}(\d{3})?$/.test(currentText)) {
-        type = 'text/timestamp';
-      } else if (/^ey[A-Za-z0-9_-]+\.ey/.test(currentText)) {
-        type = 'text/jwt';
-      } else if (/^https?:\/\//.test(currentText)) {
-        type = 'text/url';
-      }
+    // 优先级 1: 外部活动软件直接划选的文本
+    // 优先级 2: 用户当前在输入框粘贴/输入的特征文本 (如 JSON / 时间戳 / URL)
+    // 优先级 3: 系统剪贴板内容
+    let payloadText = state.selectedText;
+    let payloadSource = 'selection';
 
-      const envelope = { type, value: currentText };
+    if (!payloadText && els.input.value.trim()) {
+      const inputVal = els.input.value.trim();
+      const detectedInput = detectPayload(inputVal);
+      if (detectedInput && detectedInput.type !== 'text/plain') {
+        payloadText = inputVal;
+        payloadSource = 'input';
+      }
+    }
+
+    if (!payloadText) {
+      const clipText = await window.host.readClipboardText().catch(() => '');
+      if (clipText && clipText.trim()) {
+        payloadText = clipText.trim();
+        payloadSource = 'clipboard';
+      }
+    }
+
+    if (payloadText) {
+      const detected = detectPayload(payloadText);
+      const envelope = { type: detected.type, value: payloadText };
       const pipeActions = await window.host.getPipelineActions(envelope).catch(() => []);
+
+      const previewText = payloadText.length > 40
+        ? `${payloadText.slice(0, 40).replace(/[\r\n]+/g, ' ')}…`
+        : payloadText.replace(/[\r\n]+/g, ' ');
+
+      const groupLabel = isZh
+        ? (payloadSource === 'selection' ? '⚡ 划选内容管道流转 (Selection Transit)' : '⚡ 剪贴板管道流转 (Pipeline Transit)')
+        : (payloadSource === 'selection' ? '⚡ Selection Transit' : '⚡ Clipboard Transit');
+
+      const badgeLabel = payloadSource === 'selection'
+        ? (isZh ? '划选直达' : 'Selection')
+        : (isZh ? '剪贴板' : 'Clipboard');
+
       for (const pa of pipeActions) {
-        const pTitle = isZh ? (pa.title.zh || pa.title.en) : (pa.title.en || pa.title.zh);
+        const pName = isZh ? (pa.pluginName.zh || pa.pluginId) : (pa.pluginName.en || pa.pluginId);
+        const pTitle = isZh ? `投递处理 ➔ ${pName}` : `Send to ➔ ${pName}`;
         items.push({
-          group: isZh ? '⚡ 跨插件管道流转 (Pipeline)' : '⚡ Pipeline Transit',
+          group: groupLabel,
           icon: '⚡',
           title: pTitle,
-          sub: `${type} ➔ ${pa.pluginId}`,
-          badge: 'Transit',
-          searchKey: `pipeline 流转 管道 ${pTitle} ${pa.pluginId}`.toLowerCase(),
+          sub: `[${isZh ? detected.labelZh : detected.labelEn}] "${previewText}"`,
+          badge: badgeLabel,
+          isPipeline: true,
+          searchKey: `pipeline 流转 管道 划选 选中 投递 ${pName} ${pa.pluginId} ${detected.labelZh} ${detected.labelEn} ${detected.type}`.toLowerCase(),
           run: () => {
             window.host.win('hide');
             window.host.openWorkbench({ view: 'panel', pluginId: pa.pluginId, payload: envelope });
@@ -105,7 +168,11 @@
         run: () => {
           window.host.win('hide');
           if (p.panel) {
-            window.host.openWorkbench({ view: 'panel', pluginId: p.id });
+            window.host.openWorkbench({
+              view: 'panel',
+              pluginId: p.id,
+              payload: payloadText ? { type: detectPayload(payloadText).type, value: payloadText } : null
+            });
           } else if (p.actions && p.actions.length > 0) {
             const firstAct = p.actions[0];
             window.host.pluginCall(p.id, firstAct.method || firstAct.id, {}).catch(() => {});
@@ -283,6 +350,7 @@
     const q = els.input.value.trim().toLowerCase();
     state.filtered = state.items.filter(item => {
       if (!q) return true;
+      // 用户在输入框打字时，用于过滤匹配动作的标题、分类、子描述或搜索关键词
       if (item.title && item.title.toLowerCase().includes(q)) return true;
       if (item.sub && item.sub.toLowerCase().includes(q)) return true;
       if (item.searchKey && item.searchKey.includes(q)) return true;
@@ -352,9 +420,20 @@
     window.host.win('hide');
   });
 
+  let inputDebounceTimer = null;
   els.input.addEventListener('input', () => {
     state.index = 0;
-    renderList();
+    // 如果用户输入了特定特征字符串（如打了一个 JSON 或 URL），实时重新收集管道项
+    const val = els.input.value.trim();
+    if (val.startsWith('{') || val.startsWith('[') || val.startsWith('http') || /^\d{10}/.test(val)) {
+      clearTimeout(inputDebounceTimer);
+      inputDebounceTimer = setTimeout(async () => {
+        state.items = await collectItems();
+        renderList();
+      }, 100);
+    } else {
+      renderList();
+    }
   });
 
   window.addEventListener('keydown', e => {
@@ -389,9 +468,11 @@
     }
   });
 
-  window.host.onPaletteFocus(async () => {
+  window.host.onPaletteFocus(async payload => {
     els.input.value = '';
     state.index = 0;
+    state.selectedText = (payload && payload.selectedText) ? String(payload.selectedText).trim() : null;
+    updatePlaceholder();
     state.items = await collectItems();
     renderList();
     setTimeout(() => {

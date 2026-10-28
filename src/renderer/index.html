@@ -292,15 +292,34 @@
           <button type="button" class="btn ghost small warn" id="btnWfDelete">删除</button>
         </div>
         <div class="wf-toolbar-right">
-          <input type="text" id="wfTestInput" class="wf-test-input" placeholder="输入测试数据 (如 JSON/时间戳/端口)…" />
+          <input type="text" id="wfTestInput" class="wf-test-input" placeholder="输入测试数据 (留空则取剪贴板内容)…" />
           <button type="button" class="btn small primary" id="btnWfRun">▶ 运行测试</button>
         </div>
+      </div>
+      <!-- 工作流元信息编辑（名称 / 描述 / 启用自动触发） -->
+      <div class="wf-meta-bar" id="wfMetaBar">
+        <label class="wf-meta-field wf-meta-name">
+          <span class="wf-meta-label">名称</span>
+          <input type="text" id="wfNameInput" placeholder="工作流名称…" spellcheck="false" autocomplete="off" />
+        </label>
+        <label class="wf-meta-field wf-meta-desc">
+          <span class="wf-meta-label">描述</span>
+          <input type="text" id="wfDescInput" placeholder="用途说明 (可选)…" spellcheck="false" autocomplete="off" />
+        </label>
+        <label class="wf-meta-switch" id="wfEnabledWrap" title="禁用后剪贴板等自动触发将不再运行此工作流，手动运行测试不受影响">
+          <input type="checkbox" id="wfEnabledToggle" />
+          <span>启用自动触发</span>
+        </label>
       </div>
       <div class="wf-workbench">
         <!-- 左侧节点库 -->
         <div class="wf-sidebar" id="wfSidebar">
           <div class="wf-lib-title">节点库</div>
-          <div class="wf-lib-desc">点击节点卡片即可添加到画布中</div>
+          <div class="wf-lib-desc">点击或拖拽节点到画布；选中画布节点可在右侧检查器配置参数</div>
+          <div class="wf-lib-search">
+            <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+            <input type="text" id="wfLibSearch" placeholder="搜索节点…" spellcheck="false" autocomplete="off" />
+          </div>
           <div class="wf-lib-list" id="wfLibList"></div>
         </div>
         <!-- 侧边栏宽度拉伸手柄 -->
@@ -318,6 +337,14 @@
             <button type="button" class="wf-ctrl-btn" id="btnWfZoomOut" title="缩小 (−)">−</button>
             <button type="button" class="wf-ctrl-btn" id="btnWfFitView" title="自适应居中 (Fit View)">⊡</button>
             <button type="button" class="wf-ctrl-btn" id="btnWfResetView" title="重置视角 (100%)">1:1</button>
+          </div>
+          <!-- 节点属性检查器：选中画布节点后浮动显示 -->
+          <div class="wf-inspector" id="wfInspector" hidden>
+            <div class="wf-inspector-head">
+              <span class="wf-inspector-type" id="wfInspType"></span>
+              <button type="button" class="wf-inspector-close" id="wfInspClose" title="关闭面板">×</button>
+            </div>
+            <div class="wf-inspector-body" id="wfInspBody"></div>
           </div>
         </div>
       </div>

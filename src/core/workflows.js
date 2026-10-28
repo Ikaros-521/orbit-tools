@@ -1,6 +1,21 @@
 /* Lightweight DAG Workflow Engine & Storage.
    Zero external dependencies. Powers the node-based visual workflow canvas.
-   Ensures complete decoupling from plugins with dynamic self-healing & state guards. */
+   Ensures complete decoupling from plugins with dynamic self-healing & state guards.
+
+   Execution model: nodes run in topological order sharing one envelope
+   { type, value }. A `util/condition` node whose check fails HALTS its branch:
+   downstream nodes whose every predecessor halted are skipped, other branches
+   keep running.
+
+   Plugin action nodes resolve generically, in order:
+     1. plugin backend handler — method = capability.method || capabilityId,
+        called with ({ value, type, config }) and free to return a string,
+        an envelope { value, type } or any JSON (stringified);
+     2. built-in transform derived from the capability's declared envelope type
+        (json format / timestamp / base64 / jwt / url …) via core/capabilities;
+     3. otherwise the node fails loudly — never a silent pass-through. */
+
+const { DETECTORS } = require('./capabilities');
 
 const DEFAULT_WORKFLOWS = [
   {
@@ -35,52 +50,181 @@ const DEFAULT_WORKFLOWS = [
   }
 ];
 
+/* Detector probe order matters: JWT/Base64 overlap with plain text, JSON is
+   the most specific. Mirrors what the smart-peek banner would detect. */
+const DETECT_ORDER = [
+  'application/json', 'text/timestamp', 'text/jwt', 'text/base64', 'text/url', 'system/port'
+];
+
+function detectEnvelopeType(text) {
+  const t = String(text || '').trim();
+  if (!t) return 'text/plain';
+  for (const type of DETECT_ORDER) {
+    const det = DETECTORS[type];
+    if (det && det.test(t)) return type;
+  }
+  return 'text/plain';
+}
+
+function sleep(ms) {
+  return new Promise(r => setTimeout(r, Math.max(0, Math.min(15000, ms))));
+}
+
+const pad = n => String(n).padStart(2, '0');
+const localDateTime = (d = new Date()) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+
+/* Walk "a.b[0].c" style paths into parsed JSON. */
+function pickJsonPath(obj, path) {
+  const segments = String(path || '').split('.').filter(Boolean);
+  let cur = obj;
+  for (const seg of segments) {
+    if (cur === null || cur === undefined) throw new Error(`路径 "${path}" 在 "${seg}" 处中断：上游不是对象`);
+    const m = seg.match(/^([^[\]]+)\[(\d+)\]$/);
+    if (m) {
+      cur = cur[m[1]];
+      if (!Array.isArray(cur)) throw new Error(`路径 "${path}" 失败："${m[1]}" 不是数组`);
+      cur = cur[Number(m[2])];
+    } else {
+      cur = cur[seg];
+    }
+  }
+  if (cur === undefined) throw new Error(`路径 "${path}" 未找到对应字段`);
+  return cur;
+}
+
+/* Built-in transforms reused from the smart-peek detectors so plugin panels,
+   pipeline transit and workflow nodes always agree on the output format. */
+function transformByDetectedType(detectedType, rawText) {
+  const det = DETECTORS[detectedType];
+  if (!det) return null;
+  let res = null;
+  try { res = det.resolve(String(rawText || '').trim()); } catch { res = null; }
+  if (!res) return null;
+  return { type: res.type || detectedType, value: res.copyValue };
+}
+
 class WorkflowRunner {
-  constructor(manager) {
+  constructor(manager, hooks = {}) {
     this.manager = manager;
+    this.hooks = hooks;
   }
 
   async runNode(node, inputEnvelope) {
     const start = Date.now();
     const type = node.type || '';
+    const inputText = inputEnvelope ? String(inputEnvelope.value ?? '') : '';
+    const cfg = node.config || {};
+    const done = (extra = {}) => ({
+      output: extra.output !== undefined ? extra.output : inputEnvelope,
+      duration: Date.now() - start,
+      ok: true,
+      ...extra
+    });
 
-    // 1. Trigger nodes
+    /* --- triggers: pass the initial envelope through ---------------------- */
     if (type.startsWith('trigger/')) {
-      return {
-        output: inputEnvelope || { type: 'text/plain', value: '' },
-        duration: Date.now() - start,
-        ok: true
-      };
+      return done({ output: inputEnvelope || { type: 'text/plain', value: '' } });
     }
 
-    // 2. Output nodes
+    /* --- built-in source & utility nodes ----------------------------------- */
+    if (type === 'source/text') {
+      return done({ output: { type: cfg.type || 'text/plain', value: String(cfg.text ?? '') } });
+    }
+
+    if (type === 'util/delay') {
+      const ms = Number(cfg.ms) || 0;
+      await sleep(ms);
+      return done({ summary: `延时 ${ms}ms` });
+    }
+
+    if (type === 'util/text-template') {
+      const tpl = String(cfg.template ?? '{{value}}');
+      const value = tpl
+        .replaceAll('{{value}}', inputText)
+        .replaceAll('{{type}}', (inputEnvelope && inputEnvelope.type) || 'text/plain')
+        .replaceAll('{{date}}', localDateTime());
+      return done({ output: { type: 'text/plain', value } });
+    }
+
+    if (type === 'util/regex-extract') {
+      const pattern = String(cfg.pattern || '').trim();
+      if (!pattern) throw new Error('未配置正则表达式');
+      let re;
+      try { re = new RegExp(pattern, String(cfg.flags || '')); }
+      catch (err) { throw new Error(`正则表达式无效: ${err.message}`); }
+      const m = re.exec(inputText);
+      if (!m) throw new Error(`内容未匹配到正则 /${pattern}/`);
+      const group = Math.max(0, Number(cfg.group) || 0);
+      const value = m[group] !== undefined ? m[group] : m[0];
+      return done({ output: { type: 'text/plain', value }, summary: `提取: ${String(value).slice(0, 40)}` });
+    }
+
+    if (type === 'util/replace') {
+      const find = String(cfg.find ?? '');
+      if (!find) throw new Error('未配置查找内容');
+      let value;
+      if (cfg.regex) {
+        let re;
+        try { re = new RegExp(find, 'g'); }
+        catch (err) { throw new Error(`正则表达式无效: ${err.message}`); }
+        value = inputText.replace(re, String(cfg.replace ?? ''));
+      } else {
+        value = inputText.split(find).join(String(cfg.replace ?? ''));
+      }
+      return done({ output: { type: 'text/plain', value } });
+    }
+
+    if (type === 'util/json-field') {
+      const path = String(cfg.path || '').trim();
+      if (!path) throw new Error('未配置字段路径');
+      let parsed;
+      try { parsed = JSON.parse(inputText.trim()); }
+      catch { throw new Error('上游输入不是合法 JSON，无法提取字段'); }
+      const picked = pickJsonPath(parsed, path);
+      const isObj = picked !== null && typeof picked === 'object';
+      return done({
+        output: { type: isObj ? 'application/json' : 'text/plain', value: isObj ? JSON.stringify(picked, null, 2) : String(picked) },
+        summary: `已提取字段 ${path}`
+      });
+    }
+
+    if (type === 'util/condition') {
+      const mode = cfg.mode || 'contains';
+      const target = String(cfg.value ?? '');
+      let pass = false;
+      if (mode === 'contains') pass = inputText.includes(target);
+      else if (mode === 'equals') pass = inputText === target;
+      else if (mode === 'startsWith') pass = inputText.startsWith(target);
+      else if (mode === 'regex') {
+        try { pass = new RegExp(target).test(inputText); }
+        catch (err) { throw new Error(`正则表达式无效: ${err.message}`); }
+      }
+      else if (mode === 'notEmpty') pass = inputText.trim().length > 0;
+      else if (mode === 'empty') pass = inputText.trim().length === 0;
+      else throw new Error(`未知判断方式 "${mode}"`);
+      if (!pass) return done({ halt: true, summary: `条件不满足 (${mode})，下游分支已跳过` });
+      return done({ summary: `条件满足 (${mode})` });
+    }
+
+    /* --- outputs ------------------------------------------------------------ */
     if (type === 'output/clipboard') {
-      const val = inputEnvelope ? String(inputEnvelope.value || '') : '';
       const { clipboard } = require('electron');
-      clipboard.writeText(val);
-      return {
-        output: inputEnvelope,
-        duration: Date.now() - start,
-        ok: true,
-        summary: `已写入剪贴板 (${val.length} 字符)`
-      };
+      clipboard.writeText(inputText);
+      if (this.hooks.onClipboardWrite) this.hooks.onClipboardWrite(inputText);
+      return done({ summary: `已写入剪贴板 (${inputText.length} 字符)` });
     }
 
     if (type === 'output/notification') {
       const { Notification } = require('electron');
-      const val = inputEnvelope ? String(inputEnvelope.value || '') : '工作流运行完成';
+      const val = inputText || '工作流运行完成';
       if (Notification.isSupported()) {
         new Notification({
           title: 'Orbit 工作流通知',
           body: val.length > 100 ? val.slice(0, 100) + '…' : val
         }).show();
       }
-      return {
-        output: inputEnvelope,
-        duration: Date.now() - start,
-        ok: true,
-        summary: '通知已发送'
-      };
+      return done({ summary: '通知已发送' });
     }
 
     if (type === 'output/panel') {
@@ -89,70 +233,97 @@ class WorkflowRunner {
         this.manager.bringToForeground(host);
         host.webContents.send('open-plugin', node.pluginId);
       }
-      return {
-        output: inputEnvelope,
-        duration: Date.now() - start,
-        ok: true,
-        summary: `已唤起插件面板 (${node.pluginId})`
-      };
+      return done({ summary: `已唤起插件面板 (${node.pluginId})` });
     }
 
-    // 3. Plugin Action nodes (dynamic self-healing)
+    /* --- plugin action nodes (generic, self-healing) ------------------------ */
     if (type === 'action/plugin') {
-      const plugin = this.manager.plugins.get(node.pluginId);
-      if (!plugin) {
-        throw new Error(`目标插件 "${node.pluginId}" 未安装`);
-      }
-      if (!plugin.enabled) {
-        throw new Error(`目标插件 "${node.pluginId}" 当前处于禁用状态，工作流安全熔断`);
-      }
-
-      // Execute capability action based on capabilityId
-      let transformed = inputEnvelope;
-      const rawText = inputEnvelope ? String(inputEnvelope.value || '') : '';
-
-      if (node.capabilityId === 'json-format' || node.pluginId === 'json-editor') {
-        try {
-          const parsed = JSON.parse(rawText.trim());
-          transformed = { type: 'application/json', value: JSON.stringify(parsed, null, 2) };
-        } catch {
-          throw new Error('输入的不是合法 JSON 文本');
-        }
-      } else if (node.capabilityId === 'timestamp' || (node.pluginId === 'codec-lab' && node.capabilityId === 'timestamp')) {
-        const trimmed = rawText.trim();
-        let ms = Number(trimmed);
-        if (trimmed.length === 10) ms *= 1000;
-        const d = new Date(ms);
-        if (isNaN(d.getTime())) throw new Error(`无法将 "${rawText}" 解析为有效时间戳`);
-        const pad = n => String(n).padStart(2, '0');
-        const formatted = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
-        transformed = { type: 'text/plain', value: formatted };
-      } else if (node.capabilityId === 'base64' || (node.pluginId === 'codec-lab' && node.capabilityId === 'base64')) {
-        try {
-          const decoded = Buffer.from(rawText.trim(), 'base64').toString('utf8');
-          transformed = { type: 'text/plain', value: decoded };
-        } catch {
-          throw new Error('Base64 解码失败');
-        }
-      } else if (node.capabilityId === 'port-inspect' || node.pluginId === 'port-scope') {
-        const port = Number(rawText.replace(/^:/, '').trim());
-        const inspectRes = await this.manager.call('port-scope', 'inspectPort', { port });
-        const count = inspectRes && inspectRes.matches ? inspectRes.matches.length : 0;
-        transformed = {
-          type: 'system/port-info',
-          value: count > 0 ? `端口 ${port} 已被占用 (PID: ${inspectRes.matches[0].pid})` : `端口 ${port} 空闲可用`,
-          matches: inspectRes.matches || []
-        };
-      }
-
-      return {
-        output: transformed,
-        duration: Date.now() - start,
-        ok: true
-      };
+      return done(await this.runPluginAction(node, inputEnvelope));
     }
 
-    return { output: inputEnvelope, duration: Date.now() - start, ok: true };
+    return done({ summary: `未知节点类型 ${type}，已原样透传` });
+  }
+
+  async runPluginAction(node, inputEnvelope) {
+    const plugin = this.manager.plugins.get(node.pluginId);
+    if (!plugin) throw new Error(`目标插件 "${node.pluginId}" 未安装`);
+    if (!plugin.enabled) throw new Error(`目标插件 "${node.pluginId}" 当前处于禁用状态，工作流安全熔断`);
+
+    const capDecl = (plugin.manifest.capabilities || [])
+      .find(c => c && c.id === node.capabilityId);
+    const inputText = inputEnvelope ? String(inputEnvelope.value ?? '') : '';
+    const callArgs = {
+      value: inputText,
+      type: (inputEnvelope && inputEnvelope.type) || detectEnvelopeType(inputText),
+      config: node.config || {}
+    };
+
+    // 1. plugin backend handler — the plugin owns the logic
+    if (plugin.manifest.backend && capDecl) {
+      const method = capDecl.method || node.capabilityId;
+      try {
+        const res = await this.manager.call(node.pluginId, method, callArgs);
+        return this.normalizePluginResult(res, node, callArgs);
+      } catch (err) {
+        if (!/has no handler/.test(String(err.message))) throw err;
+        // no handler registered — fall through to the built-in transform
+      }
+    }
+
+    // 2. built-in transform derived from the declared envelope type
+    if (capDecl && capDecl.type) {
+      const transformed = transformByDetectedType(capDecl.type, inputText);
+      if (transformed) return { output: transformed, summary: `内置转换 (${capDecl.type})` };
+    }
+
+    // 3. legacy fallbacks keyed on capability id
+    const legacy = this.legacyTransform(node, inputText);
+    if (legacy) return legacy;
+
+    throw new Error(
+      `插件 "${node.pluginId}" 的能力 "${node.capabilityId}" 未提供可执行处理器` +
+      (plugin.manifest.backend ? '' : ' (该插件没有 backend)')
+    );
+  }
+
+  /* Normalize whatever a plugin handler returned into an envelope. */
+  normalizePluginResult(res, node, callArgs) {
+    if (res === null || res === undefined) {
+      return { output: { type: callArgs.type, value: callArgs.value }, summary: '插件处理器无返回值，原样透传' };
+    }
+    if (typeof res === 'string') {
+      return { output: { type: 'text/plain', value: res }, summary: `插件返回文本 (${res.length} 字符)` };
+    }
+    if (res && typeof res === 'object' && !Array.isArray(res) && res.ok === false) {
+      throw new Error(res.error || `插件 "${node.pluginId}" 处理失败`);
+    }
+    if (res && typeof res === 'object' && !Array.isArray(res) && typeof res.value !== 'undefined' && !res.ok && !res.matches) {
+      return { output: { type: res.type || 'text/plain', value: String(res.value) }, summary: '插件返回信封' };
+    }
+    const json = JSON.stringify(res, null, 2);
+    return { output: { type: 'application/json', value: json }, summary: `插件返回 JSON (${json.length} 字符)` };
+  }
+
+  /* Kept for backwards compatibility with workflows saved against the old
+     hardcoded engine (port inspection formatting lives here). */
+  legacyTransform(node, rawText) {
+    if (node.capabilityId === 'port-inspect' || node.pluginId === 'port-scope') {
+      const port = Number(rawText.replace(/^:/, '').trim());
+      return this.manager.call('port-scope', 'inspectPort', { port }).then(inspectRes => {
+        const matches = inspectRes && inspectRes.matches ? inspectRes.matches : [];
+        return {
+          output: {
+            type: 'system/port-info',
+            value: matches.length > 0
+              ? `端口 ${port} 已被占用 (PID: ${matches[0].pid})`
+              : `端口 ${port} 空闲可用`,
+            matches
+          },
+          summary: `端口 ${port} 探测完成`
+        };
+      });
+    }
+    return null;
   }
 
   async execute(workflow, initialEnvelope) {
@@ -161,15 +332,17 @@ class WorkflowRunner {
       return { ok: false, error: '工作流未定义任何节点', logs };
     }
 
-    // Build adjacency list for topological execution
+    // Build adjacency + predecessor lists for topological execution
     const nodesMap = new Map(workflow.nodes.map(n => [n.id, n]));
     const inDegree = new Map(workflow.nodes.map(n => [n.id, 0]));
     const nextMap = new Map(workflow.nodes.map(n => [n.id, []]));
+    const predsMap = new Map(workflow.nodes.map(n => [n.id, []]));
 
     for (const edge of (workflow.edges || [])) {
       if (nodesMap.has(edge.from) && nodesMap.has(edge.to)) {
         inDegree.set(edge.to, (inDegree.get(edge.to) || 0) + 1);
         nextMap.get(edge.from).push(edge.to);
+        predsMap.get(edge.to).push(edge.from);
       }
     }
 
@@ -184,6 +357,7 @@ class WorkflowRunner {
 
     let currentPayload = initialEnvelope || { type: 'text/plain', value: '' };
     const executed = new Set();
+    const halted = new Set(); // condition-failed (or fully-blocked) node ids
 
     while (queue.length > 0) {
       const nodeId = queue.shift();
@@ -193,16 +367,30 @@ class WorkflowRunner {
       const node = nodesMap.get(nodeId);
       if (!node) continue;
 
+      // A node whose every predecessor halted is itself skipped (branch cut)
+      const preds = predsMap.get(nodeId) || [];
+      if (preds.length > 0 && preds.every(p => halted.has(p))) {
+        halted.add(nodeId);
+        logs.push({ nodeId: node.id, title: node.title, type: node.type, ok: true, skipped: true, summary: '上游分支已终止，节点跳过' });
+        for (const nextId of (nextMap.get(nodeId) || [])) {
+          inDegree.set(nextId, (inDegree.get(nextId) || 0) - 1);
+          if (inDegree.get(nextId) <= 0) queue.push(nextId);
+        }
+        continue;
+      }
+
       try {
         const step = await this.runNode(node, currentPayload);
         currentPayload = step.output;
+        if (step.halt) halted.add(nodeId);
         logs.push({
           nodeId: node.id,
           title: node.title,
           type: node.type,
           duration: step.duration,
-          summary: step.summary || (currentPayload ? String(currentPayload.value || '').slice(0, 40) : ''),
-          ok: true
+          summary: step.summary || (currentPayload ? String(currentPayload.value ?? '').slice(0, 40) : ''),
+          ok: true,
+          skipped: !!step.halt
         });
       } catch (err) {
         logs.push({
@@ -216,7 +404,7 @@ class WorkflowRunner {
       }
 
       for (const nextId of (nextMap.get(nodeId) || [])) {
-        inDegree.set(nextId, inDegree.get(nextId) - 1);
+        inDegree.set(nextId, (inDegree.get(nextId) || 0) - 1);
         if (inDegree.get(nextId) <= 0) queue.push(nextId);
       }
     }
@@ -226,15 +414,25 @@ class WorkflowRunner {
 }
 
 class WorkflowManager {
-  constructor(config, pluginManager) {
+  constructor(config, pluginManager, opts = {}) {
     this.config = config;
     this.pluginManager = pluginManager;
-    this.runner = new WorkflowRunner(pluginManager);
+    this.onEvent = opts.onEvent || null;
+    this.clipboardPollMs = Number(opts.clipboardPollMs) || 900;
+    this.seedDefaults = opts.seedDefaults !== false;
+    this.runner = new WorkflowRunner(pluginManager, {
+      onClipboardWrite: text => this.suppressClipboardText(text)
+    });
+    this._watchTimer = null;
+    this._lastClipboardText = null;
+    this._suppressedTexts = new Set();
     this.init();
+    this.syncClipboardWatch();
   }
 
   init() {
-    if (!Array.isArray(this.config.data.workflows) || this.config.data.workflows.length === 0) {
+    const cur = this.config.data.workflows;
+    if (this.seedDefaults && (!Array.isArray(cur) || cur.length === 0)) {
       this.config.set({ workflows: JSON.parse(JSON.stringify(DEFAULT_WORKFLOWS)) });
     }
   }
@@ -244,21 +442,31 @@ class WorkflowManager {
   }
 
   save(wf) {
-    if (!wf || !wf.id) throw new Error('invalid workflow object');
+    if (!wf || typeof wf !== 'object' || !wf.id) throw new Error('invalid workflow object');
+    const clean = {
+      ...wf,
+      name: String(wf.name || '').trim() || '未命名工作流',
+      desc: String(wf.desc || ''),
+      enabled: wf.enabled !== false,
+      nodes: Array.isArray(wf.nodes) ? wf.nodes : [],
+      edges: Array.isArray(wf.edges) ? wf.edges : []
+    };
     const list = [...this.list()];
-    const idx = list.findIndex(x => x.id === wf.id);
+    const idx = list.findIndex(x => x.id === clean.id);
     if (idx >= 0) {
-      list[idx] = wf;
+      list[idx] = clean;
     } else {
-      list.push(wf);
+      list.push(clean);
     }
     this.config.set({ workflows: list });
+    this.syncClipboardWatch();
     return list;
   }
 
   delete(id) {
     const list = this.list().filter(x => x.id !== id);
     this.config.set({ workflows: list });
+    this.syncClipboardWatch();
     return list;
   }
 
@@ -267,10 +475,97 @@ class WorkflowManager {
     if (!wf) throw new Error(`工作流 "${id}" 不存在`);
     return this.runner.execute(wf, initialEnvelope);
   }
+
+  /* --- clipboard auto-trigger ----------------------------------------------
+
+     Watches the system clipboard; when the text changes, every ENABLED
+     workflow that contains a `trigger/clipboard` node whose configured type
+     matches the detected content type runs automatically. Writes made by
+     workflow output nodes are suppressed so a workflow that formats the
+     clipboard doesn't re-trigger itself in a loop. */
+
+  hasClipboardTrigger(wf) {
+    return (wf.nodes || []).some(n => n && n.type === 'trigger/clipboard');
+  }
+
+  syncClipboardWatch() {
+    const need = this.list().some(wf => wf.enabled !== false && this.hasClipboardTrigger(wf));
+    if (need && !this._watchTimer) {
+      try {
+        const { clipboard } = require('electron');
+        this._lastClipboardText = clipboard.readText();
+      } catch { this._lastClipboardText = null; }
+      this._watchTimer = setInterval(() => this.pollClipboard(), this.clipboardPollMs);
+      if (this._watchTimer.unref) this._watchTimer.unref();
+    } else if (!need && this._watchTimer) {
+      this.stopClipboardWatch();
+    }
+  }
+
+  stopClipboardWatch() {
+    if (this._watchTimer) {
+      clearInterval(this._watchTimer);
+      this._watchTimer = null;
+    }
+  }
+
+  suppressClipboardText(text) {
+    if (typeof text === 'string' && text) this._suppressedTexts.add(text);
+  }
+
+  pollClipboard() {
+    let text;
+    try {
+      const { clipboard } = require('electron');
+      text = clipboard.readText();
+    } catch { return; }
+    if (text === this._lastClipboardText) return;
+    this._lastClipboardText = text;
+    const suppressed = this._suppressedTexts.has(text);
+    this._suppressedTexts.clear();
+    if (suppressed || !text || !text.trim()) return;
+    this.fireClipboardTriggers(text).catch(() => { /* logged per workflow */ });
+  }
+
+  async fireClipboardTriggers(text) {
+    const detected = detectEnvelopeType(text);
+    const envelope = { type: detected, value: text };
+    for (const wf of this.list()) {
+      if (wf.enabled === false) continue;
+      const trig = (wf.nodes || []).find(n => n && n.type === 'trigger/clipboard');
+      if (!trig) continue;
+      const want = (trig.config && trig.config.type) || 'any';
+      if (want !== 'any' && want !== detected) continue;
+      let res;
+      try {
+        res = await this.runner.execute(wf, envelope);
+      } catch (err) {
+        res = { ok: false, error: String(err && err.message || err), logs: [] };
+      }
+      this.emit({
+        event: 'auto-run',
+        trigger: 'clipboard',
+        detectedType: detected,
+        id: wf.id,
+        name: wf.name,
+        ok: res.ok,
+        error: res.error || null,
+        logs: res.logs || [],
+        finalOutput: res.finalOutput || null
+      });
+    }
+  }
+
+  emit(payload) {
+    if (typeof this.onEvent === 'function') {
+      try { this.onEvent(payload); } catch { /* listener's own problem */ }
+    }
+  }
 }
 
 module.exports = {
   WorkflowManager,
   WorkflowRunner,
-  DEFAULT_WORKFLOWS
+  DEFAULT_WORKFLOWS,
+  detectEnvelopeType
 };
