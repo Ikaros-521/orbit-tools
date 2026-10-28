@@ -1,26 +1,37 @@
 /* clip-history panel styles */
 .clip-container {
   height: 100%;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--void);
+  box-sizing: border-box;
+  container-type: inline-size;
+  container-name: clipContainer;
 }
 
 .clip-toolbar {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 14px;
+  padding: 8px 12px;
   background: var(--panel-lo);
   border-bottom: 1px solid var(--line);
   flex-shrink: 0;
+  flex-wrap: wrap;
+  width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .clip-search-box {
   position: relative;
-  flex: 1;
-  min-width: 140px;
+  flex: 1 1 180px;
+  min-width: 120px;
 }
 
 .clip-search-input {
@@ -34,6 +45,7 @@
   font-size: 12.5px;
   font-family: inherit;
   outline: none;
+  box-sizing: border-box;
   transition: border-color .15s ease, box-shadow .15s ease;
 }
 
@@ -49,19 +61,23 @@
   border-radius: var(--r-sm);
   padding: 2px;
   gap: 2px;
+  flex-shrink: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .clip-filter-btn {
   background: transparent;
   border: none;
   border-radius: 6px;
-  padding: 4px 10px;
+  padding: 4px 9px;
   font-size: 11.5px;
   font-weight: 500;
   color: var(--ink-dim);
   cursor: pointer;
   transition: all .15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .clip-filter-btn:hover {
@@ -77,7 +93,7 @@
 
 .clip-btn {
   height: 32px;
-  padding: 0 12px;
+  padding: 0 10px;
   border-radius: var(--r-sm);
   font-size: 12px;
   font-family: inherit;
@@ -90,6 +106,8 @@
   gap: 5px;
   transition: all .15s ease;
   white-space: nowrap;
+  flex-shrink: 0;
+  box-sizing: border-box;
 }
 
 .clip-btn:hover {
@@ -107,6 +125,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
+  flex-shrink: 0;
 }
 
 .clip-cap-label {
@@ -127,6 +146,8 @@
   outline: none;
   cursor: pointer;
   transition: all .15s ease;
+  max-width: 140px;
+  box-sizing: border-box;
 }
 
 .clip-cap-select:hover {
@@ -144,16 +165,186 @@
   color: var(--ink-dim);
   white-space: nowrap;
   font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* Responsive: Narrow / Small Window Adaptation */
+@container clipContainer (max-width: 780px) {
+  .clip-toolbar {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .clip-search-box {
+    flex: 1 1 100%;
+    width: 100%;
+    order: 1;
+  }
+
+  .clip-filter-seg {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .clip-filter-seg::-webkit-scrollbar {
+    display: none;
+  }
+
+  .clip-filter-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
+  .clip-btn-clear {
+    order: 3;
+    padding: 0 8px;
+    font-size: 11.5px;
+  }
+
+  .clip-cap-setting {
+    order: 4;
+  }
+
+  .clip-stats {
+    order: 5;
+    margin-left: auto;
+    font-size: 11px;
+  }
+}
+
+@container clipContainer (max-width: 520px) {
+  .clip-toolbar {
+    padding: 6px 8px;
+    gap: 5px;
+  }
+
+  .clip-search-input {
+    height: 30px;
+    font-size: 12px;
+  }
+
+  .clip-cap-label {
+    display: none;
+  }
+
+  .clip-cap-select {
+    height: 30px;
+    padding: 0 4px;
+    font-size: 11px;
+    max-width: 90px;
+  }
+
+  .clip-btn {
+    height: 30px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .clip-filter-btn {
+    padding: 3px 6px;
+    font-size: 10.5px;
+  }
+}
+
+/* Fallback Media Queries if Container Queries not active */
+@media screen and (max-width: 780px) {
+  .clip-toolbar {
+    padding: 8px 10px;
+    gap: 6px;
+  }
+
+  .clip-search-box {
+    flex: 1 1 100%;
+    width: 100%;
+    order: 1;
+  }
+
+  .clip-filter-seg {
+    order: 2;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .clip-filter-seg::-webkit-scrollbar {
+    display: none;
+  }
+
+  .clip-filter-btn {
+    padding: 3px 8px;
+    font-size: 11px;
+  }
+
+  .clip-btn-clear {
+    order: 3;
+    padding: 0 8px;
+    font-size: 11.5px;
+  }
+
+  .clip-cap-setting {
+    order: 4;
+  }
+
+  .clip-stats {
+    order: 5;
+    margin-left: auto;
+    font-size: 11px;
+  }
+}
+
+@media screen and (max-width: 520px) {
+  .clip-toolbar {
+    padding: 6px 8px;
+    gap: 5px;
+  }
+
+  .clip-search-input {
+    height: 30px;
+    font-size: 12px;
+  }
+
+  .clip-cap-label {
+    display: none;
+  }
+
+  .clip-cap-select {
+    height: 30px;
+    padding: 0 4px;
+    font-size: 11px;
+    max-width: 90px;
+  }
+
+  .clip-btn {
+    height: 30px;
+    padding: 0 6px;
+    font-size: 11px;
+  }
+
+  .clip-filter-btn {
+    padding: 3px 6px;
+    font-size: 10.5px;
+  }
 }
 
 /* List & Cards */
 .clip-list {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   overflow-y: auto;
-  padding: 12px 14px;
+  overflow-x: hidden;
+  padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .clip-card {
@@ -167,6 +358,9 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .clip-card:hover {
@@ -191,12 +385,17 @@
   align-items: center;
   justify-content: space-between;
   font-size: 11px;
+  gap: 6px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .clip-badge-group {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
+  min-width: 0;
+  flex-wrap: wrap;
 }
 
 .clip-badge {
@@ -208,6 +407,7 @@
   font-size: 10.5px;
   font-family: var(--font-mono);
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .clip-badge-text {
@@ -244,6 +444,8 @@
   color: var(--ink-dim);
   font-size: 11px;
   font-family: var(--font-mono);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .clip-actions {
@@ -252,6 +454,8 @@
   gap: 4px;
   opacity: .75;
   transition: opacity .15s ease;
+  flex-shrink: 0;
+  margin-left: auto;
 }
 
 .clip-card:hover .clip-actions {
@@ -271,6 +475,7 @@
   color: var(--ink-dim);
   transition: all .12s ease;
   padding: 0;
+  flex-shrink: 0;
 }
 
 .clip-icon-btn:hover {
@@ -293,6 +498,8 @@
 .clip-card-body {
   font-size: 12.5px;
   color: var(--ink);
+  min-width: 0;
+  width: 100%;
 }
 
 .clip-link-content {
@@ -300,6 +507,8 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0;
+  width: 100%;
 }
 
 .clip-link-text {
@@ -309,7 +518,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -318,6 +528,8 @@
   display: flex;
   flex-direction: column;
   gap: 3px;
+  min-width: 0;
+  width: 100%;
 }
 
 .clip-file-main {
@@ -327,6 +539,10 @@
   font-size: 13px;
   font-weight: 500;
   color: var(--ink);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .clip-file-size {
@@ -334,6 +550,7 @@
   color: var(--ink-dim);
   font-family: var(--font-mono);
   font-weight: normal;
+  flex-shrink: 0;
 }
 
 .clip-file-path {
@@ -343,18 +560,21 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
 
 .clip-text-content {
   font-family: var(--font-mono);
   white-space: pre-wrap;
   word-break: break-all;
+  overflow-wrap: anywhere;
   display: -webkit-box;
   -webkit-line-clamp: 4;
   -webkit-box-orient: vertical;
   overflow: hidden;
   line-height: 1.45;
   color: var(--ink);
+  min-width: 0;
 }
 
 .clip-image-preview {
@@ -366,6 +586,7 @@
   padding: 6px;
   max-height: 140px;
   overflow: hidden;
+  min-width: 0;
 }
 
 .clip-image-preview img {
@@ -411,6 +632,9 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .clip-extracted-links-title {
@@ -426,6 +650,7 @@
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 0;
 }
 
 .clip-extracted-link-row {
@@ -438,6 +663,9 @@
   border-radius: 4px;
   padding: 3px 6px;
   transition: all .15s ease;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .clip-extracted-link-row:hover {
@@ -452,7 +680,8 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  flex: 1;
+  flex: 1 1 0;
+  min-width: 0;
   cursor: pointer;
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -493,24 +722,25 @@
 
 /* Empty State */
 .clip-empty {
-  flex: 1;
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 10px;
   color: var(--ink-dim);
-  padding: 40px 20px;
+  padding: 24px 16px;
   text-align: center;
 }
 
 .clip-empty-icon {
-  font-size: 40px;
+  font-size: 36px;
   opacity: .5;
 }
 
 .clip-empty-text {
-  font-size: 13.5px;
+  font-size: 13px;
   max-width: 320px;
   line-height: 1.5;
 }

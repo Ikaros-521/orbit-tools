@@ -203,9 +203,11 @@
       }
     });
 
-    textarea.addEventListener('blur', () => {
-      setTimeout(commitTextEditor, 50);
-    });
+    // Prevent clicks/typing inside textarea from bubbling to stage/toolbar
+    textarea.addEventListener('pointerdown', e => e.stopPropagation());
+    textarea.addEventListener('mousedown', e => e.stopPropagation());
+    textarea.addEventListener('click', e => e.stopPropagation());
+    textarea.addEventListener('dblclick', e => e.stopPropagation());
 
     document.body.appendChild(textarea);
     textarea.focus();
@@ -342,6 +344,7 @@
 
     if (e.button === 0) {
       if (tool === 'text') {
+        e.preventDefault();
         spawnTextEditor(e.clientX, e.clientY);
         return;
       }

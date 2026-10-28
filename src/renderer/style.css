@@ -201,8 +201,8 @@ body {
 .panel-title { display: flex; flex-direction: column; gap: 1px; min-width: 0; pointer-events: none; }
 .panel-title b { font-size: 16px; letter-spacing: .04em; }
 .panel-title span { font-size: 11px; color: var(--ink-faint); }
-.panel-host { flex: 1 1 auto; min-height: 0; overflow: hidden; display: flex; }
-.panel-view { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.panel-host { flex: 1 1 auto; min-height: 0; min-width: 0; overflow: hidden; display: flex; width: 100%; }
+.panel-view { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; flex-direction: column; width: 100%; height: 100%; }
 .panel-error { flex: 1; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; color: var(--red); }
 .panel-error code { font-family: var(--font-mono); font-size: 12px; color: var(--ink-dim); max-width: 70%; text-align: center; }
 
