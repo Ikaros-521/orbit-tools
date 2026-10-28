@@ -1467,89 +1467,6 @@ function renderWorkflowLib() {
   }
 }
 
-function renderWorkflowLib() {
-  if (!els.wfLibList) return;
-  els.wfLibList.innerHTML = '';
-
-  // 1. Triggers
-  const trigGroup = document.createElement('div');
-  trigGroup.className = 'wf-lib-group-title';
-  trigGroup.textContent = '1. 触发节点 (Triggers)';
-  els.wfLibList.appendChild(trigGroup);
-
-  const triggers = [
-    { type: 'trigger/clipboard', title: '剪贴板监听', icon: '📋', desc: '监听剪贴板特定内容' },
-    { type: 'trigger/manual', title: '手动 / 快捷键', icon: '⚡', desc: '按快捷键或手动触发' }
-  ];
-  triggers.forEach(t => {
-    const item = document.createElement('div');
-    item.className = 'wf-lib-item';
-    item.setAttribute('draggable', 'true');
-    item.innerHTML = `<span class="icon">${t.icon}</span> <span>${t.title}</span>`;
-    item.title = `${t.desc} (点击或拖拽至画布)`;
-    item.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/plain', JSON.stringify({ type: t.type, title: t.title }));
-    });
-    item.addEventListener('click', () => addNodeToCanvas(t.type, t.title));
-    els.wfLibList.appendChild(item);
-  });
-
-  // 2. Plugin Actions (Dynamic from state.plugins capabilities)
-  const actGroup = document.createElement('div');
-  actGroup.className = 'wf-lib-group-title';
-  actGroup.textContent = '2. 插件能力 (Actions)';
-  els.wfLibList.appendChild(actGroup);
-
-  state.plugins.forEach(p => {
-    if (!p.enabled) return;
-    const caps = Array.isArray(p.capabilities) ? p.capabilities : [];
-    caps.forEach(cap => {
-      const item = document.createElement('div');
-      item.className = 'wf-lib-item';
-      item.setAttribute('draggable', 'true');
-      const title = cap.title ? (cap.title.zh || cap.title.en || cap.id) : cap.id;
-      item.innerHTML = `<span class="icon">🧩</span> <span>${escapeHtml(p.name.zh || p.id)}: ${escapeHtml(title)}</span>`;
-      item.title = `由插件 [${p.name.zh || p.id}] 提供 (点击或拖拽至画布)`;
-      item.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({
-          type: 'action/plugin',
-          title: `${p.name.zh || p.id}: ${title}`,
-          extra: { pluginId: p.id, capabilityId: cap.id }
-        }));
-      });
-      item.addEventListener('click', () => addNodeToCanvas('action/plugin', `${p.name.zh || p.id}: ${title}`, {
-        pluginId: p.id,
-        capabilityId: cap.id
-      }));
-      els.wfLibList.appendChild(item);
-    });
-  });
-
-  // 3. Outputs
-  const outGroup = document.createElement('div');
-  outGroup.className = 'wf-lib-group-title';
-  outGroup.textContent = '3. 交付输出 (Outputs)';
-  els.wfLibList.appendChild(outGroup);
-
-  const outputs = [
-    { type: 'output/clipboard', title: '写入系统剪贴板', icon: '📝' },
-    { type: 'output/notification', title: '显示系统通知', icon: '🔔' },
-    { type: 'output/panel', title: '唤起对应面板', icon: '🚀' }
-  ];
-  outputs.forEach(o => {
-    const item = document.createElement('div');
-    item.className = 'wf-lib-item';
-    item.setAttribute('draggable', 'true');
-    item.innerHTML = `<span class="icon">${o.icon}</span> <span>${o.title}</span>`;
-    item.title = '交付目标节点 (点击或拖拽至画布)';
-    item.addEventListener('dragstart', (e) => {
-      e.dataTransfer.setData('text/plain', JSON.stringify({ type: o.type, title: o.title }));
-    });
-    item.addEventListener('click', () => addNodeToCanvas(o.type, o.title));
-    els.wfLibList.appendChild(item);
-  });
-}
-
 function addNodeToCanvas(type, title, extra = {}) {
   if (!currentWorkflow) return;
   const { config, ...rest } = extra;
@@ -1592,6 +1509,11 @@ function wfNodeConfigSummary(node) {
     }
     case 'util/delay': return `延迟 ${cfg.ms || 0}ms`;
     case 'action/plugin': return `${node.pluginId || '?'} : ${node.capabilityId || '?'}`;
+    case 'output/panel': {
+      if (!node.pluginId) return '(未配置目标插件)';
+      const p = state.plugins.find(x => x.id === node.pluginId);
+      return `唤起 ${p ? (p.name.zh || p.id) : node.pluginId}`;
+    }
     default: return '';
   }
 }
@@ -1630,6 +1552,9 @@ const WF_NODE_FIELDS = {
   ],
   'util/delay': [
     { key: 'ms', label: '延迟毫秒 (0-15000)', kind: 'number', def: 300 }
+  ],
+  'output/panel': [
+    { key: 'pluginId', label: '目标插件', kind: 'plugin', target: 'node' }
   ],
 };
 
@@ -1694,9 +1619,36 @@ function renderWfInspector(node) {
   }
 
   fields.forEach(f => {
-    if (!node.config) node.config = {};
+    // target:'node' 的字段 (如唤起面板的 pluginId) 写在节点根上而非 config
+    const readVal = () => (f.target === 'node' ? node[f.key] : (node.config || {})[f.key]);
+    const writeVal = v => {
+      if (f.target === 'node') node[f.key] = v;
+      else {
+        if (!node.config) node.config = {};
+        node.config[f.key] = v;
+      }
+    };
     let input;
-    if (f.kind === 'select') {
+    if (f.kind === 'plugin') {
+      input = document.createElement('select');
+      input.className = 'wf-insp-input';
+      const panelPlugins = state.plugins.filter(p => p.enabled && p.panel);
+      const placeholder = document.createElement('option');
+      placeholder.value = '';
+      placeholder.textContent = panelPlugins.length ? '选择插件…' : '暂无带面板的已启用插件';
+      input.appendChild(placeholder);
+      panelPlugins.forEach(p => {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en);
+        input.appendChild(opt);
+      });
+      input.value = readVal() ?? '';
+      input.addEventListener('change', () => {
+        writeVal(input.value || null);
+        renderWorkflowCanvas(); // 末尾会 syncWfInspector 刷新摘要
+      });
+    } else if (f.kind === 'select') {
       input = document.createElement('select');
       input.className = 'wf-insp-input';
       (f.options || []).forEach(([v, label]) => {
@@ -1705,36 +1657,36 @@ function renderWfInspector(node) {
         opt.textContent = label;
         input.appendChild(opt);
       });
-      input.value = node.config[f.key] ?? f.def;
+      input.value = readVal() ?? f.def;
       input.addEventListener('change', () => {
-        node.config[f.key] = input.value;
+        writeVal(input.value);
         renderWorkflowCanvas();
       });
     } else if (f.kind === 'checkbox') {
       input = document.createElement('input');
       input.type = 'checkbox';
       input.className = 'wf-insp-check';
-      input.checked = !!node.config[f.key];
+      input.checked = !!readVal();
       input.addEventListener('change', () => {
-        node.config[f.key] = input.checked;
+        writeVal(input.checked);
         renderWorkflowCanvas();
       });
     } else if (f.kind === 'textarea') {
       input = document.createElement('textarea');
       input.className = 'wf-insp-input wf-insp-textarea';
       input.rows = 3;
-      input.value = node.config[f.key] ?? f.def;
+      input.value = readVal() ?? f.def;
       input.addEventListener('input', () => {
-        node.config[f.key] = input.value;
+        writeVal(input.value);
         renderWorkflowCanvas();
       });
     } else {
       input = document.createElement('input');
       input.type = f.kind === 'number' ? 'number' : 'text';
       input.className = 'wf-insp-input';
-      input.value = node.config[f.key] ?? f.def;
+      input.value = readVal() ?? f.def;
       input.addEventListener('input', () => {
-        node.config[f.key] = f.kind === 'number' ? Number(input.value) : input.value;
+        writeVal(f.kind === 'number' ? Number(input.value) : input.value);
         renderWorkflowCanvas();
       });
     }
@@ -2394,7 +2346,12 @@ window.host.onPaletteFocus(() => {
 // 自动触发 (剪贴板监听等) 的执行结果实时镜像到工作流控制台
 if (window.host.onWorkflowEvent) {
   window.host.onWorkflowEvent(p => {
-    if (!p || p.event !== 'auto-run') return;
+    if (!p) return;
+    if (p.event === 'auto-skip') {
+      logToWfConsole(`⏭ 类型不匹配已跳过 [${p.name}] (需 ${p.need} · 实际 ${p.detectedType})`);
+      return;
+    }
+    if (p.event !== 'auto-run') return;
     if (p.ok) {
       const totalMs = (p.logs || []).reduce((acc, l) => acc + (l.duration || 0), 0);
       logToWfConsole(`⚡ 自动触发 [${p.name}] (剪贴板 · ${p.detectedType}) ✓ 成功 · ${totalMs}ms`);

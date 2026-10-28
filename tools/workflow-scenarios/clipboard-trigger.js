@@ -81,5 +81,33 @@ module.exports = {
         await waitFor('启用后工作流自动运行', () => events.some(e => e.id === 'wf-off'));
       },
     },
+    {
+      name: 'any 触发按下游能力类型智能跳过',
+      // 触发器为 any，但下游能力声明 text/timestamp：复制普通文本应跳过而非报错
+      run: async ({ wfManager, events, clipboard, waitFor, sleep, fail }) => {
+        const stamp = Date.now();
+        wfManager.save({
+          id: 'wf-ts', name: 'ts-auto', enabled: true,
+          nodes: [
+            { id: 'n1', type: 'trigger/clipboard', title: '任意监听', config: { type: 'any' } },
+            { id: 'n2', type: 'action/plugin', pluginId: 'codec-lab', capabilityId: 'timestamp', title: '时间戳转换' },
+          ], edges: [{ from: 'n1', to: 'n2' }],
+        });
+
+        clipboard.writeText(`plain-copy-${stamp}`);
+        await sleep(800); // 多个轮询周期
+        if (events.some(e => e.id === 'wf-ts' && e.event === 'auto-run' && !e.ok)) fail('普通文本不应硬闯时间戳节点报错 (应被智能跳过)');
+        if (!events.some(e => e.id === 'wf-ts' && e.event === 'auto-run')) {
+          const skip = events.find(e => e.id === 'wf-ts' && e.event === 'auto-skip');
+          if (!skip) fail('应发出 auto-run 成功或 auto-skip 跳过事件之一');
+          if (skip && !String(skip.need).includes('text/timestamp')) fail(`跳过事件应包含所需类型，实际: ${skip.need}`);
+        }
+
+        clipboard.writeText(String(Math.floor(stamp / 1000))); // 秒级时间戳
+        await waitFor('时间戳内容自动触发', () => events.some(e => e.id === 'wf-ts' && e.event === 'auto-run'));
+        const runEvt = events.find(e => e.id === 'wf-ts' && e.event === 'auto-run');
+        if (!runEvt.ok) fail(`时间戳内容应成功执行: ${runEvt.error}`);
+      },
+    },
   ],
 };

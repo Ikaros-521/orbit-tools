@@ -107,6 +107,45 @@ module.exports = {
       expect: { ok: true, finalType: 'text/plain', finalValue: 'orbit' },
     },
     {
+      name: '内置插件 method 分发 (port-scope 端口探测)',
+      // port-scope 的 capability 声明 "method": "inspectPort"，
+      // backend 接收 { value } 信封并返回 matches，引擎应转为人类可读摘要
+      workflow: {
+        id: 'wf-port', name: 'port', nodes: [
+          { id: 'n1', type: 'trigger/manual', title: '手动' },
+          { id: 'n2', type: 'action/plugin', pluginId: 'port-scope', capabilityId: 'port-inspect', title: '端口探测' },
+        ], edges: [{ from: 'n1', to: 'n2' }],
+      },
+      input: ':47831',
+      expect: { ok: true, finalType: 'system/port-info', finalValueIncludes: '端口 47831' },
+    },
+    {
+      name: '内置转换类型不匹配时给出准确错误',
+      workflow: {
+        id: 'wf-ts-mismatch', name: 'ts-mismatch', nodes: [
+          { id: 'n1', type: 'trigger/manual', title: '手动' },
+          { id: 'n2', type: 'action/plugin', pluginId: 'codec-lab', capabilityId: 'timestamp', title: '时间戳转换' },
+        ], edges: [{ from: 'n1', to: 'n2' }],
+      },
+      input: '不是时间戳的普通文本',
+      expect: {
+        ok: false,
+        errorIncludes: '不是 text/timestamp 格式',
+        nodes: [{ title: '时间戳转换', status: 'error' }],
+      },
+    },
+    {
+      name: '唤起面板节点未配置目标插件时报错',
+      workflow: {
+        id: 'wf-panel-noid', name: 'panel-noid', nodes: [
+          { id: 'n1', type: 'trigger/manual', title: '手动' },
+          { id: 'n2', type: 'output/panel', title: '唤起面板' },
+        ], edges: [{ from: 'n1', to: 'n2' }],
+      },
+      input: 'x',
+      expect: { ok: false, errorIncludes: '未配置目标插件' },
+    },
+    {
       name: '保存校验：空名称回退、节点/边数组兜底',
       run: async ({ wfManager, fail }) => {
         const saved = wfManager.save({ id: 'wf-x', name: '   ', nodes: 'not-array', edges: null });

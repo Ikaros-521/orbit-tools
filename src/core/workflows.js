@@ -228,8 +228,14 @@ class WorkflowRunner {
     }
 
     if (type === 'output/panel') {
+      if (!node.pluginId) {
+        throw new Error('唤起面板节点未配置目标插件，请在节点检查器中选择');
+      }
+      if (!this.manager.plugins.get(node.pluginId)) {
+        throw new Error(`目标插件 "${node.pluginId}" 未安装`);
+      }
       const host = this.manager.getHostWindow && this.manager.getHostWindow();
-      if (host && !host.isDestroyed() && node.pluginId) {
+      if (host && !host.isDestroyed()) {
         this.manager.bringToForeground(host);
         host.webContents.send('open-plugin', node.pluginId);
       }
@@ -258,9 +264,11 @@ class WorkflowRunner {
       config: node.config || {}
     };
 
-    // 1. plugin backend handler — the plugin owns the logic
-    if (plugin.manifest.backend && capDecl) {
-      const method = capDecl.method || node.capabilityId;
+    // 1. plugin backend handler — the plugin owns the logic. Tried even when
+    //    the manifest no longer declares the capability (self-healing) as long
+    //    as a handler with that method name is registered.
+    if (plugin.manifest.backend) {
+      const method = (capDecl && capDecl.method) || node.capabilityId;
       try {
         const res = await this.manager.call(node.pluginId, method, callArgs);
         return this.normalizePluginResult(res, node, callArgs);
@@ -270,15 +278,19 @@ class WorkflowRunner {
       }
     }
 
-    // 2. built-in transform derived from the declared envelope type
-    if (capDecl && capDecl.type) {
+    // 2. built-in transform derived from the declared envelope type. When the
+    //    detector exists but the input doesn't match it, fail with a precise
+    //    content-type error — NOT the generic "no handler" message.
+    if (capDecl && capDecl.type && DETECTORS[capDecl.type]) {
+      const det = DETECTORS[capDecl.type];
+      const trimmed = inputText.trim();
+      if (!det.test(trimmed)) {
+        const actual = (inputEnvelope && inputEnvelope.type) || detectEnvelopeType(trimmed);
+        throw new Error(`输入内容不是 ${capDecl.type} 格式 (实际 ${actual})，无法执行能力 "${node.capabilityId}"`);
+      }
       const transformed = transformByDetectedType(capDecl.type, inputText);
       if (transformed) return { output: transformed, summary: `内置转换 (${capDecl.type})` };
     }
-
-    // 3. legacy fallbacks keyed on capability id
-    const legacy = this.legacyTransform(node, inputText);
-    if (legacy) return legacy;
 
     throw new Error(
       `插件 "${node.pluginId}" 的能力 "${node.capabilityId}" 未提供可执行处理器` +
@@ -300,30 +312,20 @@ class WorkflowRunner {
     if (res && typeof res === 'object' && !Array.isArray(res) && typeof res.value !== 'undefined' && !res.ok && !res.matches) {
       return { output: { type: res.type || 'text/plain', value: String(res.value) }, summary: '插件返回信封' };
     }
+    // port-inspect shaped results read best as a human summary
+    if (res && typeof res.port === 'number' && Array.isArray(res.matches)) {
+      const first = res.matches[0];
+      return {
+        output: {
+          type: 'system/port-info',
+          value: first ? `端口 ${res.port} 已被占用 (PID: ${first.pid})` : `端口 ${res.port} 空闲可用`,
+          matches: res.matches
+        },
+        summary: `端口 ${res.port} 探测完成`
+      };
+    }
     const json = JSON.stringify(res, null, 2);
     return { output: { type: 'application/json', value: json }, summary: `插件返回 JSON (${json.length} 字符)` };
-  }
-
-  /* Kept for backwards compatibility with workflows saved against the old
-     hardcoded engine (port inspection formatting lives here). */
-  legacyTransform(node, rawText) {
-    if (node.capabilityId === 'port-inspect' || node.pluginId === 'port-scope') {
-      const port = Number(rawText.replace(/^:/, '').trim());
-      return this.manager.call('port-scope', 'inspectPort', { port }).then(inspectRes => {
-        const matches = inspectRes && inspectRes.matches ? inspectRes.matches : [];
-        return {
-          output: {
-            type: 'system/port-info',
-            value: matches.length > 0
-              ? `端口 ${port} 已被占用 (PID: ${matches[0].pid})`
-              : `端口 ${port} 空闲可用`,
-            matches
-          },
-          summary: `端口 ${port} 探测完成`
-        };
-      });
-    }
-    return null;
   }
 
   async execute(workflow, initialEnvelope) {
@@ -527,6 +529,23 @@ class WorkflowManager {
     this.fireClipboardTriggers(text).catch(() => { /* logged per workflow */ });
   }
 
+  /* Content types a workflow's plugin-action nodes declare they consume.
+     'text/plain' is the wildcard (any text), so it imposes no constraint.
+     Used to auto-skip clipboard triggers whose payload obviously can't feed
+     the chain — e.g. copying prose into a timestamp-conversion workflow. */
+  capabilityTypeConstraints(wf) {
+    const types = new Set();
+    for (const node of (wf.nodes || [])) {
+      if (!node || node.type !== 'action/plugin' || !node.pluginId) continue;
+      const plugin = this.pluginManager.plugins.get(node.pluginId);
+      if (!plugin) continue;
+      const cap = (plugin.manifest.capabilities || [])
+        .find(c => c && c.id === node.capabilityId);
+      if (cap && cap.type && cap.type !== 'text/plain') types.add(cap.type);
+    }
+    return types;
+  }
+
   async fireClipboardTriggers(text) {
     const detected = detectEnvelopeType(text);
     const envelope = { type: detected, value: text };
@@ -536,6 +555,21 @@ class WorkflowManager {
       if (!trig) continue;
       const want = (trig.config && trig.config.type) || 'any';
       if (want !== 'any' && want !== detected) continue;
+      if (want === 'any') {
+        const constraints = this.capabilityTypeConstraints(wf);
+        if (constraints.size > 0 && !constraints.has(detected)) {
+          this.emit({
+            event: 'auto-skip',
+            trigger: 'clipboard',
+            reason: 'type-mismatch',
+            id: wf.id,
+            name: wf.name,
+            need: [...constraints].join(' / '),
+            detectedType: detected
+          });
+          continue;
+        }
+      }
       let res;
       try {
         res = await this.runner.execute(wf, envelope);
