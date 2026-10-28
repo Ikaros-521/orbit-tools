@@ -7,6 +7,7 @@
 const fs = require('fs');
 const path = require('path');
 const { BrowserWindow } = require('electron');
+const { CapabilityRouter } = require('./capabilities');
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -34,6 +35,11 @@ class PluginManager {
     this.plugins = new Map();  // id -> record {id, root, source, manifest, enabled}
     this.active = new Map();   // id -> {mod, handlers:Map, windows:Set, data}
     this.loadErrors = new Map();
+    this.capabilities = new CapabilityRouter(this);
+  }
+
+  detectSmartPeek(text) {
+    return this.capabilities.detect(text);
   }
 
   setUserPluginsDir(newDir) {
@@ -162,6 +168,7 @@ class PluginManager {
         hasBackend: !!m.backend,
         panel: m.panel && m.panel.script ? { script: m.panel.script, style: m.panel.style || null } : null,
         actions,
+        capabilities: Array.isArray(m.capabilities) ? m.capabilities : [],
         loadError: this.loadErrors.get(p.id) || null,
       });
     }

@@ -150,6 +150,37 @@ app.whenReady().then(async () => {
   }
   console.log('codec-lab openPanel host routing OK');
 
+  // verify capabilities detection & smart peek
+  const tsRes = manager.detectSmartPeek('1710000000');
+  if (!tsRes || tsRes.pluginId !== 'codec-lab' || tsRes.type !== 'text/timestamp') {
+    throw new Error('smart peek timestamp detection failed');
+  }
+  const portRes = manager.detectSmartPeek('8080');
+  if (!portRes || portRes.pluginId !== 'port-scope' || portRes.type !== 'system/port') {
+    throw new Error('smart peek port detection failed');
+  }
+  const inspectRes = await manager.call('port-scope', 'inspectPort', { port: 8080 });
+  if (!inspectRes || !inspectRes.ok || inspectRes.port !== 8080) {
+    throw new Error('port-scope inspectPort failed');
+  }
+  const jsonRes = manager.detectSmartPeek('{"name":"orbit","tool":true}');
+  if (!jsonRes || jsonRes.pluginId !== 'json-editor' || jsonRes.type !== 'application/json') {
+    throw new Error('smart peek json detection failed');
+  }
+
+  // test dynamic self-healing: disable codec-lab -> capability detection must NOT match
+  manager.setEnabled('codec-lab', false);
+  const disabledTsRes = manager.detectSmartPeek('1710000000');
+  if (disabledTsRes !== null) {
+    throw new Error('disabled plugin capability should not be detected');
+  }
+  manager.setEnabled('codec-lab', true);
+  const reenabledTsRes = manager.detectSmartPeek('1710000000');
+  if (!reenabledTsRes || reenabledTsRes.pluginId !== 'codec-lab') {
+    throw new Error('re-enabled plugin capability should be detected again');
+  }
+  console.log('smart peek capabilities & self-healing OK');
+
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('SMOKE PASS');

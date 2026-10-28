@@ -28,4 +28,7 @@ contextBridge.exposeInMainWorld('host', {
   onPluginEvent: (id, fn) => on(`plugin-event:${id}`, fn),
   onPaletteFocus: fn => on('palette-focus', fn),
   onOpenPlugin: fn => on('open-plugin', fn),
+  detectSmartPeek: text => ipcRenderer.invoke('smart-peek-detect', text),
+  readClipboardText: () => ipcRenderer.invoke('read-clipboard-text'),
+  writeClipboardText: text => ipcRenderer.invoke('write-clipboard-text', text),
 });

@@ -13,5 +13,8 @@
   "actions": [
     { "id": "open", "label": { "zh": "打开端口与进程", "en": "Open Port Scope" }, "method": "openPanel", "hotkey": "Ctrl+Shift+P" },
     { "id": "refresh", "label": { "zh": "刷新端口列表", "en": "Refresh port list" }, "method": "refresh" }
+  ],
+  "capabilities": [
+    { "id": "port-inspect", "type": "system/port", "title": { "zh": "端口占用探测", "en": "Port Inspector" } }
   ]
 }

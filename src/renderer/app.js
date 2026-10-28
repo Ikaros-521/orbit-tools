@@ -6,6 +6,7 @@ const els = {
   tabs: $('tabs'), langSeg: $('langSeg'), themeSeg: $('themeSeg'),
   langSeg2: $('langSeg2'), themeSeg2: $('themeSeg2'), winctl: $('winctl'),
   search: $('search'), hotHint: $('hotHint'), deckMeta: $('deckMeta'), deck: $('deck'), empty: $('empty'),
+  smartPeek: $('smartPeek'),
   viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewPlugins: $('viewPlugins'),
   viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
@@ -55,6 +56,7 @@ const state = {
   openId: null,          // plugin whose panel is showing
   mounted: null,         // {def, ctx, unsubscribers[]}
   query: '',
+  smartPeekData: null,
   // Plugins center state
   pluginQuery: '',
   pluginCat: 'all',
@@ -158,6 +160,125 @@ function escapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+/* --- smart-peek (zero-click detection & inline banner) -------------------------- */
+let peekCheckSeq = 0;
+async function checkClipboardSmartPeek() {
+  if (state.view !== 'home') return;
+  const seq = ++peekCheckSeq;
+  const q = els.search.value.trim();
+  const textToCheck = q || (await window.host.readClipboardText().catch(() => ''));
+  if (!textToCheck) {
+    hideSmartPeek();
+    return;
+  }
+  const result = await window.host.detectSmartPeek(textToCheck).catch(() => null);
+  if (seq !== peekCheckSeq) return;
+  if (!result) {
+    hideSmartPeek();
+    return;
+  }
+  renderSmartPeek(result);
+}
+
+function hideSmartPeek() {
+  state.smartPeekData = null;
+  if (els.smartPeek) {
+    els.smartPeek.hidden = true;
+    els.smartPeek.innerHTML = '';
+  }
+}
+
+function renderSmartPeek(data) {
+  state.smartPeekData = data;
+  if (!els.smartPeek) return;
+  els.smartPeek.hidden = false;
+  const pluginLabel = data.pluginName && (window.I18N.lang === 'en' ? (data.pluginName.en || data.pluginName.zh) : (data.pluginName.zh || data.pluginName.en)) || t('openPlugin') || '打开插件';
+  els.smartPeek.innerHTML = `
+    <div class="peek-main">
+      <span class="peek-badge">${escapeHtml(data.badge)}</span>
+      <div class="peek-content">
+        <span class="peek-preview">${escapeHtml(data.preview)}</span>
+        <span class="peek-sub">${escapeHtml(data.subText || '')}</span>
+      </div>
+    </div>
+    <div class="peek-actions">
+      <button type="button" class="peek-btn primary" id="btnPeekCopy">
+        <span>复制结果</span> <kbd>Enter</kbd>
+      </button>
+      <button type="button" class="peek-btn ghost" id="btnPeekOpen">
+        <span>${escapeHtml(pluginLabel)}</span> <kbd>Tab</kbd>
+      </button>
+    </div>
+  `;
+
+  const btnCopy = $('btnPeekCopy');
+  if (btnCopy) {
+    btnCopy.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      await window.host.writeClipboardText(data.copyValue);
+      const orig = btnCopy.innerHTML;
+      btnCopy.innerHTML = '<span>✓ 已复制</span>';
+      setTimeout(() => { if (btnCopy) btnCopy.innerHTML = orig; }, 1000);
+    });
+  }
+
+  const btnOpen = $('btnPeekOpen');
+  if (btnOpen) {
+    btnOpen.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPlugin(data.pluginId);
+    });
+  }
+
+  if (data.asyncProbe) {
+    const { pluginId, method, args } = data.asyncProbe;
+    window.host.pluginCall(pluginId, method, args).then(res => {
+      if (!res || !res.ok) return;
+      if (state.smartPeekData !== data) return;
+      const matches = res.matches || [];
+      const previewEl = els.smartPeek.querySelector('.peek-preview');
+      const subEl = els.smartPeek.querySelector('.peek-sub');
+      const actionsEl = els.smartPeek.querySelector('.peek-actions');
+      if (matches.length > 0) {
+        const item = matches[0];
+        const procName = item.process || '未知进程';
+        if (previewEl) previewEl.innerHTML = `<span style="color:#ff6b6b">●</span> 端口 :${res.port} 已被占用`;
+        if (subEl) subEl.textContent = `进程: ${procName} (PID: ${item.pid}) · 状态: ${item.state || item.proto}`;
+        if (actionsEl) {
+          actionsEl.innerHTML = `
+            <button type="button" class="peek-btn primary" id="btnPeekCopyPid">
+              <span>复制 PID ${item.pid}</span> <kbd>Enter</kbd>
+            </button>
+            <button type="button" class="peek-btn warn" id="btnPeekKill">
+              <span>结束进程</span>
+            </button>
+            <button type="button" class="peek-btn ghost" id="btnPeekOpen">
+              <span>端口详情</span> <kbd>Tab</kbd>
+            </button>
+          `;
+          data.copyValue = String(item.pid);
+          $('btnPeekCopyPid')?.addEventListener('click', async () => {
+            await window.host.writeClipboardText(String(item.pid));
+            const b = $('btnPeekCopyPid');
+            if (b) b.innerHTML = '<span>✓ 已复制</span>';
+          });
+          $('btnPeekKill')?.addEventListener('click', async () => {
+            const killRes = await window.host.pluginCall('port-scope', 'kill', { pid: item.pid, force: true });
+            if (killRes && killRes.ok) {
+              if (previewEl) previewEl.innerHTML = `<span style="color:#2ecc71">●</span> PID ${item.pid} 已成功结束`;
+              $('btnPeekKill')?.remove();
+            }
+          });
+          $('btnPeekOpen')?.addEventListener('click', () => openPlugin('port-scope'));
+        }
+      } else {
+        if (previewEl) previewEl.innerHTML = `<span style="color:#2ecc71">●</span> 端口 :${res.port} 当前空闲未被占用`;
+        if (subEl) subEl.textContent = '可直接用于本地开发与服务绑定';
+      }
+    }).catch(() => {});
+  }
+}
+
 /* --- plugin panel lifecycle ---------------------------------------------------- */
 async function openPlugin(id) {
   const p = state.plugins.find(x => x.id === id);
@@ -250,7 +371,13 @@ function setView(view) {
     const activeTarget = (view === 'panel' ? 'home' : view === 'dev-guide' ? 'plugins' : view);
     b.classList.toggle('on', tabTarget === activeTarget);
   });
-  if (view === 'home') { els.search.focus(); els.search.select(); }
+  if (view === 'home') {
+    els.search.focus();
+    els.search.select();
+    checkClipboardSmartPeek();
+  } else {
+    hideSmartPeek();
+  }
   else if (view === 'plugins') {
     renderPlugins();
     els.pluginSearch.focus();
@@ -670,13 +797,35 @@ els.tabs.addEventListener('click', e => {
   if (b) { closePanel(); setView(b.dataset.view); }
 });
 els.btnBack.addEventListener('click', () => { closePanel(); setView('home'); });
-els.search.addEventListener('input', () => { state.query = els.search.value; renderDeck(); });
+els.search.addEventListener('input', () => {
+  state.query = els.search.value;
+  renderDeck();
+  checkClipboardSmartPeek();
+});
 els.search.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
+    if (state.smartPeekData) {
+      e.preventDefault();
+      const copyVal = state.smartPeekData.copyValue;
+      window.host.writeClipboardText(copyVal);
+      const btn = $('btnPeekCopy') || $('btnPeekCopyPid');
+      if (btn) {
+        const orig = btn.innerHTML;
+        btn.innerHTML = '<span>✓ 已复制</span>';
+        setTimeout(() => { if (btn) btn.innerHTML = orig; }, 1000);
+      }
+      return;
+    }
     const q = state.query.trim().toLowerCase();
     const first = state.plugins.find(p => p.enabled && (!q || pluginText(p).includes(q)));
     if (first) openPlugin(first.id);
+  } else if (e.key === 'Tab' && state.smartPeekData) {
+    e.preventDefault();
+    openPlugin(state.smartPeekData.pluginId);
   } else if (e.key === 'Escape') {
+    if (state.smartPeekData) {
+      hideSmartPeek();
+    }
     if (els.search.value) { els.search.value = ''; state.query = ''; renderDeck(); }
     else els.search.blur();
   }
@@ -874,7 +1023,11 @@ if (els.btnRescanFromGuide) {
 }
 
 window.host.onPaletteFocus(() => {
-  if (state.view === 'home') { els.search.focus(); els.search.select(); }
+  if (state.view === 'home') {
+    els.search.focus();
+    els.search.select();
+    checkClipboardSmartPeek();
+  }
 });
 if (window.host.onOpenPlugin) {
   window.host.onOpenPlugin(id => {

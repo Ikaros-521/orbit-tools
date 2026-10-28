@@ -11,5 +11,8 @@
   "panel": { "script": "panel.js", "style": "panel.css" },
   "actions": [
     { "id": "open", "label": { "zh": "打开 JSON 编辑器", "en": "Open JSON Editor" }, "method": "openPanel", "hotkey": "Ctrl+Shift+J" }
+  ],
+  "capabilities": [
+    { "id": "json-format", "type": "application/json", "title": { "zh": "JSON 校验与格式化", "en": "JSON Format" } }
   ]
 }

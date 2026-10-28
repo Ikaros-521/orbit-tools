@@ -145,6 +145,73 @@ body {
   font-family: var(--font-mono); font-size: 11px; color: var(--ink-dim);
   border: 1px solid var(--line-strong); border-radius: 6px; padding: 3px 8px;
 }
+/* smart-peek (zero-click banner) -------------------------------------------- */
+.smart-peek {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  padding: 12px 18px; border-radius: 12px;
+  background: linear-gradient(135deg, rgba(var(--accent-rgb, 100, 160, 255), 0.08), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(var(--accent-rgb, 100, 160, 255), 0.28);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+  animation: peekSlide .18s cubic-bezier(0.16, 1, 0.3, 1);
+  margin-bottom: 4px;
+}
+@keyframes peekSlide {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.peek-main {
+  display: flex; align-items: center; gap: 14px; min-width: 0; flex: 1;
+}
+.peek-badge {
+  flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 9px; border-radius: 6px; font-size: 11px; font-weight: 600;
+  background: var(--accent); color: var(--bg-alt, #000); letter-spacing: .02em;
+}
+.peek-content {
+  display: flex; flex-direction: column; gap: 2px; min-width: 0;
+}
+.peek-preview {
+  font-family: var(--font-mono); font-size: 14px; font-weight: 600; color: var(--ink);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.peek-sub {
+  font-size: 11px; color: var(--ink-dim);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.peek-actions {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+}
+.peek-btn {
+  appearance: none; border: 0; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 6px; font-size: 12px; font-family: inherit; font-weight: 500;
+  transition: all .15s ease;
+}
+.peek-btn.primary {
+  background: var(--accent); color: var(--bg-alt, #000);
+}
+.peek-btn.primary:hover {
+  filter: brightness(1.1); transform: translateY(-1px);
+}
+.peek-btn.ghost {
+  background: rgba(255, 255, 255, 0.06); color: var(--ink); border: 1px solid var(--line-strong);
+}
+.peek-btn.ghost:hover {
+  background: rgba(255, 255, 255, 0.12); color: var(--ink-bright, #fff);
+}
+.peek-btn.warn {
+  background: rgba(255, 80, 80, 0.15); color: #ff6b6b; border: 1px solid rgba(255, 80, 80, 0.3);
+}
+.peek-btn.warn:hover {
+  background: rgba(255, 80, 80, 0.28); color: #fff;
+}
+.peek-btn kbd {
+  font-family: var(--font-mono); font-size: 10px; opacity: .75;
+  padding: 1px 4px; border-radius: 3px; background: rgba(0, 0, 0, 0.2);
+}
+.peek-btn.ghost kbd {
+  background: rgba(255, 255, 255, 0.1);
+}
+
 .deck-meta { font-size: 12px; color: var(--ink-faint); letter-spacing: .12em; padding-left: 4px; }
 
 /* deck (cards) ------------------------------------------------------------------ */

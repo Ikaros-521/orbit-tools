@@ -44,6 +44,17 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     return { plugins: manager.serialize(), hotkeys: hotkeys.status };
   });
 
+  ipcMain.handle('smart-peek-detect', (e, text) => manager.detectSmartPeek(text));
+  ipcMain.handle('read-clipboard-text', () => {
+    const { clipboard } = require('electron');
+    return clipboard.readText();
+  });
+  ipcMain.handle('write-clipboard-text', (e, text) => {
+    const { clipboard } = require('electron');
+    clipboard.writeText(String(text || ''));
+    return true;
+  });
+
   ipcMain.handle('set-hotkey', (e, accel) => hotkeys.setHostHotkey(String(accel || '')));
   ipcMain.handle('set-plugin-hotkey', (e, payload) => hotkeys.setPluginHotkey(payload.key, payload.accel || null));
   ipcMain.handle('hotkeys', () => hotkeys.status);

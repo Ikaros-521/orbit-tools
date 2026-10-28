@@ -11,5 +11,11 @@
   "panel": { "script": "panel.js", "style": "panel.css" },
   "actions": [
     { "id": "open", "label": { "zh": "打开编码转换", "en": "Open Codec Lab" }, "method": "openPanel", "hotkey": "Ctrl+Shift+C" }
+  ],
+  "capabilities": [
+    { "id": "timestamp", "type": "text/timestamp", "title": { "zh": "时间戳转换", "en": "Timestamp Convert" } },
+    { "id": "jwt", "type": "text/jwt", "title": { "zh": "JWT 解码", "en": "JWT Decode" } },
+    { "id": "base64", "type": "text/base64", "title": { "zh": "Base64 解码", "en": "Base64 Decode" } },
+    { "id": "url", "type": "text/url", "title": { "zh": "URL 参数解析", "en": "URL Parse" } }
   ]
 }
