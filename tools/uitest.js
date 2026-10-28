@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
 
   /* --- layout: CSS applied & views mutually exclusive ---------------------- */
   check('css-applied', await page(`getComputedStyle(document.querySelector('.chassis')).display`) === 'flex');
-  const visibleViews = await page(`['viewHome','viewPanel','viewPlugins','viewSettings'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
+  const visibleViews = await page(`['viewHome','viewPanel','viewPlugins','viewSettings','viewDevGuide'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
   check('single-view-visible', visibleViews.length === 1 && visibleViews[0] === 'viewHome');
   check('deck-has-5-cards', await page(`document.querySelectorAll('#deck .card').length`) === 5);
   check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 5);
@@ -157,7 +157,18 @@ app.whenReady().then(async () => {
   await page(`document.querySelector('#catFilter button[data-cat="media"]').click()`);
   await sleep(200);
   check('cat-filter-media-2', await page(`document.querySelectorAll('#pluginList .prow').length`) === 2);
+  check('dev-banner-visible', await page(`!document.getElementById('devBanner').hidden`));
   await shot('plugins-center');
+
+  /* --- dev guide view test -------------------------------------------------------- */
+  await page(`document.getElementById('btnOpenDevGuide').click()`);
+  await sleep(200);
+  check('dev-guide-visible', await page(`getComputedStyle(document.getElementById('viewDevGuide')).display`) !== 'none');
+  check('prompt-template-present', await page(`!!document.getElementById('samplePrompt').textContent`));
+  await shot('dev-guide');
+  await page(`document.getElementById('btnBackFromDevGuide').click()`);
+  await sleep(200);
+  check('back-to-plugins-from-guide', await page(`getComputedStyle(document.getElementById('viewPlugins')).display`) !== 'none');
 
   /* --- home card context menu ---------------------------------------------------- */
   await page(`document.querySelector('#tabs button[data-view="home"]').click()`);

@@ -70,6 +70,18 @@
 
     <!-- 插件管理中心 / plugins manager -->
     <section class="view" id="viewPlugins" hidden>
+      <div class="dev-banner" id="devBanner">
+        <div class="dev-banner-icon">✨</div>
+        <div class="dev-banner-body">
+          <b data-i18n="devBannerTitle">定制专属工具？</b>
+          <span data-i18n="devBannerDesc">借助配套 AI Skills，把需求告诉 AI 即可瞬间生成开箱即用的 Orbit 插件！</span>
+        </div>
+        <div class="dev-banner-btns">
+          <button type="button" class="btn small" id="btnOpenDevGuide" data-i18n="btnDevGuide">🚀 插件开发指引</button>
+          <button type="button" class="btn ghost small" id="btnOpenDevSkillsRepo" data-i18n="btnDevSkillsRepo">🌐 GitHub Skills</button>
+        </div>
+      </div>
+
       <div class="plugins-header">
         <div class="plugin-search-bar">
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
@@ -118,6 +130,74 @@
       </footer>
     </section>
 
+    <!-- 插件开发与 AI 助手引导视图 / dev guide view -->
+    <section class="view" id="viewDevGuide" hidden>
+      <header class="panel-head">
+        <button type="button" class="btn ghost" id="btnBackFromDevGuide">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 5l-7 7 7 7"/></svg>
+          <span data-i18n="back">返回</span>
+        </button>
+        <span class="panel-icon">💡</span>
+        <div class="panel-title">
+          <b data-i18n="devGuideTitle">插件开发指引与 AI 助手</b>
+          <span class="mono">Skills & Docs</span>
+        </div>
+        <span class="grow"></span>
+        <button type="button" class="btn ghost small" id="btnOpenDocInBrowser" data-i18n="openDoc">查阅完整开发文档</button>
+        <button type="button" class="btn small" id="btnOpenDevSkillsRepo2">🌐 GitHub Skills 仓库</button>
+      </header>
+
+      <div class="dev-guide-content">
+        <div class="guide-card">
+          <div class="guide-card-head">
+            <span class="step-num">1</span>
+            <div class="step-info">
+              <h3 data-i18n="devStep1">第一步：使用 AI Skills 极速生成</h3>
+              <p data-i18n="devStep1Desc">将官方 Skill 导入 Antigravity、Cursor 或 Claude Code，用日常自然语言即可生成完整插件代码。</p>
+            </div>
+          </div>
+          <div class="guide-prompt-box">
+            <div class="prompt-head">
+              <span>推荐提示词范例 (Prompt Template)</span>
+              <button type="button" class="btn ghost small" id="btnCopyPrompt" data-i18n="copyPrompt">复制推荐提示词</button>
+            </div>
+            <pre class="prompt-text mono" id="samplePrompt">请遵循 Orbit Toolbox 的插件开发规范，帮我开发一个用于 Orbit 的【插件名称或功能描述】工具：
+1. 包含合规的 plugin.json 清单文件（中英双语、自适应图标与分类）；
+2. 包含 panel.js 与 panel.css，页面自适应深浅色主题设计；
+3. 如果需要后端系统命令或持久化存储，编写 backend.js 处理 IPC 通信。</pre>
+          </div>
+        </div>
+
+        <div class="guide-card">
+          <div class="guide-card-head">
+            <span class="step-num">2</span>
+            <div class="step-info">
+              <h3 data-i18n="devStep2">第二步：放入用户插件目录</h3>
+              <p data-i18n="devStep2Desc">将生成的插件文件夹直接拖入用户插件目录中，无需任何额外编译打包过程。</p>
+            </div>
+          </div>
+          <div class="guide-action-box">
+            <span class="guide-dir-path mono" id="guideUserPluginsPath"></span>
+            <button type="button" class="btn small" id="btnOpenUserPluginsFromGuide" data-i18n="openFolder">打开目录</button>
+          </div>
+        </div>
+
+        <div class="guide-card">
+          <div class="guide-card-head">
+            <span class="step-num">3</span>
+            <div class="step-info">
+              <h3 data-i18n="devStep3">第三步：重新扫描，即刻生效</h3>
+              <p data-i18n="devStep3Desc">在插件中心点击「重新扫描」，新插件将立即可用，支持自定义热键与独立悬浮！</p>
+            </div>
+          </div>
+          <div class="guide-action-box">
+            <span>放入新插件后，点击按钮立刻加载插件后端与前端界面：</span>
+            <button type="button" class="btn" id="btnRescanFromGuide" data-i18n="rescan">重新扫描插件</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- 设置 / settings -->
     <section class="view" id="viewSettings" hidden>
       <div class="set-group">
@@ -161,6 +241,10 @@
         <div class="set-row">
           <div class="set-label"><b>插件中心</b><span>管理插件启停、自定义动作热键与用户插件</span></div>
           <button type="button" class="btn ghost" id="btnGotoPlugins">前往插件管理 →</button>
+        </div>
+        <div class="set-row">
+          <div class="set-label"><b>插件开发生态</b><span>使用专属 AI Skills 快速定制、打包与分发新插件</span></div>
+          <button type="button" class="btn ghost" id="btnGotoDevGuide">了解插件开发 →</button>
         </div>
       </div>
 

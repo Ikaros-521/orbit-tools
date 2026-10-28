@@ -6,10 +6,18 @@ const els = {
   tabs: $('tabs'), langSeg: $('langSeg'), themeSeg: $('themeSeg'),
   langSeg2: $('langSeg2'), themeSeg2: $('themeSeg2'), winctl: $('winctl'),
   search: $('search'), hotHint: $('hotHint'), deckMeta: $('deckMeta'), deck: $('deck'), empty: $('empty'),
-  viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewPlugins: $('viewPlugins'), viewSettings: $('viewSettings'),
+  viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewPlugins: $('viewPlugins'),
+  viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
   panelHost: $('panelHost'),
   hotkeyCtrl: $('hotkeyCtrl'),
+  // Dev guide banner & view elements
+  btnOpenDevGuide: $('btnOpenDevGuide'), btnOpenDevSkillsRepo: $('btnOpenDevSkillsRepo'),
+  btnOpenDevSkillsRepo2: $('btnOpenDevSkillsRepo2'), btnOpenDocInBrowser: $('btnOpenDocInBrowser'),
+  btnBackFromDevGuide: $('btnBackFromDevGuide'), btnCopyPrompt: $('btnCopyPrompt'),
+  samplePrompt: $('samplePrompt'), guideUserPluginsPath: $('guideUserPluginsPath'),
+  btnOpenUserPluginsFromGuide: $('btnOpenUserPluginsFromGuide'), btnRescanFromGuide: $('btnRescanFromGuide'),
+  btnGotoDevGuide: $('btnGotoDevGuide'),
   // Plugins view elements
   pluginSearch: $('pluginSearch'), btnPluginSearchClear: $('btnPluginSearchClear'),
   catFilter: $('catFilter'), statusFilter: $('statusFilter'),
@@ -229,12 +237,18 @@ function setView(view) {
   els.viewPanel.hidden = view !== 'panel';
   els.viewPlugins.hidden = view !== 'plugins';
   els.viewSettings.hidden = view !== 'settings';
-  els.tabs.querySelectorAll('button').forEach(b =>
-    b.classList.toggle('on', (b.dataset.view === 'panel' ? 'home' : b.dataset.view) === (view === 'panel' ? 'home' : view)));
+  if (els.viewDevGuide) els.viewDevGuide.hidden = view !== 'dev-guide';
+  els.tabs.querySelectorAll('button').forEach(b => {
+    const tabTarget = (b.dataset.view === 'panel' ? 'home' : b.dataset.view);
+    const activeTarget = (view === 'panel' ? 'home' : view === 'dev-guide' ? 'plugins' : view);
+    b.classList.toggle('on', tabTarget === activeTarget);
+  });
   if (view === 'home') { els.search.focus(); els.search.select(); }
   else if (view === 'plugins') {
     renderPlugins();
     els.pluginSearch.focus();
+  } else if (view === 'dev-guide') {
+    if (els.guideUserPluginsPath) els.guideUserPluginsPath.textContent = state.userPluginsDir || '';
   }
 }
 
@@ -521,6 +535,10 @@ function renderUserPluginsDirInfo() {
   if (els.btnResetUserPluginsHeader) {
     els.btnResetUserPluginsHeader.hidden = !isCustom;
   }
+  if (els.guideUserPluginsPath) {
+    els.guideUserPluginsPath.textContent = dir;
+    els.guideUserPluginsPath.title = dir;
+  }
 }
 
 async function applyUserPluginsDir(dir) {
@@ -752,11 +770,58 @@ for (const btn of [els.btnResetUserPlugins, els.btnResetUserPluginsHeader]) {
 for (const el of [els.userPluginsPath, els.userPluginsPath2, els.btnOpenUserPlugins2]) {
   if (el) el.addEventListener('click', () => window.host.openUserPlugins());
 }
+
+/* --- dev guide view events -------------------------------------------------------------- */
+if (els.btnOpenDevGuide) els.btnOpenDevGuide.addEventListener('click', () => setView('dev-guide'));
+if (els.btnGotoDevGuide) els.btnGotoDevGuide.addEventListener('click', () => setView('dev-guide'));
+if (els.btnBackFromDevGuide) els.btnBackFromDevGuide.addEventListener('click', () => setView('plugins'));
+
+const openSkillsRepo = () => window.host.openExternal('https://github.com/Ikaros-521/orbit-plugin-developer');
+if (els.btnOpenDevSkillsRepo) els.btnOpenDevSkillsRepo.addEventListener('click', openSkillsRepo);
+if (els.btnOpenDevSkillsRepo2) els.btnOpenDevSkillsRepo2.addEventListener('click', openSkillsRepo);
+
+if (els.btnOpenDocInBrowser) {
+  els.btnOpenDocInBrowser.addEventListener('click', () => {
+    window.host.openExternal('https://github.com/Ikaros-521/orbit-tools/blob/main/docs/plugin-guide.md');
+  });
+}
+
+let promptCopyTimer = null;
+if (els.btnCopyPrompt && els.samplePrompt) {
+  els.btnCopyPrompt.addEventListener('click', async () => {
+    await navigator.clipboard.writeText(els.samplePrompt.textContent.trim());
+    const orig = els.btnCopyPrompt.textContent;
+    els.btnCopyPrompt.textContent = t('promptCopied');
+    els.btnCopyPrompt.style.color = 'var(--amber)';
+    clearTimeout(promptCopyTimer);
+    promptCopyTimer = setTimeout(() => {
+      els.btnCopyPrompt.textContent = orig;
+      els.btnCopyPrompt.style.color = '';
+    }, 1200);
+  });
+}
+
+if (els.btnOpenUserPluginsFromGuide) {
+  els.btnOpenUserPluginsFromGuide.addEventListener('click', () => window.host.openUserPlugins());
+}
+if (els.btnRescanFromGuide) {
+  els.btnRescanFromGuide.addEventListener('click', async () => {
+    const res = await window.host.rescanPlugins();
+    state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
+    state.hotkeys = res.hotkeys;
+    renderDeck(); renderPlugins(); renderSettings();
+    const orig = els.btnRescanFromGuide.textContent;
+    els.btnRescanFromGuide.textContent = '✓ 扫描完成';
+    setTimeout(() => { els.btnRescanFromGuide.textContent = orig; }, 1200);
+  });
+}
+
 window.host.onPaletteFocus(() => {
   if (state.view === 'home') { els.search.focus(); els.search.select(); }
 });
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && state.view === 'panel') { closePanel(); setView('home'); }
+  else if (e.key === 'Escape' && state.view === 'dev-guide') { setView('plugins'); }
 });
 
 init();
