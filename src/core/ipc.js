@@ -14,6 +14,9 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     userPluginsDir: manager.userRoot,
     defaultUserPluginsDir: manager.defaultUserRoot,
     isCustomUserPluginsDir: manager.userRoot !== manager.defaultUserRoot,
+    pluginDataDir: manager.dataRoot,
+    defaultPluginDataDir: manager.defaultDataRoot,
+    isCustomPluginDataDir: manager.dataRoot !== manager.defaultDataRoot,
   }));
 
   ipcMain.handle('plugin-call', async (e, payload) => {
@@ -77,6 +80,30 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     return {
       plugins: manager.serialize(),
       hotkeys: hotkeys.status,
+      ...dirInfo,
+    };
+  });
+
+  ipcMain.handle('open-plugin-data-dir', () => {
+    fs.mkdirSync(manager.dataRoot, { recursive: true });
+    shell.openPath(manager.dataRoot);
+  });
+
+  ipcMain.handle('choose-plugin-data-dir', async () => {
+    const parent = getHostWindow();
+    const r = await dialog.showOpenDialog(parent, {
+      title: '选择通用数据存储目录 / Choose Plugin Data Folder',
+      defaultPath: manager.dataRoot,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (r.canceled || !r.filePaths || r.filePaths.length === 0) return null;
+    return r.filePaths[0];
+  });
+
+  ipcMain.handle('set-plugin-data-dir', (e, newDir) => {
+    const dirInfo = manager.setPluginDataDir(newDir);
+    return {
+      plugins: manager.serialize(),
       ...dirInfo,
     };
   });

@@ -32,6 +32,10 @@ const els = {
   btnChangeUserPlugins: $('btnChangeUserPlugins'),
   btnOpenUserPlugins2: $('btnOpenUserPlugins2'),
   btnResetUserPlugins: $('btnResetUserPlugins'),
+  pluginDataPath: $('pluginDataPath'), pluginDataBadge: $('pluginDataBadge'),
+  btnChangePluginData: $('btnChangePluginData'),
+  btnOpenPluginData: $('btnOpenPluginData'),
+  btnResetPluginData: $('btnResetPluginData'),
   btnGotoPlugins: $('btnGotoPlugins'),
   aboutVer: $('aboutVer'), btnRepo: $('btnRepo'),
   // Context menu elements
@@ -62,6 +66,9 @@ const state = {
   userPluginsDir: '',
   defaultUserPluginsDir: '',
   isCustomUserPluginsDir: false,
+  pluginDataDir: '',
+  defaultPluginDataDir: '',
+  isCustomPluginDataDir: false,
 };
 
 /* Human name for a hotkey key ('host' or 'pluginId:actionId') — used to say
@@ -565,8 +572,47 @@ async function resetUserPluginsDir() {
   await applyUserPluginsDir(null);
 }
 
+function renderPluginDataDirInfo() {
+  const isCustom = !!state.isCustomPluginDataDir;
+  const dir = state.pluginDataDir || '';
+  const badgeText = t(isCustom ? 'pluginDataCustom' : 'pluginDataDefault');
+
+  if (els.pluginDataPath) {
+    els.pluginDataPath.textContent = dir;
+    els.pluginDataPath.title = dir;
+  }
+  if (els.pluginDataBadge) {
+    els.pluginDataBadge.textContent = badgeText;
+    els.pluginDataBadge.className = 'chip ' + (isCustom ? 'warn' : 'ghost');
+  }
+  if (els.btnResetPluginData) {
+    els.btnResetPluginData.hidden = !isCustom;
+  }
+}
+
+async function applyPluginDataDir(dir) {
+  const res = await window.host.setPluginDataDir(dir);
+  state.pluginDataDir = res.pluginDataDir;
+  state.defaultPluginDataDir = res.defaultPluginDataDir;
+  state.isCustomPluginDataDir = res.isCustom;
+  renderPluginDataDirInfo();
+  return res;
+}
+window.__setPluginDataDirForTest = applyPluginDataDir;
+
+async function changePluginDataDir() {
+  const chosen = await window.host.choosePluginDataDir();
+  if (!chosen) return;
+  await applyPluginDataDir(chosen);
+}
+
+async function resetPluginDataDir() {
+  await applyPluginDataDir(null);
+}
+
 function renderSettings() {
   renderUserPluginsDirInfo();
+  renderPluginDataDirInfo();
   els.hotkeyCtrl.innerHTML = '';
   els.hotkeyCtrl.appendChild(hotkeyEditor({
     initial: state.config.hotkey,
@@ -603,6 +649,9 @@ async function init() {
   state.userPluginsDir = boot.userPluginsDir;
   state.defaultUserPluginsDir = boot.defaultUserPluginsDir;
   state.isCustomUserPluginsDir = boot.isCustomUserPluginsDir;
+  state.pluginDataDir = boot.pluginDataDir;
+  state.defaultPluginDataDir = boot.defaultPluginDataDir;
+  state.isCustomPluginDataDir = boot.isCustomPluginDataDir;
   const hostRow = state.hotkeys.find(r => r.key === 'host');
   if (hostRow && hostRow.ok) state.config.hotkey = hostRow.accel;
   document.body.className = `platform-${boot.platform} lang-${state.config.lang}`;
@@ -611,6 +660,7 @@ async function init() {
   applyTheme(state.config.theme);
   applyLang(state.config.lang);
   renderUserPluginsDirInfo();
+  renderPluginDataDirInfo();
   setView('home');
 }
 
@@ -769,6 +819,13 @@ for (const btn of [els.btnResetUserPlugins, els.btnResetUserPluginsHeader]) {
 }
 for (const el of [els.userPluginsPath, els.userPluginsPath2, els.btnOpenUserPlugins2]) {
   if (el) el.addEventListener('click', () => window.host.openUserPlugins());
+}
+
+/* --- plugin data dir events ------------------------------------------------------------- */
+if (els.btnChangePluginData) els.btnChangePluginData.addEventListener('click', changePluginDataDir);
+if (els.btnResetPluginData) els.btnResetPluginData.addEventListener('click', resetPluginDataDir);
+for (const el of [els.pluginDataPath, els.btnOpenPluginData]) {
+  if (el) el.addEventListener('click', () => window.host.openPluginDataDir());
 }
 
 /* --- dev guide view events -------------------------------------------------------------- */

@@ -9,6 +9,7 @@ const DEFAULTS = {
   pluginHotkeys: {},    // "pluginId:actionId" -> accelerator
   windowBounds: null,
   userPluginsDir: null, // string absolute path | null (defaults to <userData>/plugins)
+  pluginDataDir: null,  // string absolute path | null (defaults to <userData>/plugin-data)
 };
 
 class Config {

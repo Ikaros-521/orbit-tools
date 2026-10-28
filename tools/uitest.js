@@ -211,6 +211,19 @@ app.whenReady().then(async () => {
   await page(`window.__setUserPluginsDirForTest(null)`);
   await sleep(150);
   check('default-badge-restored', await page(`document.getElementById('userPluginsBadge').textContent.includes('默认')`));
+
+  // Universal plugin data directory test
+  check('plugin-data-dir-shown', await page(`!!document.getElementById('pluginDataPath').textContent`));
+  const customDataPath = path.join(tmp, 'custom-data').replace(/\\/g, '\\\\');
+  await page(`window.__setPluginDataDirForTest('${customDataPath}')`);
+  await sleep(150);
+  check('custom-data-dir-applied', await page(`document.getElementById('pluginDataPath').textContent.includes('custom-data')`));
+  check('custom-data-badge-shown', await page(`document.getElementById('pluginDataBadge').textContent.includes('自定义')`));
+  // Restore default
+  await page(`window.__setPluginDataDirForTest(null)`);
+  await sleep(150);
+  check('default-data-badge-restored', await page(`document.getElementById('pluginDataBadge').textContent.includes('默认')`));
+
   await shot('settings');
 
   /* --- plugins view (dedicated center, pagination & search) ---------------------- */

@@ -238,6 +238,23 @@
             </div>
           </div>
         </div>
+        <div class="set-row user-plugins-row">
+          <div class="set-label">
+            <b data-i18n="pluginDataDir">通用数据存储目录</b>
+            <span data-i18n="pluginDataHint">所有插件的缓存、历史与持久化数据统一存储位置；自定义后可将数据移出 C 盘，避免占用系统盘空间。</span>
+          </div>
+          <div class="user-plugins-ctrl">
+            <div class="user-plugins-path-wrap">
+              <span id="pluginDataBadge" class="chip ghost"></span>
+              <span id="pluginDataPath" class="user-plugins-path mono" title="点击打开目录"></span>
+            </div>
+            <div class="user-plugins-btns">
+              <button type="button" class="btn small" id="btnChangePluginData" data-i18n="changeFolder">更改目录</button>
+              <button type="button" class="btn ghost small" id="btnOpenPluginData" data-i18n="openFolder">打开目录</button>
+              <button type="button" class="btn ghost small" id="btnResetPluginData" data-i18n="resetDefault" hidden>恢复默认</button>
+            </div>
+          </div>
+        </div>
         <div class="set-row">
           <div class="set-label"><b>插件中心</b><span>管理插件启停、自定义动作热键与用户插件</span></div>
           <button type="button" class="btn ghost" id="btnGotoPlugins">前往插件管理 →</button>

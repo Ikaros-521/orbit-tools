@@ -83,6 +83,14 @@ app.whenReady().then(async () => {
   if (extRes.ok) throw new Error('openExternal should refuse non-http url');
   console.log('clip-history IPC OK');
 
+  // test plugin data dir custom switch
+  const customDataDir = path.join(tmp, 'custom-data');
+  const dataDirInfo = manager.setPluginDataDir(customDataDir);
+  if (!dataDirInfo.isCustom || dataDirInfo.pluginDataDir !== customDataDir) throw new Error('setPluginDataDir failed');
+  manager.setPluginDataDir(null);
+  if (manager.dataRoot !== manager.defaultDataRoot) throw new Error('reset defaultDataRoot failed');
+  console.log('plugin data dir custom switch OK');
+
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('SMOKE PASS');

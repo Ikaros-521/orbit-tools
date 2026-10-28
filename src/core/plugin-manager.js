@@ -24,7 +24,11 @@ class PluginManager {
     this.userRoot = (typeof customUserDir === 'string' && customUserDir.trim())
       ? path.resolve(customUserDir.trim())
       : this.defaultUserRoot;
-    this.dataRoot = path.join(userDataDir, 'plugin-data');
+    this.defaultDataRoot = path.join(userDataDir, 'plugin-data');
+    const customDataDir = config && config.data && config.data.pluginDataDir;
+    this.dataRoot = (typeof customDataDir === 'string' && customDataDir.trim())
+      ? path.resolve(customDataDir.trim())
+      : this.defaultDataRoot;
     this.config = config;
     this.getHostWindow = getHostWindow;
     this.plugins = new Map();  // id -> record {id, root, source, manifest, enabled}
@@ -48,6 +52,25 @@ class PluginManager {
       userPluginsDir: this.userRoot,
       defaultUserPluginsDir: this.defaultUserRoot,
       isCustom: this.userRoot !== this.defaultUserRoot,
+    };
+  }
+
+  setPluginDataDir(newDir) {
+    if (newDir && typeof newDir === 'string' && newDir.trim()) {
+      this.dataRoot = path.resolve(newDir.trim());
+      this.config.set({ pluginDataDir: this.dataRoot });
+    } else {
+      this.dataRoot = this.defaultDataRoot;
+      this.config.set({ pluginDataDir: null });
+    }
+    try { fs.mkdirSync(this.dataRoot, { recursive: true }); } catch { /* ignore */ }
+    for (const state of this.active.values()) {
+      state.data = null;
+    }
+    return {
+      pluginDataDir: this.dataRoot,
+      defaultPluginDataDir: this.defaultDataRoot,
+      isCustom: this.dataRoot !== this.defaultDataRoot,
     };
   }
 
@@ -211,10 +234,10 @@ class PluginManager {
   }
 
   makeContext(p, state) {
-    const dataFile = path.join(this.dataRoot, `${p.id}.json`);
+    const getDataFile = () => path.join(this.dataRoot, `${p.id}.json`);
     const readData = () => {
       if (!state.data) {
-        try { state.data = JSON.parse(fs.readFileSync(dataFile, 'utf8')); }
+        try { state.data = JSON.parse(fs.readFileSync(getDataFile(), 'utf8')); }
         catch { state.data = {}; }
       }
       return state.data;
@@ -255,8 +278,10 @@ class PluginManager {
         get: () => readData(),
         set: patch => {
           state.data = { ...readData(), ...patch };
-          fs.mkdirSync(this.dataRoot, { recursive: true });
-          fs.writeFileSync(dataFile, JSON.stringify(state.data, null, 2));
+          try {
+            fs.mkdirSync(this.dataRoot, { recursive: true });
+            fs.writeFileSync(getDataFile(), JSON.stringify(state.data, null, 2));
+          } catch { /* ignore */ }
           return state.data;
         },
       },
