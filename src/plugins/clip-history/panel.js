@@ -21,6 +21,10 @@
       openLink: isEn ? 'Open link in browser' : '在浏览器中打开链接',
       locateFile: isEn ? 'Locate in folder' : '在文件夹中定位',
       chars: isEn ? 'chars' : '字符',
+      extractedLinks: (n) => isEn ? `${n} link${n > 1 ? 's' : ''}` : `${n} 个链接`,
+      extractedLinksTitle: isEn ? 'Extracted Links' : '提取到的链接',
+      copyLink: isEn ? 'Copy link' : '复制链接',
+      linkCopied: isEn ? 'Link copied' : '链接已复制',
       totalCount: (n) => isEn ? `${n} items` : `共 ${n} 条记录`,
       capLabel: isEn ? 'Max:' : '上限:',
       capOption: (n, isDef) => isEn ? `${n} items${isDef ? ' (default)' : ''}` : `${n} 条${isDef ? ' (默认)' : ''}`,
@@ -71,6 +75,71 @@
       const d = new Date(ts);
       const pad = n => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+    }
+
+    const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.)[^\s"'\<\>`\u4e00-\u9fa5]+/gi;
+    function extractUrls(str) {
+      if (!str || typeof str !== 'string') return [];
+      const source = str.length > 20000 ? str.slice(0, 20000) : str;
+      const matches = source.match(URL_REGEX);
+      if (!matches) return [];
+
+      const results = [];
+      const seen = new Set();
+
+      for (let raw of matches) {
+        let clean = raw.trim();
+        clean = clean.replace(/[.,!?;:'"`，。？！；：（）【】《》“”‘’]+$/, '');
+        while (clean.endsWith(')')) {
+          const openCount = (clean.match(/\(/g) || []).length;
+          const closeCount = (clean.match(/\)/g) || []).length;
+          if (closeCount > openCount) clean = clean.slice(0, -1);
+          else break;
+        }
+        while (clean.endsWith(']')) {
+          const openCount = (clean.match(/\[/g) || []).length;
+          const closeCount = (clean.match(/\]/g) || []).length;
+          if (closeCount > openCount) clean = clean.slice(0, -1);
+          else break;
+        }
+        if (!clean) continue;
+
+        let normalized = clean;
+        if (clean.toLowerCase().startsWith('www.')) {
+          normalized = 'https://' + clean;
+        }
+
+        try {
+          new URL(normalized);
+          if (!seen.has(clean)) {
+            seen.add(clean);
+            results.push({ raw: clean, url: normalized });
+          }
+        } catch {
+          if (clean.includes('.')) {
+            if (!seen.has(clean)) {
+              seen.add(clean);
+              results.push({ raw: clean, url: normalized });
+            }
+          }
+        }
+      }
+      return results;
+    }
+
+    function getItemLinks(item) {
+      if (!item) return [];
+      if (Array.isArray(item.links) && item.links.length > 0) {
+        return item.links;
+      }
+      if (item.type === 'link') {
+        const u = item.url || item.content;
+        return [{ raw: item.content || u, url: u }];
+      }
+      if (item.type === 'text' && item.content) {
+        return extractUrls(item.content);
+      }
+      return [];
     }
 
     el.innerHTML = `
@@ -188,9 +257,11 @@
     function getFilteredList() {
       let filtered = historyList;
       if (currentFilter === 'text') {
-        filtered = filtered.filter(x => x.type === 'text');
+        // 链接文本既属于文本，所有文本与链接均在【文本】分类中
+        filtered = filtered.filter(x => x.type === 'text' || x.type === 'link');
       } else if (currentFilter === 'link') {
-        filtered = filtered.filter(x => x.type === 'link');
+        // 凡是提取出链接或本身是链接的条目，均在【链接】分类中
+        filtered = filtered.filter(x => x.type === 'link' || getItemLinks(x).length > 0);
       } else if (currentFilter === 'image') {
         filtered = filtered.filter(x => x.type === 'image');
       } else if (currentFilter === 'file') {
@@ -203,7 +274,10 @@
       if (q) {
         filtered = filtered.filter(x => {
           if (x.type === 'text' || x.type === 'link') {
-            return (x.content || '').toLowerCase().includes(q);
+            const matchContent = (x.content || '').toLowerCase().includes(q);
+            const links = getItemLinks(x);
+            const matchLinks = links.some(l => (l.raw && l.raw.toLowerCase().includes(q)) || (l.url && l.url.toLowerCase().includes(q)));
+            return matchContent || matchLinks;
           } else if (x.type === 'file') {
             return (x.name || '').toLowerCase().includes(q) || (x.path || '').toLowerCase().includes(q);
           } else if (x.type === 'image') {
@@ -221,6 +295,7 @@
       card.className = `clip-card${item.pinned ? ' pinned' : ''}`;
       card.dataset.id = item.id;
 
+      const links = getItemLinks(item);
       const exactTime = formatExactTime(item.timestamp);
       const relTime = formatRelativeTime(item.timestamp);
 
@@ -235,12 +310,60 @@
             <span>${item.charCount || (item.content ? item.content.length : 0)} ${T.chars}</span>
           </span>
         `;
-        bodyHtml = `<div class="clip-text-content">${escapeHtml(item.content)}</div>`;
+        if (links.length > 0) {
+          badgeHtml += `
+            <span class="clip-badge clip-badge-link" title="${T.extractedLinksTitle}">
+              <span>🔗</span>
+              <span>${T.extractedLinks(links.length)}</span>
+            </span>
+          `;
+        }
+
+        let linksAreaHtml = '';
+        if (links.length > 0) {
+          linksAreaHtml = `
+            <div class="clip-extracted-links">
+              <div class="clip-extracted-links-title">
+                <span>🔗</span>
+                <span>${T.extractedLinksTitle} (${links.length})</span>
+              </div>
+              <div class="clip-extracted-links-list">
+                ${links.map((lnk, idx) => {
+                  const targetUrl = lnk.url || lnk.raw;
+                  const displayStr = lnk.raw || lnk.url;
+                  return `
+                    <div class="clip-extracted-link-row" data-url="${escapeHtml(targetUrl)}">
+                      <span class="clip-extracted-link-text" title="${escapeHtml(targetUrl)}">${escapeHtml(displayStr)}</span>
+                      <div class="clip-extracted-link-actions">
+                        <button class="clip-btn-ext-action clip-btn-open-ext" title="${T.openLink}" data-url="${escapeHtml(targetUrl)}">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+                        </button>
+                        <button class="clip-btn-ext-action clip-btn-copy-ext" title="${T.copyLink}" data-url="${escapeHtml(targetUrl)}">
+                          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                        </button>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          `;
+        }
+
+        bodyHtml = `
+          <div class="clip-text-content">${escapeHtml(item.content)}</div>
+          ${linksAreaHtml}
+        `;
       } else if (item.type === 'link') {
+        const charLen = item.charCount || (item.content ? item.content.length : 0);
         badgeHtml = `
           <span class="clip-badge clip-badge-link">
             <span>🔗</span>
             <span>${T.link}</span>
+          </span>
+          <span class="clip-badge clip-badge-text">
+            <span>📄</span>
+            <span>${charLen} ${T.chars}</span>
           </span>
         `;
         bodyHtml = `
@@ -314,8 +437,45 @@
 
       // Click card to restore/copy
       card.addEventListener('click', async (e) => {
-        if (e.target.closest('.clip-actions')) return; // Ignore action button clicks
+        if (e.target.closest('.clip-actions') || e.target.closest('.clip-extracted-links')) return; // Ignore action clicks
         await copyToClipboard(item.id, card);
+      });
+
+      // Extracted links actions
+      const extLinkRows = card.querySelectorAll('.clip-extracted-link-row');
+      extLinkRows.forEach(row => {
+        const url = row.dataset.url;
+        const textEl = row.querySelector('.clip-extracted-link-text');
+        const openBtn = row.querySelector('.clip-btn-open-ext');
+        const copyBtn = row.querySelector('.clip-btn-copy-ext');
+
+        if (textEl) {
+          textEl.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (url) await ctx.call('openExternal', { url });
+          });
+        }
+        if (openBtn) {
+          openBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (url) await ctx.call('openExternal', { url });
+          });
+        }
+        if (copyBtn) {
+          copyBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            if (url) {
+              await ctx.call('writeClipboardText', { text: url });
+              copyBtn.classList.add('copied');
+              const origSvg = copyBtn.innerHTML;
+              copyBtn.innerHTML = `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+              setTimeout(() => {
+                copyBtn.classList.remove('copied');
+                copyBtn.innerHTML = origSvg;
+              }, 1000);
+            }
+          });
+        }
       });
 
       // Pin button

@@ -14,12 +14,78 @@ const MAX_ALLOWED_ITEMS = 1000;
 const POLL_INTERVAL = 800; // ms
 let timer = null;
 
-const URL_REGEX = /^(https?|ftp|file):\/\/[^\s/$.?#].[^\s]*$/i;
-function isUrl(str) {
-  if (!str || typeof str !== 'string') return false;
-  const s = str.trim();
-  if (s.length > 2000) return false;
-  return URL_REGEX.test(s);
+const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.)[^\s"'\<\>`\u4e00-\u9fa5]+/gi;
+
+function extractUrls(str) {
+  if (!str || typeof str !== 'string') return [];
+  const source = str.length > 20000 ? str.slice(0, 20000) : str;
+  const matches = source.match(URL_REGEX);
+  if (!matches) return [];
+
+  const results = [];
+  const seen = new Set();
+
+  for (let raw of matches) {
+    let clean = raw.trim();
+
+    // 智能剥离末尾常见的中文/英文尾随标点
+    clean = clean.replace(/[.,!?;:'"`，。？！；：（）【】《》“”‘’]+$/, '');
+
+    // 智能处理括号配对，避免破坏维基百科等合法闭括号链接
+    while (clean.endsWith(')')) {
+      const openCount = (clean.match(/\(/g) || []).length;
+      const closeCount = (clean.match(/\)/g) || []).length;
+      if (closeCount > openCount) {
+        clean = clean.slice(0, -1);
+      } else {
+        break;
+      }
+    }
+    while (clean.endsWith(']')) {
+      const openCount = (clean.match(/\[/g) || []).length;
+      const closeCount = (clean.match(/\]/g) || []).length;
+      if (closeCount > openCount) {
+        clean = clean.slice(0, -1);
+      } else {
+        break;
+      }
+    }
+
+    if (!clean) continue;
+
+    let normalized = clean;
+    if (clean.toLowerCase().startsWith('www.')) {
+      normalized = 'https://' + clean;
+    }
+
+    try {
+      new URL(normalized);
+      if (!seen.has(clean)) {
+        seen.add(clean);
+        results.push({
+          raw: clean,
+          url: normalized
+        });
+      }
+    } catch {
+      if (clean.includes('.')) {
+        if (!seen.has(clean)) {
+          seen.add(clean);
+          results.push({
+            raw: clean,
+            url: normalized
+          });
+        }
+      }
+    }
+  }
+  return results;
+}
+
+function isPureUrl(trimmed, extractedLinks) {
+  if (!trimmed || extractedLinks.length !== 1) return false;
+  const item = extractedLinks[0];
+  return item.raw === trimmed || item.url === trimmed;
 }
 
 function readClipboardFilePath() {
@@ -146,24 +212,30 @@ module.exports = {
             return;
           }
 
-          // Check if text is a URL
-          if (isUrl(trimmed)) {
+          // Extract URLs from text
+          const extractedLinks = extractUrls(text);
+          const pureUrl = isPureUrl(trimmed, extractedLinks);
+
+          if (pureUrl) {
             addItem({
               id: `url_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
               type: 'link',
               content: trimmed,
-              url: trimmed,
+              url: extractedLinks[0].url,
+              links: extractedLinks,
+              charCount: text.length,
               timestamp: Date.now(),
               pinned: false,
             });
             return;
           }
 
-          // Standard text
+          // Standard text (with or without extracted links)
           addItem({
             id: `txt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             type: 'text',
             content: text,
+            links: extractedLinks,
             charCount: text.length,
             timestamp: Date.now(),
             pinned: false,
@@ -268,9 +340,19 @@ module.exports = {
       return { ok: false, error: 'file not found' };
     });
 
+    ctx.ipc.handle('writeClipboardText', (args) => {
+      const { text } = args || {};
+      if (typeof text === 'string') {
+        lastText = text; // Prevent self-echo loop
+        clipboard.writeText(text);
+        return { ok: true };
+      }
+      return { ok: false, error: 'invalid text' };
+    });
+
     ctx.ipc.handle('openExternal', (args) => {
       const { url } = args || {};
-      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+      if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ftp://') || url.startsWith('file://'))) {
         shell.openExternal(url);
         return { ok: true };
       }
