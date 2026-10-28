@@ -151,6 +151,19 @@ app.whenReady().then(async () => {
         resizeTested = true;
       }
 
+      // Test Disconnecting edge via right click / contextmenu
+      let disconnectTested = false;
+      const edgeToDisconnect = document.querySelector('.wf-svg-layer path.wf-edge-line');
+      const edgeCountBefore = document.querySelectorAll('.wf-svg-layer path.wf-edge-line').length;
+      if (edgeToDisconnect) {
+        edgeToDisconnect.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true }));
+        await new Promise(r => setTimeout(r, 100));
+        const edgeCountAfter = document.querySelectorAll('.wf-svg-layer path.wf-edge-line').length;
+        if (edgeCountAfter === edgeCountBefore - 1) {
+          disconnectTested = true;
+        }
+      }
+
       return {
         viewHidden: document.getElementById('viewWorkflows').hidden,
         nodeCount: document.querySelectorAll('.wf-node').length,
@@ -159,7 +172,8 @@ app.whenReady().then(async () => {
         scaleText,
         linkSucceeded,
         edgeStroke,
-        resizeTested
+        resizeTested,
+        disconnectTested
       };
     })()
   `);

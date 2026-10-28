@@ -1457,6 +1457,17 @@ function renderWorkflowCanvas() {
         e.preventDefault();
         startDraftConnection(node, outPort, 'out');
       });
+      // 右键输出端口：直接断开从此端口引出的所有连线
+      outPort.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const beforeLen = currentWorkflow.edges.length;
+        currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id);
+        if (currentWorkflow.edges.length !== beforeLen) {
+          renderWorkflowCanvas();
+          logToWfConsole(`✂️ 已断开节点 [${node.title}] 的所有输出连线`);
+        }
+      });
       outPort.addEventListener('click', (e) => {
         e.stopPropagation();
         if (wfCanvas.connecting && wfCanvas.connecting.fromType === 'in' && wfCanvas.connecting.fromNodeId !== node.id) {
@@ -1471,7 +1482,32 @@ function renderWorkflowCanvas() {
       inPort.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         e.preventDefault();
+        // 主流脱线交互（拔线/拔插头）：若已有上游连线接入，直接将连线拔出并跟随鼠标，松开空白处即断开，拖至新端口即重连
+        const existingInEdge = currentWorkflow.edges.find(ed => ed.to === node.id);
+        if (existingInEdge) {
+          const upstreamNode = currentWorkflow.nodes.find(n => n.id === existingInEdge.from);
+          currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed !== existingInEdge);
+          renderWorkflowCanvas();
+          if (upstreamNode) {
+            const upstreamEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${upstreamNode.id}"]`);
+            const upstreamOutPort = upstreamEl ? upstreamEl.querySelector('.wf-port.out') : inPort;
+            startDraftConnection(upstreamNode, upstreamOutPort, 'out');
+            logToWfConsole(`✂️ 已拔出连线 [${upstreamNode.title} ➔ ${node.title}]：甩至空白处松手即断开，或拖至新端口重连`);
+            return;
+          }
+        }
         startDraftConnection(node, inPort, 'in');
+      });
+      // 右键输入端口：直接断开接入此端口的所有连线
+      inPort.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const beforeLen = currentWorkflow.edges.length;
+        currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.to !== node.id);
+        if (currentWorkflow.edges.length !== beforeLen) {
+          renderWorkflowCanvas();
+          logToWfConsole(`✂️ 已断开节点 [${node.title}] 的所有输入连线`);
+        }
       });
       inPort.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -1485,7 +1521,7 @@ function renderWorkflowCanvas() {
     els.wfNodesContainer.appendChild(el);
   });
 
-  // 2. 渲染 SVG Edges (Cubic Bézier)，端点精准对齐真实端口中心
+  // 2. 渲染 SVG Edges (Cubic Bézier)，端点精准对齐真实端口中心，支持悬停徽标、右键及点击断开
   (currentWorkflow.edges || []).forEach(edge => {
     const fromNode = currentWorkflow.nodes.find(n => n.id === edge.from);
     const toNode = currentWorkflow.nodes.find(n => n.id === edge.to);
@@ -1501,32 +1537,71 @@ function renderWorkflowCanvas() {
 
     const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
     const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+    const midX = (x1 + x2) / 2;
+    const midY = (y1 + y2) / 2;
 
     const edgeKey = edge.id || `edge-${edge.from}-${edge.to}`;
+    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    g.setAttribute('class', 'wf-edge-group' + (wfCanvas.selectedEdgeId === edgeKey ? ' selected' : ''));
+    g.setAttribute('id', `edge-group-${edge.from}-${edge.to}`);
+    g.setAttribute('data-id', edgeKey);
+
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
     path.setAttribute('d', d);
     path.setAttribute('id', `edge-${edge.from}-${edge.to}`);
+    path.setAttribute('class', 'wf-edge-line');
     path.setAttribute('data-id', edgeKey);
     path.style.cursor = 'pointer';
-    if (wfCanvas.selectedEdgeId === edgeKey) {
-      path.classList.add('selected');
-    }
+
+    const removeThisEdge = (actionDesc = '断开') => {
+      currentWorkflow.edges = currentWorkflow.edges.filter(x => x !== edge);
+      if (wfCanvas.selectedEdgeId === edgeKey) wfCanvas.selectedEdgeId = null;
+      renderWorkflowCanvas();
+      logToWfConsole(`✂️ ${actionDesc}连线: [${fromNode.title}] ➔ [${toNode.title}]`);
+    };
+
+    // 右键点击连线直接断开
+    path.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeThisEdge('右键已断开');
+    });
 
     path.addEventListener('click', (e) => {
       e.stopPropagation();
       if (wfCanvas.selectedEdgeId === edgeKey) {
-        currentWorkflow.edges = currentWorkflow.edges.filter(x => x !== edge);
-        wfCanvas.selectedEdgeId = null;
-        renderWorkflowCanvas();
-        logToWfConsole(`✓ 已删除连线: [${fromNode.title}] ➔ [${toNode.title}]`);
+        removeThisEdge('再次点击已断开');
       } else {
         wfCanvas.selectedEdgeId = edgeKey;
         renderWorkflowCanvas();
-        logToWfConsole(`已选中连线 [${fromNode.title} ➔ ${toNode.title}]，按 Delete 键或再次点击即可删除`);
+        logToWfConsole(`已选中连线 [${fromNode.title} ➔ ${toNode.title}]，按 Delete 键或右键/点击 × 即可断开`);
       }
     });
 
-    els.wfSvgLayer.appendChild(path);
+    g.appendChild(path);
+
+    // 悬停中点微型删除徽标 (Hover Delete Badge)
+    const badge = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    badge.setAttribute('class', 'wf-edge-badge');
+    badge.setAttribute('id', `edge-badge-${edge.from}-${edge.to}`);
+    badge.setAttribute('transform', `translate(${midX}, ${midY})`);
+    badge.setAttribute('title', '点击断开此连线');
+    badge.innerHTML = `
+      <circle cx="0" cy="0" r="8.5"></circle>
+      <text x="0" y="0.5">✕</text>
+    `;
+    badge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      removeThisEdge('点击徽标已断开');
+    });
+    badge.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      removeThisEdge('右键已断开');
+    });
+
+    g.appendChild(badge);
+    els.wfSvgLayer.appendChild(g);
   });
 }
 
@@ -1537,6 +1612,7 @@ function updateSvgEdgesOnly() {
     const toNode = currentWorkflow.nodes.find(n => n.id === edge.to);
     if (!fromNode || !toNode) return;
     const path = els.wfSvgLayer.querySelector(`#edge-${edge.from}-${edge.to}`);
+    const badge = els.wfSvgLayer.querySelector(`#edge-badge-${edge.from}-${edge.to}`);
     if (path) {
       const fromEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${edge.from}"]`);
       const toEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${edge.to}"]`);
@@ -1546,6 +1622,9 @@ function updateSvgEdgesOnly() {
       const y2 = (toNode.y || 0) + (toEl ? (toEl.offsetHeight / 2) : 36);
       const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
       path.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
+      if (badge) {
+        badge.setAttribute('transform', `translate(${(x1 + x2) / 2}, ${(y1 + y2) / 2})`);
+      }
     }
   });
 }

@@ -814,22 +814,29 @@ body {
   overflow: visible; pointer-events: none; z-index: 1;
 }
 .wf-svg-layer path {
-  fill: none; stroke: light-dark(#0284c7, #38bdf8); stroke-width: 2.6;
+  fill: none; stroke: light-dark(#0284c7, #38bdf8); stroke-width: 2.8;
   pointer-events: stroke; cursor: pointer;
   filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.45));
   transition: stroke .15s, stroke-width .15s, filter .15s;
 }
-.wf-svg-layer path:hover {
-  stroke-width: 4; stroke: #7dd3fc;
-  filter: drop-shadow(0 0 8px rgba(125, 211, 252, 0.8));
+.wf-edge-group {
+  cursor: pointer;
 }
-.wf-svg-layer path.selected {
+.wf-edge-group:hover path.wf-edge-line {
+  stroke-width: 4; stroke: #7dd3fc;
+  filter: drop-shadow(0 0 8px rgba(125, 211, 252, 0.85));
+}
+.wf-edge-group.selected path.wf-edge-line {
   stroke: #ffab2e !important; stroke-width: 4 !important;
   filter: drop-shadow(0 0 8px rgba(255, 171, 46, 0.9));
 }
-.wf-svg-layer path.active {
+.wf-edge-group.active path.wf-edge-line {
   stroke: #5fe3a1 !important; stroke-dasharray: 6 3; animation: wfDash 1s linear infinite;
   filter: drop-shadow(0 0 8px rgba(95, 227, 161, 0.85));
+}
+.wf-svg-layer path.wf-edge-hitarea {
+  fill: none; stroke: transparent; stroke-width: 22;
+  pointer-events: stroke; cursor: pointer;
 }
 .wf-svg-layer path.wf-draft-path {
   stroke: #5fe3a1; stroke-width: 2.8; stroke-dasharray: 6 4;
@@ -838,8 +845,28 @@ body {
 }
 @keyframes wfDash { to { stroke-dashoffset: -18; } }
 
+/* 连线悬停微型删除按钮 */
+.wf-edge-badge {
+  opacity: 0; pointer-events: none; transition: opacity .15s ease, transform .15s ease;
+  transform-origin: center; cursor: pointer;
+}
+.wf-edge-group:hover .wf-edge-badge, .wf-edge-group.selected .wf-edge-badge {
+  opacity: 1; pointer-events: all;
+}
+.wf-edge-badge circle {
+  fill: #ff4757; transition: transform .12s, fill .12s;
+  filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.45));
+}
+.wf-edge-badge:hover circle {
+  fill: #ff6b81; transform: scale(1.25);
+}
+.wf-edge-badge text {
+  fill: #ffffff; font-size: 11px; font-weight: 700; text-anchor: middle; dominant-baseline: central;
+  user-select: none; pointer-events: none;
+}
+
 .wf-nodes-container {
-  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: auto;
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none;
 }
 .wf-node {
   position: absolute; width: 220px; border-radius: 8px;
