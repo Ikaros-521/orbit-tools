@@ -76,12 +76,18 @@ body {
 }
 .platform-darwin .chassis { padding-left: 20px; }
 
+/* Frameless drag: the rail must cover the chassis padding too, or the window's
+   very top edge is a dead strip. Negative margins + matching padding extend the
+   drag region to the window edge with zero visual change. */
 .rail {
   display: flex; align-items: center; gap: 18px;
   flex: 0 0 auto;
+  margin: -18px -22px 0;
+  padding: 18px 22px 0;
   -webkit-app-region: drag;
   user-select: none;
 }
+.platform-darwin .rail { margin-left: -20px; padding-left: 20px; }
 .plate { display: flex; flex-direction: column; gap: 2px; min-width: 0; pointer-events: none; }
 .plate-model {
   font-size: 19px; letter-spacing: .16em; font-weight: 600;
