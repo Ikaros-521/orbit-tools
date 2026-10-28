@@ -7,7 +7,7 @@
     "name": "Ikaros-521",
     "email": "327209194@qq.com"
   },
-  "license": "MIT",
+  "license": "AGPL-3.0-or-later",
   "scripts": {
     "start": "electron .",
     "test": "electron tools/smoke-plugins.js",
@@ -24,7 +24,7 @@
   "build": {
     "appId": "dev.peroperoyui.orbittools",
     "productName": "Orbit Toolbox",
-    "copyright": "MIT",
+    "copyright": "Copyright © 2026 Ikaros-521. Dual licensed under AGPL-3.0-or-later or Commercial License.",
     "files": [
       "src/**/*",
       "package.json"
