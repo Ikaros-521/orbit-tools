@@ -11,6 +11,9 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     config: { hotkey: cfg.data.hotkey, lang: cfg.data.lang, theme: cfg.data.theme },
     plugins: manager.serialize(),
     hotkeys: hotkeys.status,
+    userPluginsDir: manager.userRoot,
+    defaultUserPluginsDir: manager.defaultUserRoot,
+    isCustomUserPluginsDir: manager.userRoot !== manager.defaultUserRoot,
   }));
 
   ipcMain.handle('plugin-call', async (e, payload) => {
@@ -55,6 +58,27 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   ipcMain.handle('open-user-plugins', () => {
     fs.mkdirSync(manager.userRoot, { recursive: true });
     shell.openPath(manager.userRoot);
+  });
+
+  ipcMain.handle('choose-user-plugins-dir', async () => {
+    const parent = getHostWindow();
+    const r = await dialog.showOpenDialog(parent, {
+      title: '选择用户插件目录 / Choose User Plugins Folder',
+      defaultPath: manager.userRoot,
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    if (r.canceled || !r.filePaths || r.filePaths.length === 0) return null;
+    return r.filePaths[0];
+  });
+
+  ipcMain.handle('set-user-plugins-dir', (e, newDir) => {
+    const dirInfo = manager.setUserPluginsDir(newDir);
+    hotkeys.registerAll();
+    return {
+      plugins: manager.serialize(),
+      hotkeys: hotkeys.status,
+      ...dirInfo,
+    };
   });
 
   ipcMain.handle('open-plugin-folder', (e, id) => {

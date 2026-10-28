@@ -17,6 +17,8 @@ contextBridge.exposeInMainWorld('host', {
   setPref: (k, v) => ipcRenderer.invoke('set-pref', { k, v }),
   openExternal: url => ipcRenderer.invoke('open-external', { url }),
   openUserPlugins: () => ipcRenderer.invoke('open-user-plugins'),
+  chooseUserPluginsDir: () => ipcRenderer.invoke('choose-user-plugins-dir'),
+  setUserPluginsDir: dir => ipcRenderer.invoke('set-user-plugins-dir', dir),
   openPluginFolder: id => ipcRenderer.invoke('open-plugin-folder', id),
   chooseSavePng: () => ipcRenderer.invoke('choose-save-png'),
   win: action => ipcRenderer.send('win', action),

@@ -1,0 +1,24 @@
+{
+  "id": "my-fullstack-tool",
+  "name": { "zh": "前后端混合示例工具", "en": "Fullstack Demo Tool" },
+  "desc": { "zh": "具有主进程 Node.js 能力与数据持久化的完整插件示例", "en": "A fullstack plugin with Node.js and persistence" },
+  "version": "1.0.0",
+  "category": "system",
+  "author": "Orbit Community",
+  "keywords": ["demo", "fullstack", "node", "ipc", "示例"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "panel": {
+    "script": "panel.js",
+    "style": "panel.css"
+  },
+  "backend": "backend.js",
+  "actions": [
+    {
+      "id": "quick-ping",
+      "label": { "zh": "快速问候", "en": "Quick Greet" },
+      "method": "ping",
+      "hotkey": "Ctrl+Shift+G"
+    }
+  ]
+}

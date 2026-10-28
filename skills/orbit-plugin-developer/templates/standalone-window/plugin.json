@@ -1,0 +1,24 @@
+{
+  "id": "my-window-tool",
+  "name": { "zh": "独立窗口示例工具", "en": "Standalone Window Demo" },
+  "desc": { "zh": "演示如何由后端弹出受管理的独立辅助窗口", "en": "Demonstrates creating managed auxiliary windows" },
+  "version": "1.0.0",
+  "category": "media",
+  "author": "Orbit Community",
+  "keywords": ["demo", "window", "auxiliary", "示例"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "panel": {
+    "script": "panel.js",
+    "style": "panel.css"
+  },
+  "backend": "backend.js",
+  "actions": [
+    {
+      "id": "open-window",
+      "label": { "zh": "弹出窗口", "en": "Open Window" },
+      "method": "openWindow",
+      "hotkey": "Ctrl+Shift+W"
+    }
+  ]
+}

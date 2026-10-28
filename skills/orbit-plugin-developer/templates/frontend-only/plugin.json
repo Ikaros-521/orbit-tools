@@ -1,0 +1,15 @@
+{
+  "id": "my-frontend-tool",
+  "name": { "zh": "纯前端示例工具", "en": "Frontend Demo Tool" },
+  "desc": { "zh": "无需后端的纯前端轻量小工具示例", "en": "A lightweight tool without backend" },
+  "version": "1.0.0",
+  "category": "dev",
+  "author": "Orbit Community",
+  "keywords": ["demo", "frontend", "示例"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "panel": {
+    "script": "panel.js",
+    "style": "panel.css"
+  }
+}

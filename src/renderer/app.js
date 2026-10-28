@@ -17,6 +17,13 @@ const els = {
   paginationBar: $('paginationBar'), btnPagePrev: $('btnPagePrev'),
   pageIndicator: $('pageIndicator'), btnPageNext: $('btnPageNext'),
   btnRescan: $('btnRescan'), btnUserPlugins: $('btnUserPlugins'),
+  btnChangeUserPluginsHeader: $('btnChangeUserPluginsHeader'),
+  btnResetUserPluginsHeader: $('btnResetUserPluginsHeader'),
+  userPluginsPath2: $('userPluginsPath2'), userPluginsBadge2: $('userPluginsBadge2'),
+  userPluginsPath: $('userPluginsPath'), userPluginsBadge: $('userPluginsBadge'),
+  btnChangeUserPlugins: $('btnChangeUserPlugins'),
+  btnOpenUserPlugins2: $('btnOpenUserPlugins2'),
+  btnResetUserPlugins: $('btnResetUserPlugins'),
   btnGotoPlugins: $('btnGotoPlugins'),
   aboutVer: $('aboutVer'), btnRepo: $('btnRepo'),
   // Context menu elements
@@ -44,6 +51,9 @@ const state = {
   pageSize: 4,
   ctxTargetPlugin: null,
   highlightPluginId: null,
+  userPluginsDir: '',
+  defaultUserPluginsDir: '',
+  isCustomUserPluginsDir: false,
 };
 
 /* Human name for a hotkey key ('host' or 'pluginId:actionId') — used to say
@@ -483,7 +493,62 @@ function hideCardContextMenu() {
 }
 
 /* --- settings ------------------------------------------------------------------------ */
+function renderUserPluginsDirInfo() {
+  const isCustom = !!state.isCustomUserPluginsDir;
+  const dir = state.userPluginsDir || '';
+  const badgeText = t(isCustom ? 'userPluginsCustom' : 'userPluginsDefault');
+
+  if (els.userPluginsPath) {
+    els.userPluginsPath.textContent = dir;
+    els.userPluginsPath.title = dir;
+  }
+  if (els.userPluginsBadge) {
+    els.userPluginsBadge.textContent = badgeText;
+    els.userPluginsBadge.className = 'chip ' + (isCustom ? 'warn' : 'ghost');
+  }
+  if (els.btnResetUserPlugins) {
+    els.btnResetUserPlugins.hidden = !isCustom;
+  }
+
+  if (els.userPluginsPath2) {
+    els.userPluginsPath2.textContent = dir;
+    els.userPluginsPath2.title = dir;
+  }
+  if (els.userPluginsBadge2) {
+    els.userPluginsBadge2.textContent = badgeText;
+    els.userPluginsBadge2.className = 'chip ' + (isCustom ? 'warn' : 'ghost');
+  }
+  if (els.btnResetUserPluginsHeader) {
+    els.btnResetUserPluginsHeader.hidden = !isCustom;
+  }
+}
+
+async function applyUserPluginsDir(dir) {
+  const res = await window.host.setUserPluginsDir(dir);
+  state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
+  state.hotkeys = res.hotkeys;
+  state.userPluginsDir = res.userPluginsDir;
+  state.defaultUserPluginsDir = res.defaultUserPluginsDir;
+  state.isCustomUserPluginsDir = res.isCustom;
+  renderUserPluginsDirInfo();
+  renderDeck();
+  renderPlugins();
+  return res;
+}
+window.__setUserPluginsDirForTest = applyUserPluginsDir;
+
+async function changeUserPluginsDir() {
+  const chosen = await window.host.chooseUserPluginsDir();
+  if (!chosen) return;
+  await applyUserPluginsDir(chosen);
+}
+
+async function resetUserPluginsDir() {
+  await applyUserPluginsDir(null);
+}
+
 function renderSettings() {
+  renderUserPluginsDirInfo();
   els.hotkeyCtrl.innerHTML = '';
   els.hotkeyCtrl.appendChild(hotkeyEditor({
     initial: state.config.hotkey,
@@ -517,6 +582,9 @@ async function init() {
   state.plugins = [...boot.plugins].sort((a, b) => a.id.localeCompare(b.id));
   state.config = { ...state.config, ...boot.config };
   state.hotkeys = boot.hotkeys || [];
+  state.userPluginsDir = boot.userPluginsDir;
+  state.defaultUserPluginsDir = boot.defaultUserPluginsDir;
+  state.isCustomUserPluginsDir = boot.isCustomUserPluginsDir;
   const hostRow = state.hotkeys.find(r => r.key === 'host');
   if (hostRow && hostRow.ok) state.config.hotkey = hostRow.accel;
   document.body.className = `platform-${boot.platform} lang-${state.config.lang}`;
@@ -524,6 +592,7 @@ async function init() {
   els.hotHint.textContent = state.config.hotkey;
   applyTheme(state.config.theme);
   applyLang(state.config.lang);
+  renderUserPluginsDirInfo();
   setView('home');
 }
 
@@ -672,6 +741,17 @@ window.addEventListener('contextmenu', e => {
   if (!e.target.closest('.card')) hideCardContextMenu();
 });
 window.addEventListener('scroll', () => hideCardContextMenu(), true);
+
+/* --- user plugins dir events ------------------------------------------------------------ */
+for (const btn of [els.btnChangeUserPlugins, els.btnChangeUserPluginsHeader]) {
+  if (btn) btn.addEventListener('click', changeUserPluginsDir);
+}
+for (const btn of [els.btnResetUserPlugins, els.btnResetUserPluginsHeader]) {
+  if (btn) btn.addEventListener('click', resetUserPluginsDir);
+}
+for (const el of [els.userPluginsPath, els.userPluginsPath2, els.btnOpenUserPlugins2]) {
+  if (el) el.addEventListener('click', () => window.host.openUserPlugins());
+}
 window.host.onPaletteFocus(() => {
   if (state.view === 'home') { els.search.focus(); els.search.select(); }
 });

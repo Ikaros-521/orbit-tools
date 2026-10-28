@@ -1,0 +1,6 @@
+/* 前后端混合模板样式 */
+.tool-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

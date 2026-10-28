@@ -8,6 +8,7 @@ const DEFAULTS = {
   enabled: {},          // pluginId -> bool; absent = manifest default
   pluginHotkeys: {},    // "pluginId:actionId" -> accelerator
   windowBounds: null,
+  userPluginsDir: null, // string absolute path | null (defaults to <userData>/plugins)
 };
 
 class Config {

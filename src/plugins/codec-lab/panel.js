@@ -13,61 +13,63 @@
 
   const CODECS = {
     base64: {
-      label: 'Base64',
+      label: { zh: 'Base64', en: 'Base64' },
       encode: s => b64encode(s),
       decode: s => b64decode(s),
-      hint: 'UTF-8 → Base64',
+      hint: { zh: 'UTF-8 ↔ Base64 编解码', en: 'UTF-8 → Base64' },
     },
     url: {
-      label: 'URL',
+      label: { zh: 'URL 编码', en: 'URL' },
       encode: s => encodeURIComponent(s),
       decode: s => decodeURIComponent(s.replace(/\+/g, ' ')),
-      hint: 'percent-encoding',
+      hint: { zh: '百分号 URL 转义 / 解码', en: 'percent-encoding' },
     },
     hex: {
-      label: 'Hex',
+      label: { zh: 'Hex 十六进制', en: 'Hex' },
       encode: s => [...enc.encode(s)].map(b => b.toString(16).padStart(2, '0')).join(' '),
       decode: s => dec.decode(Uint8Array.from((s.replace(/0x/gi, '').replace(/[\s,:-]+/g, '').match(/.{1,2}/g) || []).map(h => parseInt(h, 16)))),
-      hint: 'bytes in hex',
+      hint: { zh: '十六进制字节 ↔ UTF-8 文本', en: 'bytes in hex' },
     },
     unicode: {
-      label: 'Unicode',
+      label: { zh: 'Unicode 转义', en: 'Unicode' },
       encode: s => [...s].map(c => '\\u' + c.codePointAt(0).toString(16).padStart(4, '0')).join(''),
       decode: s => s.replace(/\\u\{([0-9a-f]+)\}|\\u([0-9a-f]{4})|&#x([0-9a-f]+);|\\x([0-9a-f]{2})/gi, (_, b1, b2, b3, b4) => String.fromCodePoint(parseInt(b1 || b2 || b3 || b4, 16))),
-      hint: '\\uXXXX / \\u{X} / &#xX;',
+      hint: { zh: '\\uXXXX / \\u{X} / &#xX; 转义字符', en: '\\uXXXX / \\u{X} / &#xX;' },
     },
     jwt: {
-      label: 'JWT',
+      label: { zh: 'JWT 解析', en: 'JWT' },
       encode: null, // JWT is decode-only here: signing needs a secret
-      decode: s => {
+      decode: (s, isZh) => {
         const parts = s.trim().split('.');
-        if (parts.length < 2) throw new Error('not a JWT (need header.payload)');
+        if (parts.length < 2) throw new Error(isZh ? '无效的 JWT 格式（需包含 header.payload）' : 'not a JWT (need header.payload)');
         const j = part => JSON.stringify(JSON.parse(b64decode(part.replace(/-/g, '+').replace(/_/g, '/'))), null, 2);
-        const out = [`// header\n${j(parts[0])}`, `// payload\n${j(parts[1])}`];
-        if (parts[2]) out.push(`// signature (raw)\n${parts[2]}`);
+        const out = [
+          `// ${isZh ? '头部 (header)' : 'header'}\n${j(parts[0])}`,
+          `// ${isZh ? '载荷 (payload)' : 'payload'}\n${j(parts[1])}`,
+        ];
+        if (parts[2]) out.push(`// ${isZh ? '签名原始值 (signature raw)' : 'signature (raw)'}\n${parts[2]}`);
         return out.join('\n\n');
       },
-      hint: 'decode only',
+      hint: { zh: 'JWT 令牌结构解析 (仅支持解码)', en: 'decode only' },
     },
     timestamp: {
-      label: 'Timestamp',
-      // Encode = now in seconds; decode = parse s/ms/µs and render local + UTC + ISO.
+      label: { zh: '时间戳', en: 'Timestamp' },
       encode: () => String(Math.floor(Date.now() / 1000)),
-      decode: s => {
+      decode: (s, isZh) => {
         const n = Number(s.replace(/[^\d]/g, ''));
-        if (!Number.isFinite(n) || n <= 0) throw new Error('not a timestamp');
+        if (!Number.isFinite(n) || n <= 0) throw new Error(isZh ? '无效的时间戳数值' : 'not a timestamp');
         const ms = n > 1e14 ? n / 1000 : n > 1e11 ? n : n * 1000;
         const d = new Date(ms);
-        if (isNaN(d)) throw new Error('out of range');
+        if (isNaN(d)) throw new Error(isZh ? '时间戳数值超出范围' : 'out of range');
         const p = (x, w = 2) => String(x).padStart(w, '0');
         return [
-          `local  ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`,
-          `UTC    ${d.toISOString().slice(0, 19).replace('T', ' ')}`,
-          `ISO    ${d.toISOString()}`,
-          `unix   ${Math.floor(ms / 1000)} (s) / ${Math.floor(ms)} (ms)`,
+          `${isZh ? '本地时间 (local)' : 'local'}  ${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`,
+          `${isZh ? '协调时 (UTC)' : 'UTC'}    ${d.toISOString().slice(0, 19).replace('T', ' ')}`,
+          `${isZh ? '国际标准 (ISO)' : 'ISO'}    ${d.toISOString()}`,
+          `${isZh ? 'Unix 秒 / 毫秒' : 'unix'}   ${Math.floor(ms / 1000)} (s) / ${Math.floor(ms)} (ms)`,
         ].join('\n');
       },
-      hint: 's / ms / µs → date',
+      hint: { zh: '秒 / 毫秒 / 微秒 ↔ 本地时间 / UTC / ISO', en: 's / ms / µs → date' },
     },
   };
 
@@ -80,23 +82,24 @@
     let codec = 'base64';
     let mode = 'encode';
     let swapT = 0;
+    const isZh = ctx.lang !== 'en';
 
     el.innerHTML = `
       <div class="tool-bar">
         <div class="seg cdc-seg" id="cdcCodec"></div>
         <div class="seg cdc-seg" id="cdcMode"></div>
         <span class="grow"></span>
-        <button type="button" class="btn ghost" data-act="swap">⇅ swap</button>
-        <button type="button" class="btn ghost" data-act="copyOut">copy out</button>
-        <button type="button" class="btn ghost" data-act="clear">clear</button>
+        <button type="button" class="btn ghost" data-act="swap">${isZh ? '⇅ 对调' : '⇅ swap'}</button>
+        <button type="button" class="btn ghost" data-act="copyOut">${isZh ? '复制结果' : 'copy out'}</button>
+        <button type="button" class="btn ghost" data-act="clear">${isZh ? '清空' : 'clear'}</button>
       </div>
       <div class="cdc-body">
         <div class="cdc-pane">
-          <div class="cdc-pane-head"><span>IN</span><span class="hint" id="cdcHint"></span></div>
-          <textarea id="cdcIn" class="cdc-ta" spellcheck="false" placeholder="type / paste here…"></textarea>
+          <div class="cdc-pane-head"><span>${isZh ? '输入' : 'IN'}</span><span class="hint" id="cdcHint"></span></div>
+          <textarea id="cdcIn" class="cdc-ta" spellcheck="false" placeholder="${isZh ? '在此输入或粘贴文本…' : 'type / paste here…'}"></textarea>
         </div>
         <div class="cdc-pane">
-          <div class="cdc-pane-head"><span>OUT</span><span class="hint" id="cdcStat"></span></div>
+          <div class="cdc-pane-head"><span>${isZh ? '输出' : 'OUT'}</span><span class="hint" id="cdcStat"></span></div>
           <textarea id="cdcOut" class="cdc-ta" readonly spellcheck="false"></textarea>
         </div>
       </div>`;
@@ -108,15 +111,16 @@
     const hint = el.querySelector('#cdcHint');
     const stat = el.querySelector('#cdcStat');
 
-    const L = ctx.lang;
     for (const [key, c] of Object.entries(CODECS)) {
       const b = document.createElement('button');
-      b.type = 'button'; b.textContent = c.label; b.dataset.codec = key;
+      b.type = 'button';
+      b.textContent = isZh ? (c.label.zh || c.label.en) : (c.label.en || c.label.zh);
+      b.dataset.codec = key;
       codecSeg.appendChild(b);
     }
     for (const m of MODES) {
       const b = document.createElement('button');
-      b.type = 'button'; b.textContent = L === 'en' ? m.en : m.zh; b.dataset.mode = m.key;
+      b.type = 'button'; b.textContent = isZh ? m.zh : m.en; b.dataset.mode = m.key;
       modeSeg.appendChild(b);
     }
 
@@ -127,24 +131,24 @@
 
     const run = () => {
       const c = CODECS[codec];
-      hint.textContent = c.hint;
+      hint.textContent = isZh ? (c.hint.zh || c.hint.en) : (c.hint.en || c.hint.zh);
       const input = taIn.value;
       if (!input.trim()) { taOut.value = ''; stat.textContent = ''; return; }
       const fn = mode === 'encode' ? c.encode : c.decode;
       if (!fn) {
         taOut.value = '';
-        stat.textContent = L === 'en' ? 'decode-only codec' : '该编码仅支持解码';
+        stat.textContent = isZh ? '该格式仅支持解码' : 'decode-only codec';
         return;
       }
       try {
-        taOut.value = fn(input);
-        stat.textContent = `${taOut.value.length} ch`;
+        taOut.value = fn(input, isZh);
+        stat.textContent = `${taOut.value.length} ${isZh ? '字' : 'ch'}`;
         taOut.classList.remove('err');
         taIn.classList.remove('err');
       } catch (err) {
         taOut.value = '';
         taOut.classList.add('err');
-        stat.textContent = err.message || 'error';
+        stat.textContent = err.message || (isZh ? '处理失败' : 'error');
       }
     };
 
@@ -174,7 +178,7 @@
 
     function flashCopied(b) {
       const old = b.textContent;
-      b.textContent = '✓';
+      b.textContent = isZh ? '✓ 已复制' : '✓ Copied';
       clearTimeout(swapT);
       swapT = setTimeout(() => { b.textContent = old; }, 900);
     }

@@ -19,13 +19,36 @@ const i18n = v => {
 class PluginManager {
   constructor({ userDataDir, config, getHostWindow }) {
     this.builtinRoot = path.join(__dirname, '..', 'plugins');
-    this.userRoot = path.join(userDataDir, 'plugins');
+    this.defaultUserRoot = path.join(userDataDir, 'plugins');
+    const customUserDir = config && config.data && config.data.userPluginsDir;
+    this.userRoot = (typeof customUserDir === 'string' && customUserDir.trim())
+      ? path.resolve(customUserDir.trim())
+      : this.defaultUserRoot;
     this.dataRoot = path.join(userDataDir, 'plugin-data');
     this.config = config;
     this.getHostWindow = getHostWindow;
     this.plugins = new Map();  // id -> record {id, root, source, manifest, enabled}
     this.active = new Map();   // id -> {mod, handlers:Map, windows:Set, data}
     this.loadErrors = new Map();
+  }
+
+  setUserPluginsDir(newDir) {
+    if (newDir && typeof newDir === 'string' && newDir.trim()) {
+      this.userRoot = path.resolve(newDir.trim());
+      this.config.set({ userPluginsDir: this.userRoot });
+    } else {
+      this.userRoot = this.defaultUserRoot;
+      this.config.set({ userPluginsDir: null });
+    }
+    try { fs.mkdirSync(this.userRoot, { recursive: true }); } catch { /* ignore */ }
+    this.deactivateAll();
+    this.discover();
+    for (const p of this.plugins.values()) if (p.enabled) this.activate(p.id);
+    return {
+      userPluginsDir: this.userRoot,
+      defaultUserPluginsDir: this.defaultUserRoot,
+      isCustom: this.userRoot !== this.defaultUserRoot,
+    };
   }
 
   /* --- discovery ---------------------------------------------------------- */

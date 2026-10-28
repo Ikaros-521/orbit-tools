@@ -1,0 +1,6 @@
+/* 独立窗口宿主面板样式 */
+.tool-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}

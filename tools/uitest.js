@@ -90,6 +90,8 @@ app.whenReady().then(async () => {
   await page(`(() => { const i = document.getElementById('cdcIn'); i.value = '${helloB64}'; i.dispatchEvent(new Event('input', { bubbles: true })); return 'ok'; })()`);
   await sleep(150);
   check('codec-base64-decodes-utf8', await page(`document.getElementById('cdcOut').value`) === '你好');
+  check('codec-swap-btn-zh', await page(`document.querySelector('[data-act="swap"]').textContent.includes('对调')`));
+  check('codec-copy-btn-zh', await page(`document.querySelector('[data-act="copyOut"]').textContent.includes('复制')`));
   await shot('codec-panel');
 
   /* --- back + search filter --------------------------------------------------- */
@@ -106,8 +108,13 @@ app.whenReady().then(async () => {
 
   /* --- port-scope panel actually lists rows ------------------------------------ */
   await page(`document.querySelectorAll('.card')[0].click()`);
-  await sleep(1600); // netstat+tasklist round trip
-  check('portscope-rows', (await page(`document.querySelectorAll('.ps-table tbody tr').length`)) > 5);
+  let portRows = 0;
+  for (let i = 0; i < 20; i++) {
+    await sleep(200);
+    portRows = await page(`document.querySelectorAll('.ps-table tbody tr').length`);
+    if (portRows > 5) break;
+  }
+  check('portscope-rows', portRows > 5);
   await shot('portscope-panel');
 
   /* --- settings view ------------------------------------------------------------- */
@@ -118,6 +125,16 @@ app.whenReady().then(async () => {
   check('settings-visible', await page(`getComputedStyle(document.getElementById('viewSettings')).display`) !== 'none'
     && await page(`getComputedStyle(document.getElementById('viewHome')).display`) === 'none');
   check('hotkey-ctrl-present', await page(`!!document.querySelector('#hotkeyCtrl .hke-input')`) === true);
+  check('user-plugins-dir-shown', await page(`!!document.getElementById('userPluginsPath').textContent`));
+  const customPluginsPath = path.join(tmp, 'custom-plugins').replace(/\\/g, '\\\\');
+  await page(`window.__setUserPluginsDirForTest('${customPluginsPath}')`);
+  await sleep(150);
+  check('custom-plugins-dir-applied', await page(`document.getElementById('userPluginsPath').textContent.includes('custom-plugins')`));
+  check('custom-badge-shown', await page(`document.getElementById('userPluginsBadge').textContent.includes('自定义')`));
+  // Restore default
+  await page(`window.__setUserPluginsDirForTest(null)`);
+  await sleep(150);
+  check('default-badge-restored', await page(`document.getElementById('userPluginsBadge').textContent.includes('默认')`));
   await shot('settings');
 
   /* --- plugins view (dedicated center, pagination & search) ---------------------- */

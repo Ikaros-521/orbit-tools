@@ -333,6 +333,44 @@ body {
   display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
 }
 
+.plugin-dir-bar {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11.5px; color: var(--ink-faint);
+  padding: 4px 8px; border-radius: var(--r-sm);
+  background: var(--line-subtle);
+  overflow: hidden;
+}
+.plugin-dir-icon { font-size: 13px; line-height: 1; flex-shrink: 0; }
+.plugin-dir-label { flex-shrink: 0; font-weight: 500; }
+.user-plugins-path {
+  color: var(--ink-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  cursor: pointer; text-decoration: underline; text-decoration-color: transparent;
+  transition: all .12s;
+}
+.user-plugins-path:hover {
+  color: var(--amber); text-decoration-color: var(--amber);
+}
+.btn-text-link {
+  appearance: none; border: 0; background: transparent; padding: 0 4px;
+  color: var(--amber); font: inherit; font-size: 11px; cursor: pointer;
+  text-decoration: underline; margin-left: auto; flex-shrink: 0;
+}
+.btn-text-link:hover { opacity: .8; }
+
+.user-plugins-row {
+  align-items: flex-start;
+}
+.user-plugins-ctrl {
+  display: flex; flex-direction: column; gap: 8px; align-items: flex-end;
+  max-width: 58%;
+}
+.user-plugins-path-wrap {
+  display: flex; align-items: center; gap: 6px; width: 100%; justify-content: flex-end;
+}
+.user-plugins-btns {
+  display: flex; align-items: center; gap: 6px;
+}
+
 .plugin-filter-bar {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   flex-wrap: wrap; flex: 0 0 auto; padding-bottom: 6px;

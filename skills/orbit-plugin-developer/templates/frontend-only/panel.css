@@ -1,0 +1,7 @@
+/* 纯前端模板样式：遵循宿主 CSS 变量 */
+.tool-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}

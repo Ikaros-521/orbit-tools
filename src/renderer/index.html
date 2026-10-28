@@ -77,9 +77,18 @@
           <button type="button" class="btn-clear" id="btnPluginSearchClear" hidden title="清空搜索">✕</button>
         </div>
         <div class="plugin-actions-top">
-          <button type="button" class="btn" id="btnRescan" data-i18n="rescan">重新扫描插件</button>
-          <button type="button" class="btn ghost" id="btnUserPlugins" data-i18n="openUserPlugins">打开用户插件目录</button>
+          <button type="button" class="btn ghost small" id="btnChangeUserPluginsHeader" data-i18n="changeFolder">更改目录</button>
+          <button type="button" class="btn ghost small" id="btnUserPlugins" data-i18n="openFolder">打开目录</button>
+          <button type="button" class="btn small" id="btnRescan" data-i18n="rescan">重新扫描</button>
         </div>
+      </div>
+
+      <div class="plugin-dir-bar">
+        <span class="plugin-dir-icon">📂</span>
+        <span class="plugin-dir-label" data-i18n="userPluginsDir">用户插件目录</span>:
+        <span id="userPluginsBadge2" class="chip ghost"></span>
+        <span id="userPluginsPath2" class="user-plugins-path mono" title="点击打开目录"></span>
+        <button type="button" class="btn-text-link" id="btnResetUserPluginsHeader" hidden data-i18n="resetDefault">恢复默认</button>
       </div>
 
       <div class="plugin-filter-bar">
@@ -130,6 +139,23 @@
             <button type="button" data-theme="auto" data-i18n="themeAuto">跟随系统</button>
             <button type="button" data-theme="light" data-i18n="themeLight">浅色</button>
             <button type="button" data-theme="dark" data-i18n="themeDark">深色</button>
+          </div>
+        </div>
+        <div class="set-row user-plugins-row">
+          <div class="set-label">
+            <b data-i18n="userPluginsDir">用户插件目录</b>
+            <span data-i18n="userPluginsHint">支持自定义用户插件存放路径；放入插件文件夹即可自动加载，同名 ID 优先覆盖内置插件。</span>
+          </div>
+          <div class="user-plugins-ctrl">
+            <div class="user-plugins-path-wrap">
+              <span id="userPluginsBadge" class="chip ghost"></span>
+              <span id="userPluginsPath" class="user-plugins-path mono" title="点击打开目录"></span>
+            </div>
+            <div class="user-plugins-btns">
+              <button type="button" class="btn small" id="btnChangeUserPlugins" data-i18n="changeFolder">更改目录</button>
+              <button type="button" class="btn ghost small" id="btnOpenUserPlugins2" data-i18n="openFolder">打开目录</button>
+              <button type="button" class="btn ghost small" id="btnResetUserPlugins" data-i18n="resetDefault" hidden>恢复默认</button>
+            </div>
           </div>
         </div>
         <div class="set-row">
