@@ -1602,7 +1602,7 @@ function renderActionPaletteList() {
 
   els.apList.innerHTML = '';
   if (state.actionPaletteFiltered.length === 0) {
-    els.apList.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--ink-faint); font-size: 13px;">无匹配动作</div>`;
+    els.apList.innerHTML = `<div class="ap-empty">${window.I18N && window.I18N.lang === 'en' ? 'No matching actions' : '无匹配动作'}</div>`;
     return;
   }
 
