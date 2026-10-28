@@ -1,0 +1,16 @@
+{
+  "id": "clip-history",
+  "name": { "zh": "剪贴板", "en": "Clipboard History" },
+  "desc": { "zh": "轻量流畅的剪贴板历史记录，支持图文存储、时间戳预览、收藏与一键回写", "en": "Lightweight & smooth clipboard manager with text/image preview, timestamps & quick restore" },
+  "version": "1.0.0",
+  "category": "system",
+  "author": "Ikaros-521",
+  "keywords": ["clipboard", "clip", "history", "paste", "copy", "剪贴板", "剪切板", "历史", "粘贴", "复制"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "backend": "backend.js",
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "open", "label": { "zh": "打开剪贴板", "en": "Open Clipboard" }, "method": "openPanel", "hotkey": "Ctrl+Shift+V" }
+  ]
+}

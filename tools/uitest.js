@@ -2,7 +2,7 @@
    hotkeys + ipc + host window with the real preload/renderer) and drives the
    page through executeJavaScript. Saves screenshots to dist/ for visual
    review. Run: electron tools/uitest.js */
-const { app, BrowserWindow, protocol } = require('electron');
+const { app, BrowserWindow, protocol, clipboard } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
@@ -69,8 +69,8 @@ app.whenReady().then(async () => {
   check('css-applied', await page(`getComputedStyle(document.querySelector('.chassis')).display`) === 'flex');
   const visibleViews = await page(`['viewHome','viewPanel','viewPlugins','viewSettings','viewDevGuide'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
   check('single-view-visible', visibleViews.length === 1 && visibleViews[0] === 'viewHome');
-  check('deck-has-5-cards', await page(`document.querySelectorAll('#deck .card').length`) === 5);
-  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 5);
+  check('deck-has-6-cards', await page(`document.querySelectorAll('#deck .card').length`) === 6);
+  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 6);
   await shot('home');
 
   /* --- open a plugin panel (codec-lab) -------------------------------------- */
@@ -117,6 +117,48 @@ app.whenReady().then(async () => {
   check('portscope-rows', portRows > 5);
   await shot('portscope-panel');
 
+  /* --- clip-history panel test ------------------------------------------------ */
+  await page(`document.getElementById('btnBack').click()`);
+  await sleep(200);
+  await page(`(() => {
+    const s = document.getElementById('search');
+    s.value = '';
+    s.dispatchEvent(new Event('input', { bubbles: true }));
+  })()`);
+  await sleep(200);
+  await page(`(() => {
+    const card = Array.from(document.querySelectorAll('#deck .card')).find(c => c.textContent.includes('剪贴板'));
+    if (card) card.click();
+  })()`);
+  await sleep(600);
+  check('clip-history-panel-mounted', await page(`!!document.querySelector('.clip-container')`) === true);
+  check('clip-history-toolbar-present', await page(`!!document.querySelector('.clip-toolbar')`) === true);
+  check('clip-history-search-input-present', await page(`!!document.querySelector('.clip-search-input')`) === true);
+
+  // Write text to clipboard & let poll() pick it up
+  clipboard.writeText('Test Orbit Clip String 123');
+  await sleep(1000);
+  const clipCardsCount = await page(`document.querySelectorAll('.clip-card').length`);
+  check('clip-card-rendered', clipCardsCount >= 1);
+  check('clip-text-content-matches', await page(`document.querySelector('.clip-text-content').textContent.includes('Test Orbit Clip String 123')`));
+
+  // Test filter buttons
+  await page(`document.querySelector('.clip-filter-btn[data-filter="text"]').click()`);
+  await sleep(100);
+  check('clip-filter-text-active', await page(`document.querySelector('.clip-filter-btn[data-filter="text"]').classList.contains('active')`));
+
+  // Test pin toggle
+  await page(`document.querySelector('.clip-btn-pin').click()`);
+  await sleep(150);
+  check('clip-card-pinned', await page(`document.querySelector('.clip-card').classList.contains('pinned')`));
+
+  // Test copy / card click
+  await page(`document.querySelector('.clip-card').click()`);
+  await sleep(150);
+  check('clip-copy-feedback', await page(`document.querySelector('.clip-card').classList.contains('copied')`));
+
+  await shot('clip-history-panel');
+
   /* --- settings view ------------------------------------------------------------- */
   await page(`document.getElementById('btnBack').click()`);
   await sleep(200);
@@ -141,15 +183,15 @@ app.whenReady().then(async () => {
   await page(`document.querySelector('#tabs button[data-view="plugins"]').click()`);
   await sleep(300);
   check('plugins-visible', await page(`getComputedStyle(document.getElementById('viewPlugins')).display`) !== 'none');
-  // pageSize is 4, so first page should show 4 items out of 5
+  // pageSize is 4, so first page should show 4 items out of 6
   check('plugins-page1-has-4', await page(`document.querySelectorAll('#pluginList .prow').length`) === 4);
   check('prev-btn-disabled', await page(`document.getElementById('btnPagePrev').disabled`) === true);
   check('next-btn-enabled', await page(`document.getElementById('btnPageNext').disabled`) === false);
 
-  // Next page: should show the remaining 1 item
+  // Next page: should show the remaining 2 items
   await page(`document.getElementById('btnPageNext').click()`);
   await sleep(200);
-  check('plugins-page2-has-1', await page(`document.querySelectorAll('#pluginList .prow').length`) === 1);
+  check('plugins-page2-has-2', await page(`document.querySelectorAll('#pluginList .prow').length`) === 2);
   check('prev-btn-enabled', await page(`document.getElementById('btnPagePrev').disabled`) === false);
   check('next-btn-disabled', await page(`document.getElementById('btnPageNext').disabled`) === true);
 
@@ -202,7 +244,6 @@ app.whenReady().then(async () => {
   /* --- draw-board copy & pin tests ---------------------------------------------- */
   check('draw-board-active', manager.active.has('draw-board'));
   const dummy1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-  const { clipboard } = require('electron');
   clipboard.clear();
   // Call copy directly through electron's ipcMain invocation simulation
   const boardMod = manager.active.get('draw-board');
