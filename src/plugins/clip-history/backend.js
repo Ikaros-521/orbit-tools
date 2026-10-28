@@ -6,7 +6,9 @@
    - Avoid echo: self-written clipboard content updates the last-hash cache immediately */
 const { clipboard, nativeImage } = require('electron');
 
-const MAX_ITEMS = 80;
+const DEFAULT_MAX_ITEMS = 80;
+const MIN_MAX_ITEMS = 10;
+const MAX_ALLOWED_ITEMS = 1000;
 const POLL_INTERVAL = 800; // ms
 let timer = null;
 
@@ -14,12 +16,29 @@ module.exports = {
   activate(ctx) {
     const data = ctx.data.get() || {};
     let list = Array.isArray(data.items) ? data.items : [];
+    let maxItems = (typeof data.maxItems === 'number' && data.maxItems >= MIN_MAX_ITEMS && data.maxItems <= MAX_ALLOWED_ITEMS)
+      ? Math.floor(data.maxItems)
+      : DEFAULT_MAX_ITEMS;
 
     let lastText = (list.length > 0 && list[0].type === 'text') ? list[0].content : '';
     let lastImageHash = (list.length > 0 && list[0].type === 'image') ? list[0].hash : '';
 
     const save = () => {
-      ctx.data.set({ items: list });
+      ctx.data.set({ items: list, maxItems });
+    };
+
+    const pruneList = () => {
+      while (list.length > maxItems) {
+        let removed = false;
+        for (let i = list.length - 1; i >= 0; i--) {
+          if (!list[i].pinned) {
+            list.splice(i, 1);
+            removed = true;
+            break;
+          }
+        }
+        if (!removed) break; // All remaining items are pinned
+      }
     };
 
     const addItem = item => {
@@ -33,19 +52,7 @@ module.exports = {
       }
 
       list.unshift(item);
-
-      // FIFO pruning with pinned item protection
-      if (list.length > MAX_ITEMS) {
-        let removed = false;
-        for (let i = list.length - 1; i >= 0; i--) {
-          if (!list[i].pinned) {
-            list.splice(i, 1);
-            removed = true;
-            break;
-          }
-        }
-        if (!removed) list.pop();
-      }
+      pruneList();
 
       save();
       ctx.send('new-clip', item);
@@ -182,6 +189,24 @@ module.exports = {
       save();
       ctx.send('cleared', { count: list.length });
       return { ok: true, remaining: list.length };
+    });
+
+    ctx.ipc.handle('getConfig', () => ({
+      maxItems,
+      defaultMaxItems: DEFAULT_MAX_ITEMS,
+      minMaxItems: MIN_MAX_ITEMS,
+      maxAllowedItems: MAX_ALLOWED_ITEMS,
+    }));
+
+    ctx.ipc.handle('setMaxItems', (args) => {
+      const raw = Number(args && args.maxItems);
+      if (!Number.isFinite(raw)) return { ok: false, error: 'invalid number' };
+      const val = Math.min(MAX_ALLOWED_ITEMS, Math.max(MIN_MAX_ITEMS, Math.floor(raw)));
+      maxItems = val;
+      pruneList();
+      save();
+      ctx.send('config-updated', { maxItems, count: list.length });
+      return { ok: true, maxItems, count: list.length };
     });
 
     ctx.ipc.handle('openPanel', () => {

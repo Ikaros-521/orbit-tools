@@ -157,6 +157,13 @@ app.whenReady().then(async () => {
   await sleep(150);
   check('clip-copy-feedback', await page(`document.querySelector('.clip-card').classList.contains('copied')`));
 
+  // Test cap selector presence and custom capacity setting
+  check('clip-cap-select-present', await page(`!!document.querySelector('.clip-cap-select')`) === true);
+  check('clip-cap-default-80', await page(`document.querySelector('.clip-cap-select').value`) === '80');
+  await page(`document.querySelector('.panel-view').__setCapForTest(50)`);
+  await sleep(150);
+  check('clip-cap-applied-50', await page(`document.querySelector('.clip-cap-select').value`) === '50');
+
   await shot('clip-history-panel');
 
   /* --- settings view ------------------------------------------------------------- */

@@ -73,6 +73,10 @@ app.whenReady().then(async () => {
   // clip-history live IPC verification
   const clipList = await manager.call('clip-history', 'getHistory');
   if (!Array.isArray(clipList)) throw new Error('clip-history getHistory did not return array');
+  const clipCfg = await manager.call('clip-history', 'getConfig');
+  if (clipCfg.maxItems !== 80) throw new Error(`expected default maxItems 80, got ${clipCfg.maxItems}`);
+  const setCapRes = await manager.call('clip-history', 'setMaxItems', { maxItems: 50 });
+  if (!setCapRes.ok || setCapRes.maxItems !== 50) throw new Error('setMaxItems failed');
   const clearRes = await manager.call('clip-history', 'clearAll', { keepPinned: true });
   if (!clearRes.ok) throw new Error('clip-history clearAll failed');
   console.log('clip-history IPC OK');

@@ -18,6 +18,12 @@
       del: isEn ? 'Delete' : '删除',
       chars: isEn ? 'chars' : '字符',
       totalCount: (n) => isEn ? `${n} items` : `共 ${n} 条记录`,
+      capLabel: isEn ? 'Max:' : '上限:',
+      capOption: (n, isDef) => isEn ? `${n} items${isDef ? ' (default)' : ''}` : `${n} 条${isDef ? ' (默认)' : ''}`,
+      capCustomVal: (n) => isEn ? `${n} items (custom)` : `${n} 条 (自定义)`,
+      capCustom: isEn ? 'Custom...' : '自定义数量...',
+      customPrompt: isEn ? 'Set maximum clipboard history capacity (10 - 1000):' : '设置剪贴板历史记录数量上限（10 ~ 1000）：',
+      customInvalid: isEn ? 'Please enter a valid integer between 10 and 1000.' : '请输入 10 到 1000 之间的整数。',
       justNow: isEn ? 'Just now' : '刚刚',
       minsAgo: (n) => isEn ? `${n}m ago` : `${n} 分钟前`,
       hoursAgo: (n) => isEn ? `${n}h ago` : `${n} 小时前`,
@@ -71,6 +77,10 @@
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
             ${T.clear}
           </button>
+          <div class="clip-cap-setting">
+            <span class="clip-cap-label">${T.capLabel}</span>
+            <select class="clip-cap-select" title="${T.capLabel}"></select>
+          </div>
           <div class="clip-stats">0 条</div>
         </div>
         <div class="clip-list"></div>
@@ -84,6 +94,7 @@
     const searchInput = el.querySelector('.clip-search-input');
     const filterBtns = el.querySelectorAll('.clip-filter-btn');
     const clearBtn = el.querySelector('.clip-btn-clear');
+    const capSelect = el.querySelector('.clip-cap-select');
     const statsEl = el.querySelector('.clip-stats');
     const listEl = el.querySelector('.clip-list');
     const emptyEl = el.querySelector('.clip-empty');
@@ -93,6 +104,72 @@
     let currentFilter = 'all';
     let searchQuery = '';
     let searchDebounce = null;
+    let currentMaxItems = 80;
+    const PRESET_CAPS = [30, 50, 80, 150, 300];
+
+    function renderCapSelect() {
+      capSelect.innerHTML = '';
+      const isCustom = !PRESET_CAPS.includes(currentMaxItems);
+      if (isCustom) {
+        const opt = document.createElement('option');
+        opt.value = String(currentMaxItems);
+        opt.textContent = T.capCustomVal(currentMaxItems);
+        opt.selected = true;
+        capSelect.appendChild(opt);
+      }
+
+      for (const val of PRESET_CAPS) {
+        const opt = document.createElement('option');
+        opt.value = String(val);
+        opt.textContent = T.capOption(val, val === 80);
+        if (val === currentMaxItems) opt.selected = true;
+        capSelect.appendChild(opt);
+      }
+
+      const customOpt = document.createElement('option');
+      customOpt.value = 'custom';
+      customOpt.textContent = T.capCustom;
+      capSelect.appendChild(customOpt);
+    }
+
+    async function applyMaxItems(num) {
+      try {
+        const res = await ctx.call('setMaxItems', { maxItems: num });
+        if (res && res.ok) {
+          currentMaxItems = res.maxItems;
+          renderCapSelect();
+          const refreshed = await ctx.call('getHistory');
+          if (Array.isArray(refreshed)) {
+            historyList = refreshed;
+            renderList();
+          }
+        }
+      } catch (err) {
+        console.error('Failed to set maxItems:', err);
+      }
+    }
+
+    capSelect.addEventListener('change', async () => {
+      const selected = capSelect.value;
+      if (selected === 'custom') {
+        const input = prompt(T.customPrompt, String(currentMaxItems));
+        if (input === null) {
+          renderCapSelect();
+          return;
+        }
+        const num = Math.floor(Number(input.trim()));
+        if (!Number.isFinite(num) || num < 10 || num > 1000) {
+          alert(T.customInvalid);
+          renderCapSelect();
+          return;
+        }
+        await applyMaxItems(num);
+      } else {
+        await applyMaxItems(Number(selected));
+      }
+    });
+
+    el.__setCapForTest = applyMaxItems;
 
     function getFilteredList() {
       let filtered = historyList;
@@ -340,7 +417,27 @@
       renderList();
     });
 
+    ctx.onEvent('config-updated', ({ maxItems }) => {
+      currentMaxItems = maxItems;
+      renderCapSelect();
+      ctx.call('getHistory').then(list => {
+        if (Array.isArray(list)) {
+          historyList = list;
+          renderList();
+        }
+      });
+    });
+
     // Initial load
+    ctx.call('getConfig').then(cfg => {
+      if (cfg && typeof cfg.maxItems === 'number') {
+        currentMaxItems = cfg.maxItems;
+      }
+      renderCapSelect();
+    }).catch(() => {
+      renderCapSelect();
+    });
+
     ctx.call('getHistory').then(data => {
       if (Array.isArray(data)) {
         historyList = data;

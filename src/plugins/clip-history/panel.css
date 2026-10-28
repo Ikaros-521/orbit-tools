@@ -103,6 +103,42 @@
   background: var(--red-soft);
 }
 
+.clip-cap-setting {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.clip-cap-label {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+}
+
+.clip-cap-select {
+  height: 32px;
+  background: var(--panel-hi);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+
+.clip-cap-select:hover {
+  border-color: var(--line-strong);
+  background: var(--inset);
+}
+
+.clip-cap-select:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 2px var(--amber-soft);
+}
+
 .clip-stats {
   font-size: 11.5px;
   color: var(--ink-dim);
