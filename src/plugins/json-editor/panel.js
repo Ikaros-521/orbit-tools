@@ -954,8 +954,15 @@
       }
     });
 
-    // Initial setup with standard sample
-    ta.value = SAMPLES.standard;
+    // Initial setup: support incoming pipeline payload or standard sample
+    if (ctx && ctx.payload && (typeof ctx.payload.value === 'string' || typeof ctx.payload === 'string')) {
+      const incoming = typeof ctx.payload === 'string' ? ctx.payload : ctx.payload.value;
+      ta.value = incoming;
+      try { formatJson(2); } catch { /* keep raw */ }
+      showToast(isZh ? '✓ 已载入管道传输数据' : 'Pipeline data loaded');
+    } else {
+      ta.value = SAMPLES.standard;
+    }
     runValidation();
     ta.focus();
   }

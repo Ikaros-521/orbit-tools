@@ -42,6 +42,10 @@ class PluginManager {
     return this.capabilities.detect(text);
   }
 
+  getPipelineActions(envelope) {
+    return this.capabilities.getPipelineActions(envelope);
+  }
+
   setUserPluginsDir(newDir) {
     if (newDir && typeof newDir === 'string' && newDir.trim()) {
       this.userRoot = path.resolve(newDir.trim());

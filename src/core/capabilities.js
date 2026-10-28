@@ -202,6 +202,38 @@ class CapabilityRouter {
     }
     return null;
   }
+
+  getPipelineActions(envelope) {
+    if (!envelope || !envelope.type) return [];
+    const actions = [];
+    for (const plugin of this.manager.plugins.values()) {
+      if (!plugin.enabled) continue;
+      const m = plugin.manifest;
+      const consumes = Array.isArray(m.consumes) ? m.consumes : [];
+      const capConsumes = Array.isArray(m.capabilities)
+        ? m.capabilities.map(c => c.type).filter(Boolean)
+        : [];
+      const allConsumes = new Set([...consumes, ...capConsumes]);
+
+      let matched = allConsumes.has(envelope.type);
+      if (!matched && envelope.type.startsWith('text/') && allConsumes.has('text/plain')) {
+        matched = true;
+      }
+      if (matched) {
+        actions.push({
+          pluginId: plugin.id,
+          pluginName: plugin.manifest.name,
+          title: {
+            zh: `发送到 ${m.name.zh || plugin.id}`,
+            en: `Send to ${m.name.en || plugin.id}`,
+          },
+          targetAction: 'openPanel',
+          envelope,
+        });
+      }
+    }
+    return actions;
+  }
 }
 
 module.exports = {

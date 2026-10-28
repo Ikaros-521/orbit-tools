@@ -8,7 +8,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     platform: process.platform,
     appVersion: app.getVersion(),
     name: { en: 'Orbit Toolbox', zh: '轨道工具箱' },
-    config: { hotkey: cfg.data.hotkey, lang: cfg.data.lang, theme: cfg.data.theme },
+    config: { hotkey: cfg.data.hotkey, actionPaletteHotkey: cfg.data.actionPaletteHotkey || 'Ctrl+K', lang: cfg.data.lang, theme: cfg.data.theme },
     plugins: manager.serialize(),
     hotkeys: hotkeys.status,
     userPluginsDir: manager.userRoot,
@@ -45,6 +45,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   });
 
   ipcMain.handle('smart-peek-detect', (e, text) => manager.detectSmartPeek(text));
+  ipcMain.handle('get-pipeline-actions', (e, envelope) => manager.getPipelineActions(envelope));
   ipcMain.handle('read-clipboard-text', () => {
     const { clipboard } = require('electron');
     return clipboard.readText();
@@ -60,7 +61,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   ipcMain.handle('hotkeys', () => hotkeys.status);
 
   ipcMain.handle('set-pref', (e, { k, v }) => {
-    if (!['lang', 'theme'].includes(k)) return cfg.data;
+    if (!['lang', 'theme', 'actionPaletteHotkey'].includes(k)) return cfg.data;
     cfg.set({ [k]: v });
     return cfg.data;
   });

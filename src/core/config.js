@@ -3,6 +3,7 @@ const path = require('path');
 
 const DEFAULTS = {
   hotkey: 'Alt+Shift+Space',
+  actionPaletteHotkey: 'Ctrl+K',
   lang: 'zh',
   theme: 'auto',
   enabled: {},          // pluginId -> bool; absent = manifest default

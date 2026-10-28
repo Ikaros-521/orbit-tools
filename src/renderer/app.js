@@ -5,8 +5,14 @@ const els = {
   root: document.documentElement,
   tabs: $('tabs'), langSeg: $('langSeg'), themeSeg: $('themeSeg'),
   langSeg2: $('langSeg2'), themeSeg2: $('themeSeg2'), winctl: $('winctl'),
-  search: $('search'), hotHint: $('hotHint'), deckMeta: $('deckMeta'), deck: $('deck'), empty: $('empty'),
+  search: $('search'), hotHint: $('hotHint'), apHint: $('apHint'), deckMeta: $('deckMeta'), deck: $('deck'), empty: $('empty'),
   smartPeek: $('smartPeek'),
+  actionPaletteHotkeyCtrl: $('actionPaletteHotkeyCtrl'),
+  actionPaletteMask: $('actionPaletteMask'),
+  actionPalette: $('actionPalette'),
+  apInput: $('apInput'),
+  apList: $('apList'),
+  apCloseKbd: $('apCloseKbd'),
   viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewPlugins: $('viewPlugins'),
   viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
@@ -57,6 +63,10 @@ const state = {
   mounted: null,         // {def, ctx, unsubscribers[]}
   query: '',
   smartPeekData: null,
+  actionPaletteOpen: false,
+  actionPaletteItems: [],
+  actionPaletteFiltered: [],
+  actionPaletteIndex: 0,
   // Plugins center state
   pluginQuery: '',
   pluginCat: 'all',
@@ -143,6 +153,8 @@ function renderDeck() {
       e.stopPropagation();
       showCardContextMenu(p, e.clientX, e.clientY);
     });
+    card.addEventListener('mouseenter', () => { hoveredPlugin = p; });
+    card.addEventListener('mouseleave', () => { if (hoveredPlugin === p) hoveredPlugin = null; });
     card.addEventListener('mousemove', e => {
       const r = card.getBoundingClientRect();
       card.style.setProperty('--mx', `${e.clientX - r.left}px`);
@@ -280,7 +292,7 @@ function renderSmartPeek(data) {
 }
 
 /* --- plugin panel lifecycle ---------------------------------------------------- */
-async function openPlugin(id) {
+async function openPlugin(id, opts = {}) {
   const p = state.plugins.find(x => x.id === id);
   if (!p || !p.panel) return;
   closePanel();
@@ -302,6 +314,7 @@ async function openPlugin(id) {
     const ctx = {
       plugin: p,
       el,
+      payload: opts.payload || null,
       platform: state.platform,
       lang: window.I18N.lang,
       call: (method, args) => window.host.pluginCall(p.id, method, args).then(r => {
@@ -763,6 +776,19 @@ function renderSettings() {
       : t('hotkeyBad');
     els.hotkeyCtrl.appendChild(chip);
   }
+
+  if (els.actionPaletteHotkeyCtrl) {
+    els.actionPaletteHotkeyCtrl.innerHTML = '';
+    els.actionPaletteHotkeyCtrl.appendChild(hotkeyEditor({
+      initial: state.config.actionPaletteHotkey || 'Ctrl+K',
+      onApply: async accel => {
+        state.config.actionPaletteHotkey = accel;
+        if (els.apHint) els.apHint.textContent = accel;
+        await window.host.setPref('actionPaletteHotkey', accel);
+        return { ok: true, hotkey: accel };
+      }
+    }));
+  }
 }
 
 /* --- boot ------------------------------------------------------------------------------ */
@@ -784,6 +810,10 @@ async function init() {
   document.body.className = `platform-${boot.platform} lang-${state.config.lang}`;
   els.aboutVer.textContent = `${boot.name.en} · ${boot.name.zh}  v${boot.appVersion}`;
   els.hotHint.textContent = state.config.hotkey;
+  if (els.apHint) {
+    els.apHint.textContent = state.config.actionPaletteHotkey || 'Ctrl+K';
+    els.apHint.addEventListener('click', () => openActionPalette());
+  }
   applyTheme(state.config.theme);
   applyLang(state.config.lang);
   renderUserPluginsDirInfo();
@@ -1034,7 +1064,291 @@ if (window.host.onOpenPlugin) {
     openPlugin(id);
   });
 }
+/* --- action palette (Ctrl+K) controller --------------------------------------- */
+let hoveredPlugin = null;
+
+function matchHotkey(e, targetAccel) {
+  if (!targetAccel) return false;
+  const current = accelFromEvent(e);
+  if (!current) return false;
+  return current.toLowerCase() === targetAccel.toLowerCase();
+}
+
+async function collectActionPaletteItems() {
+  const items = [];
+  const lang = window.I18N.lang;
+  const isZh = lang !== 'en';
+
+  // 1. 当前上下文插件 (正在浏览的插件 / 右键选中的 / 鼠标悬停的)
+  const activePlugin = (state.view === 'panel' && state.plugins.find(p => p.id === state.openId))
+    || state.ctxTargetPlugin
+    || hoveredPlugin;
+
+  if (activePlugin) {
+    const pName = isZh ? (activePlugin.name.zh || activePlugin.name.en) : (activePlugin.name.en || activePlugin.name.zh);
+    items.push({
+      group: isZh ? `当前插件 · ${pName}` : `Current Plugin · ${pName}`,
+      icon: '🚀',
+      title: isZh ? `打开 ${pName}` : `Open ${pName}`,
+      sub: activePlugin.id,
+      run: () => openPlugin(activePlugin.id),
+    });
+    items.push({
+      group: isZh ? `当前插件 · ${pName}` : `Current Plugin · ${pName}`,
+      icon: '📂',
+      title: isZh ? '打开插件安装目录' : 'Open Plugin Folder',
+      sub: activePlugin.root || '',
+      run: () => window.host.openPluginFolder(activePlugin.id),
+    });
+    items.push({
+      group: isZh ? `当前插件 · ${pName}` : `Current Plugin · ${pName}`,
+      icon: '📋',
+      title: isZh ? '复制插件 ID' : 'Copy Plugin ID',
+      sub: activePlugin.id,
+      run: () => window.host.writeClipboardText(activePlugin.id),
+    });
+  }
+
+  // 2. 跨插件管道流转 (Pipeline)
+  const currentText = els.search.value.trim() || (await window.host.readClipboardText().catch(() => ''));
+  if (currentText) {
+    let type = 'text/plain';
+    if (/^\s*[\{\[]/.test(currentText)) {
+      try { JSON.parse(currentText); type = 'application/json'; } catch {}
+    } else if (/^\d{10}(\d{3})?$/.test(currentText)) {
+      type = 'text/timestamp';
+    } else if (/^ey[A-Za-z0-9_-]+\.ey/.test(currentText)) {
+      type = 'text/jwt';
+    } else if (/^https?:\/\//.test(currentText)) {
+      type = 'text/url';
+    }
+
+    const envelope = { type, value: currentText };
+    const pipeActions = await window.host.getPipelineActions(envelope).catch(() => []);
+    for (const pa of pipeActions) {
+      const pTitle = isZh ? (pa.title.zh || pa.title.en) : (pa.title.en || pa.title.zh);
+      items.push({
+        group: isZh ? '跨插件管道流转 (Pipeline)' : 'Pipeline Transit',
+        icon: '⚡',
+        title: pTitle,
+        sub: `${type} ➔ ${pa.pluginId}`,
+        badge: 'Transit',
+        run: () => openPlugin(pa.pluginId, { payload: envelope }),
+      });
+    }
+  }
+
+  // 3. 全局导航与系统动作
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '🏠',
+    title: isZh ? '返回工具主页' : 'Go to Home',
+    badge: 'View',
+    run: () => { closePanel(); setView('home'); },
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '🧩',
+    title: isZh ? '打开插件中心' : 'Plugin Center',
+    badge: 'View',
+    run: () => { closePanel(); setView('plugins'); },
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '⚙️',
+    title: isZh ? '打开偏好设置' : 'Preferences',
+    badge: 'View',
+    run: () => { closePanel(); setView('settings'); },
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '🔄',
+    title: isZh ? '重新扫描插件' : 'Rescan Plugins',
+    run: async () => {
+      const res = await window.host.rescanPlugins();
+      state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
+      state.hotkeys = res.hotkeys;
+      renderDeck(); renderPlugins(); renderSettings();
+    },
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '📁',
+    title: isZh ? '打开通用数据存储目录' : 'Open Plugin Data Folder',
+    run: () => window.host.openPluginDataDir(),
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '📂',
+    title: isZh ? '打开用户插件目录' : 'Open User Plugins Folder',
+    run: () => window.host.openUserPlugins(),
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '🌓',
+    title: isZh ? '切换主题模式 (深色/浅色)' : 'Toggle Theme',
+    run: async () => {
+      const next = state.config.theme === 'dark' ? 'light' : 'dark';
+      state.config.theme = next;
+      await window.host.setPref('theme', next);
+      applyTheme(next);
+    },
+  });
+  items.push({
+    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    icon: '🌐',
+    title: isZh ? '切换界面语言 (中文 / English)' : 'Switch Language',
+    run: async () => {
+      const next = state.config.lang === 'zh' ? 'en' : 'zh';
+      state.config.lang = next;
+      await window.host.setPref('lang', next);
+      applyLang(next);
+    },
+  });
+
+  return items;
+}
+
+async function openActionPalette() {
+  if (state.actionPaletteOpen) return;
+  state.actionPaletteOpen = true;
+  els.actionPaletteMask.hidden = false;
+  els.apInput.value = '';
+  state.actionPaletteItems = await collectActionPaletteItems();
+  state.actionPaletteIndex = 0;
+  renderActionPaletteList();
+  setTimeout(() => els.apInput.focus(), 30);
+}
+
+function closeActionPalette() {
+  if (!state.actionPaletteOpen) return;
+  state.actionPaletteOpen = false;
+  els.actionPaletteMask.hidden = true;
+  state.actionPaletteItems = [];
+  state.actionPaletteFiltered = [];
+}
+
+function renderActionPaletteList() {
+  const q = els.apInput.value.trim().toLowerCase();
+  state.actionPaletteFiltered = state.actionPaletteItems.filter(item => {
+    if (!q) return true;
+    return item.title.toLowerCase().includes(q) || (item.sub && item.sub.toLowerCase().includes(q));
+  });
+
+  if (state.actionPaletteIndex >= state.actionPaletteFiltered.length) {
+    state.actionPaletteIndex = Math.max(0, state.actionPaletteFiltered.length - 1);
+  }
+
+  els.apList.innerHTML = '';
+  if (state.actionPaletteFiltered.length === 0) {
+    els.apList.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--ink-faint); font-size: 13px;">无匹配动作</div>`;
+    return;
+  }
+
+  let currentGroup = '';
+  state.actionPaletteFiltered.forEach((item, idx) => {
+    if (item.group && item.group !== currentGroup) {
+      currentGroup = item.group;
+      const groupEl = document.createElement('div');
+      groupEl.className = 'ap-group-title';
+      groupEl.textContent = currentGroup;
+      els.apList.appendChild(groupEl);
+    }
+
+    const row = document.createElement('div');
+    row.className = `ap-item ${idx === state.actionPaletteIndex ? 'selected' : ''}`;
+    row.innerHTML = `
+      <div class="ap-item-left">
+        <span class="ap-item-icon">${item.icon || '⚡'}</span>
+        <span class="ap-item-title">${escapeHtml(item.title)}</span>
+        ${item.sub ? `<span class="ap-item-sub">${escapeHtml(item.sub)}</span>` : ''}
+      </div>
+      ${item.badge ? `<span class="ap-item-badge">${escapeHtml(item.badge)}</span>` : ''}
+    `;
+    row.addEventListener('click', () => {
+      closeActionPalette();
+      item.run();
+    });
+    row.addEventListener('mousemove', () => {
+      if (state.actionPaletteIndex !== idx) {
+        state.actionPaletteIndex = idx;
+        updateActionPaletteSelection();
+      }
+    });
+    els.apList.appendChild(row);
+  });
+
+  const selectedEl = els.apList.querySelector('.ap-item.selected');
+  if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
+}
+
+function updateActionPaletteSelection() {
+  const items = els.apList.querySelectorAll('.ap-item');
+  items.forEach((el, idx) => {
+    el.classList.toggle('selected', idx === state.actionPaletteIndex);
+  });
+  const selectedEl = els.apList.querySelector('.ap-item.selected');
+  if (selectedEl) selectedEl.scrollIntoView({ block: 'nearest' });
+}
+
+if (els.actionPaletteMask) {
+  els.actionPaletteMask.addEventListener('click', e => {
+    if (e.target === els.actionPaletteMask) closeActionPalette();
+  });
+}
+if (els.apCloseKbd) {
+  els.apCloseKbd.addEventListener('click', closeActionPalette);
+}
+if (els.apInput) {
+  els.apInput.addEventListener('input', () => {
+    state.actionPaletteIndex = 0;
+    renderActionPaletteList();
+  });
+}
+
 window.addEventListener('keydown', e => {
+  if (state.actionPaletteOpen) {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      closeActionPalette();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (state.actionPaletteFiltered.length > 0) {
+        state.actionPaletteIndex = (state.actionPaletteIndex + 1) % state.actionPaletteFiltered.length;
+        updateActionPaletteSelection();
+      }
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (state.actionPaletteFiltered.length > 0) {
+        state.actionPaletteIndex = (state.actionPaletteIndex - 1 + state.actionPaletteFiltered.length) % state.actionPaletteFiltered.length;
+        updateActionPaletteSelection();
+      }
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const item = state.actionPaletteFiltered[state.actionPaletteIndex];
+      if (item) {
+        closeActionPalette();
+        item.run();
+      }
+      return;
+    }
+    return;
+  }
+
+  // 匹配动作面板自定义快捷键 (默认 Ctrl+K)
+  const apHotkey = state.config.actionPaletteHotkey || 'Ctrl+K';
+  if (matchHotkey(e, apHotkey)) {
+    e.preventDefault();
+    openActionPalette();
+    return;
+  }
+
   if (e.key === 'Escape' && state.view === 'panel') { closePanel(); setView('home'); }
   else if (e.key === 'Escape' && state.view === 'dev-guide') { setView('plugins'); }
 });

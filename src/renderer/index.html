@@ -45,6 +45,7 @@
       <div class="palette">
         <svg class="pal-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
         <input id="search" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="searchPh" placeholder="搜索工具…">
+        <kbd id="apHint" title="呼出动作抽屉 (可自定义)">Ctrl+K</kbd>
         <kbd id="hotHint" title="呼出热键">Alt+Space</kbd>
       </div>
       <!-- 智能自省直达胶囊 / Smart Peek -->
@@ -209,6 +210,10 @@
           <div class="set-ctrl" id="hotkeyCtrl"></div>
         </div>
         <div class="set-row">
+          <div class="set-label"><b>动作抽屉快捷键</b><span>在主窗口中呼出动作面板 (Action Palette) 的快捷键</span></div>
+          <div class="set-ctrl" id="actionPaletteHotkeyCtrl"></div>
+        </div>
+        <div class="set-row">
           <div class="set-label"><b data-i18n="langLabel">语言</b></div>
           <div class="seg" id="langSeg2">
             <button type="button" data-lang="zh">中文</button>
@@ -293,6 +298,23 @@
   <div class="ctx-sep"></div>
   <div class="ctx-item" data-action="folder" id="ctxFolder">
     <span class="ctx-icon">📂</span><span data-i18n="ctxOpenFolder">打开插件所在目录</span>
+  </div>
+</div>
+
+<!-- 统一动作抽屉 / Action Palette (Ctrl+K) -->
+<div id="actionPaletteMask" class="action-palette-mask" hidden>
+  <div class="action-palette" id="actionPalette">
+    <div class="ap-header">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" class="ap-input" id="apInput" placeholder="输入动作名称或命令…" spellcheck="false" autocomplete="off" />
+      <kbd class="ap-kbd" id="apCloseKbd">Esc</kbd>
+    </div>
+    <div class="ap-list" id="apList"></div>
+    <div class="ap-footer">
+      <span><kbd>↑</kbd><kbd>↓</kbd> 移动选择</span>
+      <span><kbd>Enter</kbd> 触发</span>
+      <span><kbd>Esc</kbd> 关闭</span>
+    </div>
   </div>
 </div>
 

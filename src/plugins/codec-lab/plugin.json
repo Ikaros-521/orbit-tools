@@ -12,6 +12,7 @@
   "actions": [
     { "id": "open", "label": { "zh": "打开编码转换", "en": "Open Codec Lab" }, "method": "openPanel", "hotkey": "Ctrl+Shift+C" }
   ],
+  "consumes": ["text/plain", "text/base64", "text/url", "text/jwt", "text/timestamp"],
   "capabilities": [
     { "id": "timestamp", "type": "text/timestamp", "title": { "zh": "时间戳转换", "en": "Timestamp Convert" } },
     { "id": "jwt", "type": "text/jwt", "title": { "zh": "JWT 解码", "en": "JWT Decode" } },

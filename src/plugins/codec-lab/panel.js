@@ -192,6 +192,18 @@
       }
     });
 
+    // Support incoming pipeline payload
+    if (ctx && ctx.payload) {
+      const incoming = typeof ctx.payload === 'string' ? ctx.payload : ctx.payload.value;
+      if (incoming) {
+        taIn.value = incoming;
+        if (ctx.payload.type === 'text/jwt') { codec = 'jwt'; mode = 'decode'; }
+        else if (ctx.payload.type === 'text/base64') { codec = 'base64'; mode = 'decode'; }
+        else if (ctx.payload.type === 'text/url') { codec = 'url'; mode = 'decode'; }
+        else if (ctx.payload.type === 'text/timestamp') { codec = 'timestamp'; mode = 'encode'; }
+      }
+    }
+
     syncSegs();
     run();
     taIn.focus();

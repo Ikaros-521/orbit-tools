@@ -181,6 +181,33 @@ app.whenReady().then(async () => {
   }
   console.log('smart peek capabilities & self-healing OK');
 
+  // verify pipeline transit actions & custom actionPaletteHotkey
+  const jsonPipeline = manager.getPipelineActions({ type: 'application/json', value: '{"test":1}' });
+  if (!jsonPipeline.find(a => a.pluginId === 'json-editor')) {
+    throw new Error('pipeline should resolve json-editor for application/json');
+  }
+  const base64Pipeline = manager.getPipelineActions({ type: 'text/base64', value: 'SGVsbG8=' });
+  if (!base64Pipeline.find(a => a.pluginId === 'codec-lab')) {
+    throw new Error('pipeline should resolve codec-lab for text/base64');
+  }
+
+  // test pipeline self-healing: disable json-editor -> pipeline must exclude it
+  manager.setEnabled('json-editor', false);
+  const disabledJsonPipe = manager.getPipelineActions({ type: 'application/json', value: '{"test":1}' });
+  if (disabledJsonPipe.find(a => a.pluginId === 'json-editor')) {
+    throw new Error('disabled json-editor must be excluded from pipeline');
+  }
+  manager.setEnabled('json-editor', true);
+
+  // test actionPaletteHotkey config persistence
+  if (cfg.data.actionPaletteHotkey !== 'Ctrl+K') {
+    throw new Error(`expected default actionPaletteHotkey Ctrl+K, got ${cfg.data.actionPaletteHotkey}`);
+  }
+  cfg.set({ actionPaletteHotkey: 'Alt+K' });
+  if (cfg.data.actionPaletteHotkey !== 'Alt+K') throw new Error('actionPaletteHotkey update failed');
+  cfg.set({ actionPaletteHotkey: 'Ctrl+K' });
+  console.log('pipeline transit actions & custom actionPaletteHotkey OK');
+
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('SMOKE PASS');
