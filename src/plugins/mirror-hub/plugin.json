@@ -1,0 +1,16 @@
+{
+  "id": "mirror-hub",
+  "name": { "zh": "镜像加速", "en": "Mirror Hub" },
+  "desc": { "zh": "常用开发工具国内镜像源快速配置与代理加速命令注入（pip/npm/go/cargo/git/终端）", "en": "Fast domestic mirror registry switch & proxy command runner for pip, npm, go, cargo, git" },
+  "version": "1.0.0",
+  "category": "dev",
+  "author": "Ikaros-521",
+  "keywords": ["mirror", "proxy", "pip", "npm", "cargo", "go", "git", "python", "node", "镜像", "国内源", "代理", "加速"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "backend": "backend.js",
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "open", "label": { "zh": "打开镜像加速", "en": "Open Mirror Hub" }, "method": "openPanel", "hotkey": "Ctrl+Shift+M" }
+  ]
+}

@@ -19,11 +19,12 @@ app.whenReady().then(async () => {
   const info = manager.serialize();
   console.log('discovered:', found.map(p => `${p.id}(${p.source})`).join(', '));
 
-  const expect = ['antigravity-launcher', 'clip-history', 'codec-lab', 'draw-board', 'port-scope', 'screenshot-pin'];
+  const expect = ['antigravity-launcher', 'clip-history', 'codec-lab', 'draw-board', 'mirror-hub', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
   if (info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have no backend');
   if (!info.find(p => p.id === 'clip-history').hasBackend) throw new Error('clip-history should have a backend');
+  if (!info.find(p => p.id === 'mirror-hub').hasBackend) throw new Error('mirror-hub should have a backend');
   for (const p of info) {
     if (!p.name.zh || !p.panel) throw new Error(`bad manifest for ${p.id}`);
   }
@@ -90,6 +91,13 @@ app.whenReady().then(async () => {
   manager.setPluginDataDir(null);
   if (manager.dataRoot !== manager.defaultDataRoot) throw new Error('reset defaultDataRoot failed');
   console.log('plugin data dir custom switch OK');
+
+  // mirror-hub live IPC verification
+  const mSettings = await manager.call('mirror-hub', 'getSettings');
+  if (!mSettings || !mSettings.proxyUrl) throw new Error('mirror-hub getSettings failed');
+  const copyRes = await manager.call('mirror-hub', 'copyCommand', { command: 'npm install test' });
+  if (!copyRes.ok) throw new Error('mirror-hub copyCommand failed');
+  console.log('mirror-hub IPC OK');
 
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });

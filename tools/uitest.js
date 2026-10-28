@@ -69,8 +69,8 @@ app.whenReady().then(async () => {
   check('css-applied', await page(`getComputedStyle(document.querySelector('.chassis')).display`) === 'flex');
   const visibleViews = await page(`['viewHome','viewPanel','viewPlugins','viewSettings','viewDevGuide'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
   check('single-view-visible', visibleViews.length === 1 && visibleViews[0] === 'viewHome');
-  check('deck-has-6-cards', await page(`document.querySelectorAll('#deck .card').length`) === 6);
-  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 6);
+  check('deck-has-7-cards', await page(`document.querySelectorAll('#deck .card').length`) === 7);
+  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 7);
   await shot('home');
 
   /* --- open a plugin panel (codec-lab) -------------------------------------- */
@@ -193,6 +193,30 @@ app.whenReady().then(async () => {
 
   await shot('clip-history-panel');
 
+  /* --- mirror-hub panel test -------------------------------------------------- */
+  await page(`document.getElementById('btnBack').click()`);
+  await sleep(200);
+  await page(`(() => {
+    const card = Array.from(document.querySelectorAll('#deck .card')).find(c => c.textContent.includes('镜像加速'));
+    if (card) card.click();
+  })()`);
+  await sleep(600);
+  check('mirror-hub-panel-mounted', await page(`!!document.querySelector('.mhub-container')`) === true);
+  check('mirror-hub-tabs-rendered', await page(`document.querySelectorAll('.mhub-tab-btn').length`) >= 5);
+  check('mirror-hub-cards-rendered', await page(`document.querySelectorAll('.mhub-card').length`) >= 3);
+
+  // Switch to npm tab
+  await page(`document.querySelector('.mhub-tab-btn[data-env="npm"]').click()`);
+  await sleep(150);
+  check('mirror-hub-npm-active', await page(`document.querySelector('.mhub-tab-btn[data-env="npm"]').classList.contains('active')`));
+
+  // Test copy command
+  await page(`document.querySelector('.mhub-btn-copy').click()`);
+  await sleep(150);
+  check('mirror-hub-copy-feedback', await page(`document.querySelector('.mhub-btn-copy').classList.contains('copied')`));
+
+  await shot('mirror-hub-panel');
+
   /* --- settings view ------------------------------------------------------------- */
   await page(`document.getElementById('btnBack').click()`);
   await sleep(200);
@@ -230,15 +254,15 @@ app.whenReady().then(async () => {
   await page(`document.querySelector('#tabs button[data-view="plugins"]').click()`);
   await sleep(300);
   check('plugins-visible', await page(`getComputedStyle(document.getElementById('viewPlugins')).display`) !== 'none');
-  // pageSize is 4, so first page should show 4 items out of 6
+  // pageSize is 4, so first page should show 4 items out of 7
   check('plugins-page1-has-4', await page(`document.querySelectorAll('#pluginList .prow').length`) === 4);
   check('prev-btn-disabled', await page(`document.getElementById('btnPagePrev').disabled`) === true);
   check('next-btn-enabled', await page(`document.getElementById('btnPageNext').disabled`) === false);
 
-  // Next page: should show the remaining 2 items
+  // Next page: should show the remaining 3 items
   await page(`document.getElementById('btnPageNext').click()`);
   await sleep(200);
-  check('plugins-page2-has-2', await page(`document.querySelectorAll('#pluginList .prow').length`) === 2);
+  check('plugins-page2-has-3', await page(`document.querySelectorAll('#pluginList .prow').length`) === 3);
   check('prev-btn-enabled', await page(`document.getElementById('btnPagePrev').disabled`) === false);
   check('next-btn-disabled', await page(`document.getElementById('btnPageNext').disabled`) === true);
 
