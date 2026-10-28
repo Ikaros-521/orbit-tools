@@ -94,7 +94,7 @@ app.whenReady().then(async () => {
     throw new Error('Action Palette failed to open with Ctrl+K!');
   }
 
-  // Test Workflows Canvas View
+  // Test Workflows Canvas View & Infinite Canvas Controls & Linking
   const wfState = await win.webContents.executeJavaScript(`
     (async () => {
       // Close Action Palette first
@@ -104,11 +104,41 @@ app.whenReady().then(async () => {
       if (!wfTab) return { error: 'workflows tab missing' };
       wfTab.click();
       await new Promise(r => setTimeout(r, 400));
+
+      const initialEdges = document.querySelectorAll('.wf-svg-layer path').length;
+
+      // Test Zoom controls
+      const btnZoomIn = document.getElementById('btnWfZoomIn');
+      if (btnZoomIn) btnZoomIn.click();
+      const scaleText = document.getElementById('wfZoomScale')?.textContent;
+
+      // Test Fit View
+      const btnFitView = document.getElementById('btnWfFitView');
+      if (btnFitView) btnFitView.click();
+
+      // Test Linking
+      const nodes = Array.from(document.querySelectorAll('.wf-node'));
+      let linkSucceeded = false;
+      if (nodes.length >= 2) {
+        const outPort = nodes[0].querySelector('.wf-port.out');
+        const inPort = nodes[1].querySelector('.wf-port.in');
+        if (outPort && inPort) {
+          // Trigger connecting
+          outPort.dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+          // Simulate drop onto inPort
+          inPort.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+          await new Promise(r => setTimeout(r, 100));
+          linkSucceeded = true;
+        }
+      }
+
       return {
         viewHidden: document.getElementById('viewWorkflows').hidden,
         nodeCount: document.querySelectorAll('.wf-node').length,
         edgeCount: document.querySelectorAll('.wf-svg-layer path').length,
         libItems: document.querySelectorAll('.wf-lib-item').length,
+        scaleText,
+        linkSucceeded
       };
     })()
   `);

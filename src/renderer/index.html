@@ -305,8 +305,18 @@
         </div>
         <!-- 主画布区 -->
         <div class="wf-canvas-area" id="wfCanvasArea">
-          <svg class="wf-svg-layer" id="wfSvgLayer"></svg>
-          <div class="wf-nodes-container" id="wfNodesContainer"></div>
+          <div class="wf-canvas-viewport" id="wfCanvasViewport">
+            <svg class="wf-svg-layer" id="wfSvgLayer"></svg>
+            <div class="wf-nodes-container" id="wfNodesContainer"></div>
+          </div>
+          <!-- 画布悬浮控制器 (Dify 风格缩放与自适应) -->
+          <div class="wf-canvas-controls" id="wfCanvasControls">
+            <button type="button" class="wf-ctrl-btn" id="btnWfZoomIn" title="放大 (+)">+</button>
+            <span class="wf-ctrl-scale" id="wfZoomScale">100%</span>
+            <button type="button" class="wf-ctrl-btn" id="btnWfZoomOut" title="缩小 (−)">−</button>
+            <button type="button" class="wf-ctrl-btn" id="btnWfFitView" title="自适应居中 (Fit View)">⊡</button>
+            <button type="button" class="wf-ctrl-btn" id="btnWfResetView" title="重置视角 (100%)">1:1</button>
+          </div>
         </div>
       </div>
       <!-- 底部执行控制台日志 -->
