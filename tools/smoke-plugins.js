@@ -208,6 +208,27 @@ app.whenReady().then(async () => {
   cfg.set({ actionPaletteHotkey: 'Ctrl+K' });
   console.log('pipeline transit actions & custom actionPaletteHotkey OK');
 
+  // verify workflow engine DAG execution & self-healing
+  const { WorkflowManager } = require('../src/core/workflows');
+  const wfManager = new WorkflowManager(cfg, manager);
+  const wfs = wfManager.list();
+  if (!Array.isArray(wfs) || wfs.length === 0) throw new Error('workflow manager should provide default workflows');
+
+  // run json format workflow
+  const jsonWfRes = await wfManager.run('wf-json-quick-format', { type: 'text/plain', value: '{"a":1,"b":[2,3]}' });
+  if (!jsonWfRes.ok || !jsonWfRes.finalOutput || !jsonWfRes.finalOutput.value.includes('\n')) {
+    throw new Error('json format workflow execution failed');
+  }
+
+  // test workflow self-healing when dependent plugin is disabled
+  manager.setEnabled('json-editor', false);
+  const disabledWfRes = await wfManager.run('wf-json-quick-format', { type: 'text/plain', value: '{"a":1}' });
+  if (disabledWfRes.ok || !disabledWfRes.error.includes('禁用')) {
+    throw new Error('workflow must safely guard against disabled plugin');
+  }
+  manager.setEnabled('json-editor', true);
+  console.log('workflow DAG execution & disabled plugin guard OK');
+
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });
   console.log('SMOKE PASS');

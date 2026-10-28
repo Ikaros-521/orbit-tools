@@ -688,3 +688,125 @@ body {
   font-family: var(--font-mono); font-size: 10px; color: var(--ink-dim);
   border: 1px solid var(--line); border-radius: 4px; padding: 1px 4px; margin-right: 2px;
 }
+
+/* workflows canvas -------------------------------------------------------------- */
+#viewWorkflows {
+  display: flex; flex-direction: column; gap: 8px; min-height: 0;
+}
+.wf-toolbar {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 8px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line); flex: 0 0 auto;
+}
+.wf-toolbar-left, .wf-toolbar-right {
+  display: flex; align-items: center; gap: 8px;
+}
+.wf-select {
+  appearance: none; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line-strong);
+  border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 500;
+  color: var(--ink); outline: none; cursor: pointer; min-width: 180px;
+}
+.wf-select option { background: #161a1d; color: #fff; }
+.wf-test-input {
+  width: 260px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line);
+  border-radius: 6px; padding: 5px 10px; font-size: 12.5px; color: var(--ink); outline: none;
+}
+.wf-test-input:focus { border-color: var(--accent); }
+
+.wf-workbench {
+  flex: 1 1 auto; min-height: 0; display: flex; gap: 10px; position: relative;
+}
+.wf-sidebar {
+  width: 220px; flex: 0 0 220px; border-radius: 10px; background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line); display: flex; flex-direction: column; padding: 10px; gap: 6px;
+  overflow-y: auto;
+}
+.wf-lib-title { font-size: 12px; font-weight: 600; color: var(--ink); letter-spacing: .05em; }
+.wf-lib-desc { font-size: 11px; color: var(--ink-faint); margin-bottom: 4px; }
+.wf-lib-list { display: flex; flex-direction: column; gap: 6px; }
+.wf-lib-group-title { font-size: 10.5px; font-weight: 600; color: var(--ink-dim); margin-top: 6px; }
+.wf-lib-item {
+  display: flex; align-items: center; gap: 8px; padding: 7px 10px; border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04); border: 1px solid var(--line);
+  font-size: 12px; color: var(--ink); cursor: pointer; transition: all .12s ease;
+}
+.wf-lib-item:hover {
+  background: var(--amber-soft); border-color: rgba(var(--accent-rgb, 100, 160, 255), 0.4);
+  transform: translateX(2px);
+}
+.wf-lib-item .icon { font-size: 14px; flex-shrink: 0; }
+
+.wf-canvas-area {
+  flex: 1 1 auto; min-width: 0; position: relative; border-radius: 10px;
+  border: 1px solid var(--line); overflow: hidden;
+  background-color: rgba(10, 12, 14, 0.7);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.1) 1px, transparent 1px);
+  background-size: 20px 20px;
+  user-select: none;
+}
+.wf-svg-layer {
+  position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1;
+}
+.wf-svg-layer path {
+  fill: none; stroke: var(--accent); stroke-width: 2.2;
+  transition: stroke .15s;
+}
+.wf-svg-layer path.active {
+  stroke-dasharray: 6 3; animation: wfDash 1s linear infinite;
+}
+@keyframes wfDash { to { stroke-dashoffset: -18; } }
+
+.wf-nodes-container {
+  position: absolute; inset: 0; width: 100%; height: 100%; z-index: 2; pointer-events: auto;
+}
+.wf-node {
+  position: absolute; width: 220px; border-radius: 8px;
+  background: rgba(20, 24, 28, 0.95); border: 1px solid var(--line-strong);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); cursor: move;
+  display: flex; flex-direction: column; transition: border-color .15s, box-shadow .15s;
+}
+.wf-node:hover, .wf-node.selected {
+  border-color: var(--accent); box-shadow: 0 8px 30px rgba(var(--accent-rgb, 100, 160, 255), 0.25);
+}
+.wf-node-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+  padding: 8px 10px; border-bottom: 1px solid var(--line);
+  font-size: 11.5px; font-weight: 600; color: var(--ink); border-radius: 7px 7px 0 0;
+  background: rgba(255, 255, 255, 0.03);
+}
+.wf-node-head.trigger { border-left: 3px solid #3498db; }
+.wf-node-head.action { border-left: 3px solid #2ecc71; }
+.wf-node-head.output { border-left: 3px solid #e67e22; }
+.wf-node-head.warn { border-left: 3px solid #ff4757; }
+.wf-node-del {
+  appearance: none; border: 0; background: transparent; cursor: pointer; color: var(--ink-faint); font-size: 14px;
+}
+.wf-node-del:hover { color: #ff6b6b; }
+
+.wf-node-body {
+  padding: 8px 10px; font-size: 11px; color: var(--ink-dim); display: flex; flex-direction: column; gap: 4px;
+}
+.wf-node-warn {
+  color: #ff6b6b; font-size: 10.5px; font-weight: 500;
+}
+.wf-port {
+  position: absolute; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--line-strong); border: 2px solid var(--bg-alt, #000);
+  cursor: crosshair; transition: transform .12s, background .12s; z-index: 3;
+}
+.wf-port:hover { transform: scale(1.3); background: var(--accent); }
+.wf-port.in { left: -6px; top: 50%; transform: translateY(-50%); }
+.wf-port.out { right: -6px; top: 50%; transform: translateY(-50%); }
+
+.wf-console {
+  height: 90px; flex: 0 0 90px; border-radius: 8px; background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--line); display: flex; flex-direction: column; overflow: hidden;
+}
+.wf-console-header {
+  display: flex; align-items: center; justify-content: space-between; padding: 4px 10px;
+  font-size: 11px; color: var(--ink-faint); font-weight: 600; border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.wf-console-body {
+  flex: 1 1 auto; overflow-y: auto; padding: 6px 10px; font-family: var(--font-mono);
+  font-size: 11.5px; color: var(--ink-dim); line-height: 1.5; white-space: pre-wrap;
+}

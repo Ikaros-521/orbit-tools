@@ -94,6 +94,29 @@ app.whenReady().then(async () => {
     throw new Error('Action Palette failed to open with Ctrl+K!');
   }
 
+  // Test Workflows Canvas View
+  const wfState = await win.webContents.executeJavaScript(`
+    (async () => {
+      // Close Action Palette first
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      // Switch to Workflows view
+      const wfTab = document.querySelector('button[data-view="workflows"]');
+      if (!wfTab) return { error: 'workflows tab missing' };
+      wfTab.click();
+      await new Promise(r => setTimeout(r, 400));
+      return {
+        viewHidden: document.getElementById('viewWorkflows').hidden,
+        nodeCount: document.querySelectorAll('.wf-node').length,
+        edgeCount: document.querySelectorAll('.wf-svg-layer path').length,
+        libItems: document.querySelectorAll('.wf-lib-item').length,
+      };
+    })()
+  `);
+  console.log('Workflows Canvas test output:', wfState);
+  if (wfState.error || wfState.viewHidden || wfState.nodeCount === 0 || wfState.edgeCount === 0) {
+    throw new Error('Workflows canvas rendering failed!');
+  }
+
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });
 

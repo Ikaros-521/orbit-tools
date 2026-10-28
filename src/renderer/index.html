@@ -18,6 +18,7 @@
     </div>
     <nav class="tabs" id="tabs" role="tablist">
       <button type="button" data-view="home" data-i18n="tabTools">工具</button>
+      <button type="button" data-view="workflows">工作流</button>
       <button type="button" data-view="plugins" data-i18n="tabPlugins">插件</button>
       <button type="button" data-view="settings" data-i18n="tabSettings">设置</button>
     </nav>
@@ -278,6 +279,43 @@
           <span id="aboutVer" class="mono"></span>
           <button type="button" class="btn ghost" id="btnRepo">GitHub</button>
         </div>
+      </div>
+    </section>
+
+    <!-- 工作流画布 / workflows canvas -->
+    <section class="view" id="viewWorkflows" hidden>
+      <div class="wf-toolbar">
+        <div class="wf-toolbar-left">
+          <select id="wfSelect" class="wf-select"></select>
+          <button type="button" class="btn small" id="btnWfNew">+ 新建工作流</button>
+          <button type="button" class="btn ghost small" id="btnWfSave">保存</button>
+          <button type="button" class="btn ghost small warn" id="btnWfDelete">删除</button>
+        </div>
+        <div class="wf-toolbar-right">
+          <input type="text" id="wfTestInput" class="wf-test-input" placeholder="输入测试数据 (如 JSON/时间戳/端口)…" />
+          <button type="button" class="btn small primary" id="btnWfRun">▶ 运行测试</button>
+        </div>
+      </div>
+      <div class="wf-workbench">
+        <!-- 左侧节点库 -->
+        <div class="wf-sidebar">
+          <div class="wf-lib-title">节点库</div>
+          <div class="wf-lib-desc">点击节点卡片即可添加到画布中</div>
+          <div class="wf-lib-list" id="wfLibList"></div>
+        </div>
+        <!-- 主画布区 -->
+        <div class="wf-canvas-area" id="wfCanvasArea">
+          <svg class="wf-svg-layer" id="wfSvgLayer"></svg>
+          <div class="wf-nodes-container" id="wfNodesContainer"></div>
+        </div>
+      </div>
+      <!-- 底部执行控制台日志 -->
+      <div class="wf-console" id="wfConsole">
+        <div class="wf-console-header">
+          <span>执行追踪日志 (Execution Trace)</span>
+          <button type="button" class="btn ghost small" id="btnWfClearConsole">清空</button>
+        </div>
+        <div class="wf-console-body" id="wfConsoleBody">就绪，点击右上角【▶ 运行测试】执行当前工作流…</div>
       </div>
     </section>
   </main>

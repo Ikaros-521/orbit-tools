@@ -2,8 +2,11 @@
    stack (config + manager + hotkeys + handlers + real window) headlessly. */
 const { ipcMain, shell, dialog } = require('electron');
 const fs = require('fs');
+const { WorkflowManager } = require('./workflows');
 
 module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindow }) {
+  const workflowManager = new WorkflowManager(cfg, manager);
+
   ipcMain.handle('boot', () => ({
     platform: process.platform,
     appVersion: app.getVersion(),
@@ -11,6 +14,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     config: { hotkey: cfg.data.hotkey, actionPaletteHotkey: cfg.data.actionPaletteHotkey || 'Ctrl+K', lang: cfg.data.lang, theme: cfg.data.theme },
     plugins: manager.serialize(),
     hotkeys: hotkeys.status,
+    workflows: workflowManager.list(),
     userPluginsDir: manager.userRoot,
     defaultUserPluginsDir: manager.defaultUserRoot,
     isCustomUserPluginsDir: manager.userRoot !== manager.defaultUserRoot,
@@ -134,6 +138,11 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     });
     return r.canceled ? null : r.filePath;
   });
+
+  ipcMain.handle('workflow-list', () => workflowManager.list());
+  ipcMain.handle('workflow-save', (e, wf) => workflowManager.save(wf));
+  ipcMain.handle('workflow-delete', (e, id) => workflowManager.delete(id));
+  ipcMain.handle('workflow-run', (e, { id, input }) => workflowManager.run(id, input));
 
   ipcMain.on('win', (e, action) => {
     const win = getHostWindow();

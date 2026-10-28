@@ -11,6 +11,7 @@ const DEFAULTS = {
   windowBounds: null,
   userPluginsDir: null, // string absolute path | null (defaults to <userData>/plugins)
   pluginDataDir: null,  // string absolute path | null (defaults to <userData>/plugin-data)
+  workflows: [],        // visual DAG workflows
 };
 
 class Config {

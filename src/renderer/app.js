@@ -14,7 +14,11 @@ const els = {
   apList: $('apList'),
   apCloseKbd: $('apCloseKbd'),
   viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewPlugins: $('viewPlugins'),
-  viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'),
+  viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'), viewWorkflows: $('viewWorkflows'),
+  wfSelect: $('wfSelect'), btnWfNew: $('btnWfNew'), btnWfSave: $('btnWfSave'), btnWfDelete: $('btnWfDelete'),
+  wfTestInput: $('wfTestInput'), btnWfRun: $('btnWfRun'), wfLibList: $('wfLibList'),
+  wfCanvasArea: $('wfCanvasArea'), wfSvgLayer: $('wfSvgLayer'), wfNodesContainer: $('wfNodesContainer'),
+  wfConsole: $('wfConsole'), wfConsoleBody: $('wfConsoleBody'), btnWfClearConsole: $('btnWfClearConsole'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
   panelHost: $('panelHost'),
   hotkeyCtrl: $('hotkeyCtrl'),
@@ -67,6 +71,10 @@ const state = {
   actionPaletteItems: [],
   actionPaletteFiltered: [],
   actionPaletteIndex: 0,
+  // Workflows canvas state
+  workflows: [],
+  currentWorkflowId: null,
+  wfConnectingFrom: null,
   // Plugins center state
   pluginQuery: '',
   pluginCat: 'all',
@@ -378,6 +386,7 @@ function setView(view) {
   els.viewPanel.hidden = view !== 'panel';
   els.viewPlugins.hidden = view !== 'plugins';
   els.viewSettings.hidden = view !== 'settings';
+  if (els.viewWorkflows) els.viewWorkflows.hidden = view !== 'workflows';
   if (els.viewDevGuide) els.viewDevGuide.hidden = view !== 'dev-guide';
   els.tabs.querySelectorAll('button').forEach(b => {
     const tabTarget = (b.dataset.view === 'panel' ? 'home' : b.dataset.view);
@@ -391,7 +400,9 @@ function setView(view) {
   } else {
     hideSmartPeek();
   }
-  if (view === 'plugins') {
+  if (view === 'workflows') {
+    initWorkflowsView();
+  } else if (view === 'plugins') {
     renderPlugins();
     els.pluginSearch.focus();
   } else if (view === 'dev-guide') {
@@ -1049,6 +1060,356 @@ if (els.btnRescanFromGuide) {
     const orig = els.btnRescanFromGuide.textContent;
     els.btnRescanFromGuide.textContent = '✓ 扫描完成';
     setTimeout(() => { els.btnRescanFromGuide.textContent = orig; }, 1200);
+  });
+}
+
+/* --- workflows canvas controller ----------------------------------------------- */
+let currentWorkflow = null;
+
+async function initWorkflowsView() {
+  if (!window.host.listWorkflows) return;
+  state.workflows = await window.host.listWorkflows().catch(() => []);
+  if (state.workflows.length > 0 && !state.currentWorkflowId) {
+    state.currentWorkflowId = state.workflows[0].id;
+  }
+  renderWorkflowSelector();
+  renderWorkflowLib();
+  loadCurrentWorkflow();
+}
+
+function renderWorkflowSelector() {
+  if (!els.wfSelect) return;
+  els.wfSelect.innerHTML = '';
+  state.workflows.forEach(wf => {
+    const opt = document.createElement('option');
+    opt.value = wf.id;
+    opt.textContent = `${wf.name} (${(wf.nodes || []).length} 节点)`;
+    if (wf.id === state.currentWorkflowId) opt.selected = true;
+    els.wfSelect.appendChild(opt);
+  });
+}
+
+function loadCurrentWorkflow() {
+  currentWorkflow = state.workflows.find(w => w.id === state.currentWorkflowId);
+  if (!currentWorkflow && state.workflows.length > 0) {
+    currentWorkflow = state.workflows[0];
+    state.currentWorkflowId = currentWorkflow.id;
+  }
+  renderWorkflowCanvas();
+}
+
+function renderWorkflowLib() {
+  if (!els.wfLibList) return;
+  els.wfLibList.innerHTML = '';
+
+  // 1. Triggers
+  const trigGroup = document.createElement('div');
+  trigGroup.className = 'wf-lib-group-title';
+  trigGroup.textContent = '1. 触发节点 (Triggers)';
+  els.wfLibList.appendChild(trigGroup);
+
+  const triggers = [
+    { type: 'trigger/clipboard', title: '剪贴板监听', icon: '📋', desc: '监听剪贴板特定内容' },
+    { type: 'trigger/manual', title: '手动 / 快捷键', icon: '⚡', desc: '按快捷键或手动触发' }
+  ];
+  triggers.forEach(t => {
+    const item = document.createElement('div');
+    item.className = 'wf-lib-item';
+    item.innerHTML = `<span class="icon">${t.icon}</span> <span>${t.title}</span>`;
+    item.title = t.desc;
+    item.addEventListener('click', () => addNodeToCanvas(t.type, t.title));
+    els.wfLibList.appendChild(item);
+  });
+
+  // 2. Plugin Actions (Dynamic from state.plugins capabilities)
+  const actGroup = document.createElement('div');
+  actGroup.className = 'wf-lib-group-title';
+  actGroup.textContent = '2. 插件能力 (Actions)';
+  els.wfLibList.appendChild(actGroup);
+
+  state.plugins.forEach(p => {
+    if (!p.enabled) return;
+    const caps = Array.isArray(p.capabilities) ? p.capabilities : [];
+    caps.forEach(cap => {
+      const item = document.createElement('div');
+      item.className = 'wf-lib-item';
+      const title = cap.title ? (cap.title.zh || cap.title.en || cap.id) : cap.id;
+      item.innerHTML = `<span class="icon">🧩</span> <span>${escapeHtml(p.name.zh || p.id)}: ${escapeHtml(title)}</span>`;
+      item.title = `由插件 [${p.name.zh || p.id}] 提供`;
+      item.addEventListener('click', () => addNodeToCanvas('action/plugin', `${p.name.zh || p.id}: ${title}`, {
+        pluginId: p.id,
+        capabilityId: cap.id
+      }));
+      els.wfLibList.appendChild(item);
+    });
+  });
+
+  // 3. Outputs
+  const outGroup = document.createElement('div');
+  outGroup.className = 'wf-lib-group-title';
+  outGroup.textContent = '3. 交付输出 (Outputs)';
+  els.wfLibList.appendChild(outGroup);
+
+  const outputs = [
+    { type: 'output/clipboard', title: '写入系统剪贴板', icon: '📝' },
+    { type: 'output/notification', title: '显示系统通知', icon: '🔔' },
+    { type: 'output/panel', title: '唤起对应面板', icon: '🚀' }
+  ];
+  outputs.forEach(o => {
+    const item = document.createElement('div');
+    item.className = 'wf-lib-item';
+    item.innerHTML = `<span class="icon">${o.icon}</span> <span>${o.title}</span>`;
+    item.addEventListener('click', () => addNodeToCanvas(o.type, o.title));
+    els.wfLibList.appendChild(item);
+  });
+}
+
+function addNodeToCanvas(type, title, extra = {}) {
+  if (!currentWorkflow) return;
+  const id = `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const newNode = {
+    id,
+    type,
+    title,
+    x: 160 + (currentWorkflow.nodes.length % 5) * 40,
+    y: 100 + (currentWorkflow.nodes.length % 5) * 40,
+    ...extra
+  };
+  currentWorkflow.nodes.push(newNode);
+  renderWorkflowCanvas();
+}
+
+function renderWorkflowCanvas() {
+  if (!els.wfNodesContainer || !els.wfSvgLayer) return;
+  els.wfNodesContainer.innerHTML = '';
+  els.wfSvgLayer.innerHTML = '';
+  if (!currentWorkflow) return;
+
+  // Render SVG Edges (Cubic Bézier)
+  (currentWorkflow.edges || []).forEach(edge => {
+    const fromNode = currentWorkflow.nodes.find(n => n.id === edge.from);
+    const toNode = currentWorkflow.nodes.find(n => n.id === edge.to);
+    if (!fromNode || !toNode) return;
+
+    const x1 = (fromNode.x || 0) + 220;
+    const y1 = (fromNode.y || 0) + 38;
+    const x2 = (toNode.x || 0);
+    const y2 = (toNode.y || 0) + 38;
+
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+    const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('id', `edge-${edge.from}-${edge.to}`);
+    path.style.cursor = 'pointer';
+    path.setAttribute('stroke-width', '2.5');
+    path.addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentWorkflow.edges = currentWorkflow.edges.filter(x => x !== edge);
+      renderWorkflowCanvas();
+    });
+    els.wfSvgLayer.appendChild(path);
+  });
+
+  // Render Nodes
+  currentWorkflow.nodes.forEach(node => {
+    const el = document.createElement('div');
+    el.className = 'wf-node';
+    el.style.left = `${node.x || 0}px`;
+    el.style.top = `${node.y || 0}px`;
+    el.dataset.id = node.id;
+
+    let isPluginDisabled = false;
+    if (node.type === 'action/plugin' && node.pluginId) {
+      const p = state.plugins.find(x => x.id === node.pluginId);
+      if (!p || !p.enabled) isPluginDisabled = true;
+    }
+
+    const headClass = isPluginDisabled
+      ? 'warn'
+      : (node.type.startsWith('trigger') ? 'trigger' : (node.type.startsWith('output') ? 'output' : 'action'));
+
+    el.innerHTML = `
+      <div class="wf-node-head ${headClass}">
+        <span>${escapeHtml(node.title)}</span>
+        <button type="button" class="wf-node-del" title="删除节点">×</button>
+      </div>
+      <div class="wf-node-body">
+        <span class="mono">${escapeHtml(node.type)}</span>
+        ${isPluginDisabled ? '<span class="wf-node-warn">⚠️ 所属插件已禁用 (熔断保护)</span>' : ''}
+      </div>
+      ${!node.type.startsWith('trigger') ? '<div class="wf-port in" title="连线入口 (点击完成连线)"></div>' : ''}
+      ${!node.type.startsWith('output') ? '<div class="wf-port out" title="连线出口 (点击建立连线)"></div>' : ''}
+    `;
+
+    el.querySelector('.wf-node-del').addEventListener('click', (e) => {
+      e.stopPropagation();
+      currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
+      currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
+      renderWorkflowCanvas();
+    });
+
+    el.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('wf-port') || e.target.classList.contains('wf-node-del')) return;
+      let startX = e.clientX, startY = e.clientY;
+      let origX = node.x || 0, origY = node.y || 0;
+
+      const onMouseMove = (ev) => {
+        node.x = Math.max(10, origX + (ev.clientX - startX));
+        node.y = Math.max(10, origY + (ev.clientY - startY));
+        el.style.left = `${node.x}px`;
+        el.style.top = `${node.y}px`;
+        updateSvgEdgesOnly();
+      };
+      const onMouseUp = () => {
+        window.removeEventListener('mousemove', onMouseMove);
+        window.removeEventListener('mouseup', onMouseUp);
+      };
+      window.addEventListener('mousemove', onMouseMove);
+      window.addEventListener('mouseup', onMouseUp);
+    });
+
+    const outPort = el.querySelector('.wf-port.out');
+    if (outPort) {
+      outPort.addEventListener('click', (e) => {
+        e.stopPropagation();
+        state.wfConnectingFrom = node.id;
+        outPort.style.background = '#2ecc71';
+        logToWfConsole(`已选择起始节点 [${node.title}]，请点击目标节点的输入端口完成连线…`);
+      });
+    }
+
+    const inPort = el.querySelector('.wf-port.in');
+    if (inPort) {
+      inPort.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (state.wfConnectingFrom && state.wfConnectingFrom !== node.id) {
+          const fromId = state.wfConnectingFrom;
+          state.wfConnectingFrom = null;
+          if (!currentWorkflow.edges.some(ed => ed.from === fromId && ed.to === node.id)) {
+            currentWorkflow.edges.push({ id: `e-${Date.now()}`, from: fromId, to: node.id });
+            renderWorkflowCanvas();
+            logToWfConsole(`✓ 连线建立成功: [${fromId}] ➔ [${node.id}]`);
+          }
+        }
+      });
+    }
+
+    els.wfNodesContainer.appendChild(el);
+  });
+}
+
+function updateSvgEdgesOnly() {
+  if (!currentWorkflow || !els.wfSvgLayer) return;
+  (currentWorkflow.edges || []).forEach(edge => {
+    const fromNode = currentWorkflow.nodes.find(n => n.id === edge.from);
+    const toNode = currentWorkflow.nodes.find(n => n.id === edge.to);
+    if (!fromNode || !toNode) return;
+    const path = els.wfSvgLayer.querySelector(`#edge-${edge.from}-${edge.to}`);
+    if (path) {
+      const x1 = (fromNode.x || 0) + 220;
+      const y1 = (fromNode.y || 0) + 38;
+      const x2 = (toNode.x || 0);
+      const y2 = (toNode.y || 0) + 38;
+      const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+      path.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
+    }
+  });
+}
+
+function logToWfConsole(msg) {
+  if (!els.wfConsoleBody) return;
+  const ts = new Date().toLocaleTimeString();
+  els.wfConsoleBody.textContent = `[${ts}] ${msg}\n` + els.wfConsoleBody.textContent;
+}
+
+async function runCurrentWorkflow() {
+  if (!currentWorkflow) return;
+  const testInputVal = els.wfTestInput ? els.wfTestInput.value.trim() : '';
+  const initialPayload = { type: 'text/plain', value: testInputVal || '{"appName":"orbit","demo":true}' };
+
+  logToWfConsole(`▶ 开始执行工作流 [${currentWorkflow.name}]…`);
+  const paths = els.wfSvgLayer.querySelectorAll('path');
+  paths.forEach(p => p.classList.add('active'));
+
+  try {
+    const res = await window.host.runWorkflow(currentWorkflow.id, initialPayload);
+    paths.forEach(p => p.classList.remove('active'));
+
+    if (res.ok) {
+      const totalMs = (res.logs || []).reduce((acc, l) => acc + (l.duration || 0), 0);
+      logToWfConsole(`✓ 工作流执行成功！总耗时: ${totalMs}ms`);
+      (res.logs || []).forEach(l => {
+        logToWfConsole(`  ├─ 节点 [${l.title}]: ${l.summary || 'OK'} (${l.duration}ms)`);
+      });
+      if (res.finalOutput) {
+        logToWfConsole(`  └─ 最终输出: ${JSON.stringify(res.finalOutput.value || res.finalOutput)}`);
+      }
+    } else {
+      logToWfConsole(`❌ 执行异常: ${res.error}`);
+    }
+  } catch (err) {
+    paths.forEach(p => p.classList.remove('active'));
+    logToWfConsole(`❌ 系统调用失败: ${err.message}`);
+  }
+}
+
+if (els.wfSelect) {
+  els.wfSelect.addEventListener('change', () => {
+    state.currentWorkflowId = els.wfSelect.value;
+    loadCurrentWorkflow();
+  });
+}
+if (els.btnWfNew) {
+  els.btnWfNew.addEventListener('click', () => {
+    const id = `wf-${Date.now()}`;
+    const newWf = {
+      id,
+      name: `新建工作流 ${state.workflows.length + 1}`,
+      desc: '自定义编排流',
+      enabled: true,
+      nodes: [
+        { id: 'node-1', type: 'trigger/manual', title: '手动触发', x: 80, y: 120 }
+      ],
+      edges: []
+    };
+    state.workflows.push(newWf);
+    state.currentWorkflowId = id;
+    renderWorkflowSelector();
+    loadCurrentWorkflow();
+    window.host.saveWorkflow(newWf);
+    logToWfConsole(`✓ 已创建新工作流: ${newWf.name}`);
+  });
+}
+if (els.btnWfSave) {
+  els.btnWfSave.addEventListener('click', async () => {
+    if (!currentWorkflow) return;
+    await window.host.saveWorkflow(currentWorkflow);
+    const orig = els.btnWfSave.textContent;
+    els.btnWfSave.textContent = '✓ 已保存';
+    setTimeout(() => { if (els.btnWfSave) els.btnWfSave.textContent = orig; }, 1000);
+    logToWfConsole(`✓ 工作流 [${currentWorkflow.name}] 已保存`);
+  });
+}
+if (els.btnWfDelete) {
+  els.btnWfDelete.addEventListener('click', async () => {
+    if (!currentWorkflow) return;
+    if (confirm(`确定删除工作流 "${currentWorkflow.name}" 吗？`)) {
+      state.workflows = await window.host.deleteWorkflow(currentWorkflow.id);
+      state.currentWorkflowId = state.workflows.length > 0 ? state.workflows[0].id : null;
+      renderWorkflowSelector();
+      loadCurrentWorkflow();
+      logToWfConsole(`已删除工作流`);
+    }
+  });
+}
+if (els.btnWfRun) {
+  els.btnWfRun.addEventListener('click', () => runCurrentWorkflow());
+}
+if (els.btnWfClearConsole) {
+  els.btnWfClearConsole.addEventListener('click', () => {
+    if (els.wfConsoleBody) els.wfConsoleBody.textContent = '日志已清空';
   });
 }
 

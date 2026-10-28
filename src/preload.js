@@ -32,4 +32,8 @@ contextBridge.exposeInMainWorld('host', {
   getPipelineActions: envelope => ipcRenderer.invoke('get-pipeline-actions', envelope),
   readClipboardText: () => ipcRenderer.invoke('read-clipboard-text'),
   writeClipboardText: text => ipcRenderer.invoke('write-clipboard-text', text),
+  listWorkflows: () => ipcRenderer.invoke('workflow-list'),
+  saveWorkflow: wf => ipcRenderer.invoke('workflow-save', wf),
+  deleteWorkflow: id => ipcRenderer.invoke('workflow-delete', id),
+  runWorkflow: (id, input) => ipcRenderer.invoke('workflow-run', { id, input }),
 });
