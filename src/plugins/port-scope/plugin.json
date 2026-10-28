@@ -3,6 +3,7 @@
   "name": { "zh": "端口与进程", "en": "Port Scope" },
   "desc": { "zh": "查 TCP/UDP 监听端口、进程名与 PID，一键结束进程", "en": "List TCP/UDP listeners with process name & PID, kill in one click" },
   "version": "1.0.0",
+  "category": "system",
   "author": "Ikaros-521",
   "keywords": ["port", "tcp", "udp", "listen", "pid", "kill", "netstat", "lsof", "端口", "进程", "占用"],
   "icon": "icon.svg",

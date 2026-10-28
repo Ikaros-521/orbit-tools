@@ -3,6 +3,7 @@
   "name": { "zh": "截图悬浮", "en": "Screenshot Pin" },
   "desc": { "zh": "框选截图，钉在屏幕上置顶悬浮，可缩放 / 复制 / 保存", "en": "Grab a region and pin it on top — zoom, copy or save" },
   "version": "1.0.0",
+  "category": "media",
   "author": "Ikaros-521",
   "keywords": ["screenshot", "pin", "capture", "snip", "截图", "贴图", "悬浮"],
   "icon": "icon.svg",

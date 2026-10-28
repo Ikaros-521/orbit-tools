@@ -3,6 +3,7 @@
   "name": { "zh": "反重力代理启动器", "en": "Antigravity Launcher" },
   "desc": { "zh": "Google Antigravity 进程级代理启动器：真实握手探测、网络诊断与一键拉起", "en": "Process-local proxy launcher for Google Antigravity with handshake verification & network diagnostics" },
   "version": "1.1.0",
+  "category": "system",
   "author": "Ikaros-521",
   "keywords": ["antigravity", "proxy", "launcher", "google", "socks5", "http", "反重力", "代理", "启动器", "网络诊断"],
   "icon": "icon.svg",

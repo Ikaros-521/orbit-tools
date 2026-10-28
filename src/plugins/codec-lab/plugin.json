@@ -3,6 +3,7 @@
   "name": { "zh": "编码转换", "en": "Codec Lab" },
   "desc": { "zh": "Base64 / URL / Hex / Unicode / JWT / 时间戳，双向互转", "en": "Base64 / URL / Hex / Unicode / JWT / timestamp, both ways" },
   "version": "1.0.0",
+  "category": "dev",
   "author": "Ikaros-521",
   "keywords": ["base64", "url", "hex", "unicode", "jwt", "timestamp", "编码", "解码", "转换"],
   "icon": "icon.svg",

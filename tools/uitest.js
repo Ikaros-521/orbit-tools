@@ -67,7 +67,7 @@ app.whenReady().then(async () => {
 
   /* --- layout: CSS applied & views mutually exclusive ---------------------- */
   check('css-applied', await page(`getComputedStyle(document.querySelector('.chassis')).display`) === 'flex');
-  const visibleViews = await page(`['viewHome','viewPanel','viewSettings'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
+  const visibleViews = await page(`['viewHome','viewPanel','viewPlugins','viewSettings'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
   check('single-view-visible', visibleViews.length === 1 && visibleViews[0] === 'viewHome');
   check('deck-has-5-cards', await page(`document.querySelectorAll('#deck .card').length`) === 5);
   check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 5);
@@ -117,9 +117,46 @@ app.whenReady().then(async () => {
   await sleep(300);
   check('settings-visible', await page(`getComputedStyle(document.getElementById('viewSettings')).display`) !== 'none'
     && await page(`getComputedStyle(document.getElementById('viewHome')).display`) === 'none');
-  check('plugin-rows-5', await page(`document.querySelectorAll('.prow').length`) === 5);
-  check('switches-5', await page(`document.querySelectorAll('.switch').length`) === 5);
+  check('hotkey-ctrl-present', await page(`!!document.querySelector('#hotkeyCtrl .hke-input')`) === true);
   await shot('settings');
+
+  /* --- plugins view (dedicated center, pagination & search) ---------------------- */
+  await page(`document.querySelector('#tabs button[data-view="plugins"]').click()`);
+  await sleep(300);
+  check('plugins-visible', await page(`getComputedStyle(document.getElementById('viewPlugins')).display`) !== 'none');
+  // pageSize is 4, so first page should show 4 items out of 5
+  check('plugins-page1-has-4', await page(`document.querySelectorAll('#pluginList .prow').length`) === 4);
+  check('prev-btn-disabled', await page(`document.getElementById('btnPagePrev').disabled`) === true);
+  check('next-btn-enabled', await page(`document.getElementById('btnPageNext').disabled`) === false);
+
+  // Next page: should show the remaining 1 item
+  await page(`document.getElementById('btnPageNext').click()`);
+  await sleep(200);
+  check('plugins-page2-has-1', await page(`document.querySelectorAll('#pluginList .prow').length`) === 1);
+  check('prev-btn-enabled', await page(`document.getElementById('btnPagePrev').disabled`) === false);
+  check('next-btn-disabled', await page(`document.getElementById('btnPageNext').disabled`) === true);
+
+  // Category filter: click media category (should match 2 plugins: draw-board & screenshot-pin)
+  await page(`document.querySelector('#catFilter button[data-cat="media"]').click()`);
+  await sleep(200);
+  check('cat-filter-media-2', await page(`document.querySelectorAll('#pluginList .prow').length`) === 2);
+  await shot('plugins-center');
+
+  /* --- home card context menu ---------------------------------------------------- */
+  await page(`document.querySelector('#tabs button[data-view="home"]').click()`);
+  await sleep(200);
+  await page(`(() => {
+    const card = document.querySelector('#deck .card');
+    const r = card.getBoundingClientRect();
+    card.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: r.left + 20, clientY: r.top + 20 }));
+  })()`);
+  await sleep(200);
+  check('context-menu-visible', await page(`!document.getElementById('cardContextMenu').hidden`));
+  check('context-menu-actions', await page(`!document.getElementById('ctxConfig').hidden && !document.getElementById('ctxFolder').hidden`));
+  await shot('card-context-menu');
+  await page(`document.body.click()`);
+  await sleep(100);
+  check('context-menu-hidden-on-click', await page(`document.getElementById('cardContextMenu').hidden`) === true);
 
   /* --- hotkey conflicts -------------------------------------------------------- */
   const conflict = hotkeys.setPluginHotkey('draw-board:start', cfg.data.hotkey);

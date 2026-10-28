@@ -35,6 +35,7 @@
 
   const state = {
     tool: 'pen', color: COLORS[0], size: 4,
+    bgMode: 'screen', // 'screen' | 'white' | 'black'
     strokes: [], redo: [],
     drawing: false, current: null,
     dpr: window.devicePixelRatio || 1, w: 0, h: 0,
@@ -42,10 +43,44 @@
 
   /* --- canvas sizing & backdrop render ---------------------------------------- */
   function renderBackdrop() {
-    if (!backdropImage) return;
     backdropCtx.imageSmoothingEnabled = false;
     backdropCtx.clearRect(0, 0, backdropCanvas.width, backdropCanvas.height);
-    backdropCtx.drawImage(backdropImage, 0, 0, backdropCanvas.width, backdropCanvas.height);
+    const w = backdropCanvas.width;
+    const h = backdropCanvas.height;
+
+    if (state.bgMode === 'screen') {
+      if (backdropImage) {
+        backdropCtx.drawImage(backdropImage, 0, 0, w, h);
+      }
+    } else if (state.bgMode === 'white') {
+      backdropCtx.fillStyle = '#ffffff';
+      backdropCtx.fillRect(0, 0, w, h);
+      backdropCtx.strokeStyle = 'rgba(0, 0, 0, 0.05)';
+      backdropCtx.lineWidth = 1;
+      const step = 32 * state.dpr;
+      backdropCtx.beginPath();
+      for (let x = 0; x < w; x += step) {
+        backdropCtx.moveTo(x, 0); backdropCtx.lineTo(x, h);
+      }
+      for (let y = 0; y < h; y += step) {
+        backdropCtx.moveTo(0, y); backdropCtx.lineTo(w, y);
+      }
+      backdropCtx.stroke();
+    } else if (state.bgMode === 'black') {
+      backdropCtx.fillStyle = '#1a1f22';
+      backdropCtx.fillRect(0, 0, w, h);
+      backdropCtx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+      backdropCtx.lineWidth = 1;
+      const step = 32 * state.dpr;
+      backdropCtx.beginPath();
+      for (let x = 0; x < w; x += step) {
+        backdropCtx.moveTo(x, 0); backdropCtx.lineTo(x, h);
+      }
+      for (let y = 0; y < h; y += step) {
+        backdropCtx.moveTo(0, y); backdropCtx.lineTo(w, y);
+      }
+      backdropCtx.stroke();
+    }
   }
 
   function resize() {
@@ -197,7 +232,12 @@
     sizesEl.appendChild(b);
   }
 
+  const bgModesEl = document.getElementById('bgModes');
+
   function syncBar() {
+    if (bgModesEl) {
+      bgModesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.bg === state.bgMode));
+    }
     toolsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.tool === state.tool));
     const isPresetColor = COLORS.includes(state.color);
     colorsEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.dataset.color === state.color));
@@ -246,6 +286,21 @@
   if (sizesEl) sizesEl.addEventListener('wheel', handleSizeWheel, { passive: false });
 
   bar.addEventListener('click', async e => {
+    const bgBtn = e.target.closest('button[data-bg]');
+    if (bgBtn) {
+      const mode = bgBtn.dataset.bg;
+      if (state.bgMode !== mode) {
+        state.bgMode = mode;
+        if (mode === 'white' && (state.color === '#ffffff' || state.color.toLowerCase() === '#fff')) {
+          state.color = '#ff4d4f';
+        } else if (mode === 'black' && (state.color === '#141414' || state.color === '#000000')) {
+          state.color = '#ffffff';
+        }
+        syncBar();
+        renderBackdrop();
+      }
+      return;
+    }
     const tb = e.target.closest('button[data-tool]');
     if (tb) { state.tool = tb.dataset.tool; syncBar(); return; }
     const cb = e.target.closest('button[data-color]');

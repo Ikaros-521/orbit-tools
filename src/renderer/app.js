@@ -6,24 +6,44 @@ const els = {
   tabs: $('tabs'), langSeg: $('langSeg'), themeSeg: $('themeSeg'),
   langSeg2: $('langSeg2'), themeSeg2: $('themeSeg2'), winctl: $('winctl'),
   search: $('search'), hotHint: $('hotHint'), deckMeta: $('deckMeta'), deck: $('deck'), empty: $('empty'),
-  viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewSettings: $('viewSettings'),
+  viewHome: $('viewHome'), viewPanel: $('viewPanel'), viewPlugins: $('viewPlugins'), viewSettings: $('viewSettings'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
   panelHost: $('panelHost'),
-  hotkeyCtrl: $('hotkeyCtrl'), pluginList: $('pluginList'),
+  hotkeyCtrl: $('hotkeyCtrl'),
+  // Plugins view elements
+  pluginSearch: $('pluginSearch'), btnPluginSearchClear: $('btnPluginSearchClear'),
+  catFilter: $('catFilter'), statusFilter: $('statusFilter'),
+  pluginMeta: $('pluginMeta'), pluginEmpty: $('pluginEmpty'), pluginList: $('pluginList'),
+  paginationBar: $('paginationBar'), btnPagePrev: $('btnPagePrev'),
+  pageIndicator: $('pageIndicator'), btnPageNext: $('btnPageNext'),
   btnRescan: $('btnRescan'), btnUserPlugins: $('btnUserPlugins'),
+  btnGotoPlugins: $('btnGotoPlugins'),
   aboutVer: $('aboutVer'), btnRepo: $('btnRepo'),
+  // Context menu elements
+  cardContextMenu: $('cardContextMenu'), ctxTitle: $('ctxTitle'),
+  ctxLaunch: $('ctxLaunch'), ctxConfig: $('ctxConfig'),
+  ctxToggle: $('ctxToggle'), ctxToggleText: $('ctxToggleText'),
+  ctxFolder: $('ctxFolder'),
 };
 
 const state = {
   platform: 'win32',
   appVersion: '0.0.0',
   plugins: [],
-  config: { hotkey: 'Alt+Space', lang: 'zh', theme: 'auto' },
+  config: { hotkey: 'Alt+Shift+Space', lang: 'zh', theme: 'auto' },
   hotkeys: [],           // [{key, accel, ok, conflictKey}] from main
-  view: 'home',          // home | panel | settings
+  view: 'home',          // home | plugins | settings | panel
   openId: null,          // plugin whose panel is showing
   mounted: null,         // {def, ctx, unsubscribers[]}
   query: '',
+  // Plugins center state
+  pluginQuery: '',
+  pluginCat: 'all',
+  pluginStatus: 'all',
+  pluginPage: 1,
+  pageSize: 4,
+  ctxTargetPlugin: null,
+  highlightPluginId: null,
 };
 
 /* Human name for a hotkey key ('host' or 'pluginId:actionId') — used to say
@@ -59,7 +79,7 @@ function applyLang(lang) {
   for (const seg of [els.langSeg, els.langSeg2]) {
     seg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.lang === lang)));
   }
-  renderDeck(); renderSettings();
+  renderDeck(); renderPlugins(); renderSettings();
 }
 
 /* --- deck (tool cards + search) ---------------------------------------------- */
@@ -91,6 +111,11 @@ function renderDeck() {
       }
     }
     card.addEventListener('click', () => openPlugin(p.id));
+    card.addEventListener('contextmenu', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      showCardContextMenu(p, e.clientX, e.clientY);
+    });
     card.addEventListener('mousemove', e => {
       const r = card.getBoundingClientRect();
       card.style.setProperty('--mx', `${e.clientX - r.left}px`);
@@ -188,13 +213,19 @@ function closePanel() {
 
 /* --- views ----------------------------------------------------------------------- */
 function setView(view) {
+  hideCardContextMenu();
   state.view = view;
   els.viewHome.hidden = view !== 'home';
   els.viewPanel.hidden = view !== 'panel';
+  els.viewPlugins.hidden = view !== 'plugins';
   els.viewSettings.hidden = view !== 'settings';
   els.tabs.querySelectorAll('button').forEach(b =>
     b.classList.toggle('on', (b.dataset.view === 'panel' ? 'home' : b.dataset.view) === (view === 'panel' ? 'home' : view)));
   if (view === 'home') { els.search.focus(); els.search.select(); }
+  else if (view === 'plugins') {
+    renderPlugins();
+    els.pluginSearch.focus();
+  }
 }
 
 /* --- hotkey recorder ---------------------------------------------------------------- */
@@ -274,56 +305,95 @@ function hotkeyEditor({ initial, allowClear = false, onApply }) {
   return wrap;
 }
 
-/* --- settings ------------------------------------------------------------------------ */
-function renderSettings() {
-  els.hotkeyCtrl.innerHTML = '';
-  els.hotkeyCtrl.appendChild(hotkeyEditor({
-    initial: state.config.hotkey,
-    onApply: async accel => {
-      const res = await window.host.setHotkey(accel);
-      if (res.ok) {
-        state.config.hotkey = res.hotkey;
-        els.hotHint.textContent = res.hotkey;
-        state.hotkeys = await window.host.hotkeys();
-        renderSettings();
-      }
-      return res;
-    },
-  }));
-  const hostRow = hotkeyRow('host');
-  if (hostRow && !hostRow.ok) {
-    const chip = document.createElement('span');
-    chip.className = 'chip warn';
-    chip.textContent = hostRow.conflictKey
-      ? t('conflictWith', { name: labelForKey(hostRow.conflictKey) })
-      : t('hotkeyBad');
-    els.hotkeyCtrl.appendChild(chip);
-  }
+/* --- plugins center & settings ------------------------------------------------ */
+function renderPlugins() {
+  const q = state.pluginQuery.trim().toLowerCase();
+  const cat = state.pluginCat;
+  const status = state.pluginStatus;
+
+  const filtered = state.plugins.filter(p => {
+    if (cat !== 'all' && (p.category || 'other') !== cat) return false;
+    if (status === 'enabled' && !p.enabled) return false;
+    if (status === 'disabled' && p.enabled) return false;
+    if (q) {
+      const match = [p.id, p.name?.zh, p.name?.en, p.desc?.zh, p.desc?.en, ...(p.keywords || [])]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!match.includes(q)) return false;
+    }
+    return true;
+  });
+
+  const totalPages = Math.ceil(filtered.length / state.pageSize) || 1;
+  if (state.pluginPage > totalPages) state.pluginPage = totalPages;
+  if (state.pluginPage < 1) state.pluginPage = 1;
+
+  els.pluginMeta.textContent = t('pluginMeta', { total: state.plugins.length, shown: filtered.length });
+  els.pluginEmpty.textContent = t('noPluginMatch');
+  els.pluginEmpty.hidden = filtered.length > 0;
+  els.paginationBar.hidden = filtered.length === 0;
+
+  els.btnPagePrev.disabled = state.pluginPage <= 1;
+  els.btnPageNext.disabled = state.pluginPage >= totalPages;
+  els.pageIndicator.textContent = t('pageIndicator', { current: state.pluginPage, total: totalPages });
+
+  const startIdx = (state.pluginPage - 1) * state.pageSize;
+  const pageItems = filtered.slice(startIdx, startIdx + state.pageSize);
 
   els.pluginList.innerHTML = '';
-  for (const p of state.plugins) {
+  let targetRowToScroll = null;
+
+  for (const p of pageItems) {
     const row = document.createElement('div');
-    row.className = 'prow' + (p.enabled ? '' : ' off');
+    const isHighlight = state.highlightPluginId === p.id;
+    row.className = 'prow' + (p.enabled ? '' : ' off') + (isHighlight ? ' highlight' : '');
+    if (isHighlight) {
+      targetRowToScroll = row;
+      state.highlightPluginId = null;
+    }
+
     const icon = document.createElement('span');
     icon.className = 'card-icon small';
     icon.innerHTML = p.iconSvg || escapeHtml(p.iconText);
+
     const mid = document.createElement('div');
     mid.className = 'prow-mid';
+
     const nameLine = document.createElement('div');
     nameLine.className = 'prow-name';
+
     const nameB = document.createElement('b');
     nameB.textContent = window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en);
     nameLine.append(nameB);
+
     const ver = document.createElement('span');
     ver.className = 'chip mono'; ver.textContent = `v${p.version}`;
+
     const src = document.createElement('span');
     src.className = 'chip ghost'; src.textContent = t(p.source === 'user' ? 'sourceUser' : 'sourceBuiltin');
-    nameLine.append(ver, src);
+
+    const catKey = p.category === 'media' ? 'catMedia' : p.category === 'system' ? 'catSystem' : p.category === 'dev' ? 'catDev' : 'catOther';
+    const catChip = document.createElement('span');
+    catChip.className = 'chip ghost';
+    catChip.textContent = t(catKey);
+
+    nameLine.append(ver, src, catChip);
+
+    const btnFolder = document.createElement('button');
+    btnFolder.type = 'button';
+    btnFolder.className = 'btn ghost small';
+    btnFolder.title = t('openFolder');
+    btnFolder.innerHTML = `<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg> <span>${t('openFolder')}</span>`;
+    btnFolder.addEventListener('click', () => window.host.openPluginFolder(p.id));
+    nameLine.append(btnFolder);
+
     if (p.loadError) {
       const err = document.createElement('span');
       err.className = 'chip warn'; err.textContent = `${t('loadError')}: ${p.loadError}`; err.title = p.loadError;
       nameLine.append(err);
     }
+
     const desc = document.createElement('div');
     desc.className = 'prow-desc';
     desc.textContent = window.I18N.lang === 'en' ? (p.desc.en || p.desc.zh) : (p.desc.zh || p.desc.en);
@@ -348,17 +418,17 @@ function renderSettings() {
               a.hotkey = res.hotkey || null;
               state.hotkeys = await window.host.hotkeys();
               renderDeck();
-              renderSettings();
+              renderPlugins();
             }
             return res;
           },
         }));
-        const row = hotkeyRow(a.key);
-        if (row && !row.ok) {
+        const rowHk = hotkeyRow(a.key);
+        if (rowHk && !rowHk.ok) {
           const chip = document.createElement('span');
           chip.className = 'chip warn';
-          chip.textContent = row.conflictKey
-            ? t('conflictWith', { name: labelForKey(row.conflictKey) })
+          chip.textContent = rowHk.conflictKey
+            ? t('conflictWith', { name: labelForKey(rowHk.conflictKey) })
             : t('hotkeyBad');
           acts.append(chip);
         }
@@ -376,11 +446,66 @@ function renderSettings() {
       state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
       state.hotkeys = res.hotkeys;
       if (state.openId === p.id) { closePanel(); setView('home'); }
-      renderDeck(); renderSettings();
+      renderDeck();
+      renderPlugins();
     });
 
     row.append(icon, mid, sw);
     els.pluginList.appendChild(row);
+  }
+
+  if (targetRowToScroll) {
+    setTimeout(() => {
+      targetRowToScroll.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 50);
+  }
+}
+
+function showCardContextMenu(p, x, y) {
+  state.ctxTargetPlugin = p;
+  els.ctxTitle.textContent = window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en);
+  els.ctxLaunch.hidden = !p.panel;
+  els.ctxToggleText.textContent = p.enabled ? t('ctxToggleDisable') : t('ctxToggleEnable');
+
+  els.cardContextMenu.hidden = false;
+  const menuWidth = els.cardContextMenu.offsetWidth || 180;
+  const menuHeight = els.cardContextMenu.offsetHeight || 140;
+  const maxX = window.innerWidth - menuWidth - 8;
+  const maxY = window.innerHeight - menuHeight - 8;
+
+  els.cardContextMenu.style.left = `${Math.min(x, Math.max(8, maxX))}px`;
+  els.cardContextMenu.style.top = `${Math.min(y, Math.max(8, maxY))}px`;
+}
+
+function hideCardContextMenu() {
+  if (els.cardContextMenu) els.cardContextMenu.hidden = true;
+  state.ctxTargetPlugin = null;
+}
+
+/* --- settings ------------------------------------------------------------------------ */
+function renderSettings() {
+  els.hotkeyCtrl.innerHTML = '';
+  els.hotkeyCtrl.appendChild(hotkeyEditor({
+    initial: state.config.hotkey,
+    onApply: async accel => {
+      const res = await window.host.setHotkey(accel);
+      if (res.ok) {
+        state.config.hotkey = res.hotkey;
+        els.hotHint.textContent = res.hotkey;
+        state.hotkeys = await window.host.hotkeys();
+        renderSettings();
+      }
+      return res;
+    },
+  }));
+  const hostRow = hotkeyRow('host');
+  if (hostRow && !hostRow.ok) {
+    const chip = document.createElement('span');
+    chip.className = 'chip warn';
+    chip.textContent = hostRow.conflictKey
+      ? t('conflictWith', { name: labelForKey(hostRow.conflictKey) })
+      : t('hotkeyBad');
+    els.hotkeyCtrl.appendChild(chip);
   }
 }
 
@@ -452,10 +577,101 @@ els.btnRescan.addEventListener('click', async () => {
   const res = await window.host.rescanPlugins();
   state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
   state.hotkeys = res.hotkeys;
-  renderDeck(); renderSettings();
+  renderDeck(); renderPlugins(); renderSettings();
 });
 els.btnUserPlugins.addEventListener('click', () => window.host.openUserPlugins());
 els.btnRepo.addEventListener('click', () => window.host.openExternal('https://github.com/Ikaros-521/orbit-tools'));
+els.btnGotoPlugins.addEventListener('click', () => setView('plugins'));
+
+/* --- plugin center filters & pagination events ------------------------------------------ */
+els.pluginSearch.addEventListener('input', () => {
+  state.pluginQuery = els.pluginSearch.value;
+  els.btnPluginSearchClear.hidden = !state.pluginQuery;
+  state.pluginPage = 1;
+  renderPlugins();
+});
+els.btnPluginSearchClear.addEventListener('click', () => {
+  els.pluginSearch.value = '';
+  state.pluginQuery = '';
+  els.btnPluginSearchClear.hidden = true;
+  state.pluginPage = 1;
+  renderPlugins();
+  els.pluginSearch.focus();
+});
+els.catFilter.addEventListener('click', e => {
+  const b = e.target.closest('button[data-cat]');
+  if (!b) return;
+  els.catFilter.querySelectorAll('.pill').forEach(x => x.classList.toggle('on', x === b));
+  state.pluginCat = b.dataset.cat;
+  state.pluginPage = 1;
+  renderPlugins();
+});
+els.statusFilter.addEventListener('click', e => {
+  const b = e.target.closest('button[data-status]');
+  if (!b) return;
+  els.statusFilter.querySelectorAll('.pill').forEach(x => x.classList.toggle('on', x === b));
+  state.pluginStatus = b.dataset.status;
+  state.pluginPage = 1;
+  renderPlugins();
+});
+els.btnPagePrev.addEventListener('click', () => {
+  if (state.pluginPage > 1) {
+    state.pluginPage--;
+    renderPlugins();
+  }
+});
+els.btnPageNext.addEventListener('click', () => {
+  state.pluginPage++;
+  renderPlugins();
+});
+
+/* --- card context menu events ----------------------------------------------------------- */
+els.ctxLaunch.addEventListener('click', () => {
+  const p = state.ctxTargetPlugin;
+  hideCardContextMenu();
+  if (p && p.panel) openPlugin(p.id);
+});
+els.ctxConfig.addEventListener('click', () => {
+  const target = state.ctxTargetPlugin;
+  hideCardContextMenu();
+  if (!target) return;
+  state.pluginQuery = '';
+  els.pluginSearch.value = '';
+  els.btnPluginSearchClear.hidden = true;
+  state.pluginCat = 'all';
+  els.catFilter.querySelectorAll('.pill').forEach(b => b.classList.toggle('on', b.dataset.cat === 'all'));
+  state.pluginStatus = 'all';
+  els.statusFilter.querySelectorAll('.pill').forEach(b => b.classList.toggle('on', b.dataset.status === 'all'));
+
+  const idx = state.plugins.findIndex(x => x.id === target.id);
+  state.pluginPage = idx >= 0 ? Math.floor(idx / state.pageSize) + 1 : 1;
+  state.highlightPluginId = target.id;
+  setView('plugins');
+});
+els.ctxToggle.addEventListener('click', async () => {
+  const p = state.ctxTargetPlugin;
+  hideCardContextMenu();
+  if (!p) return;
+  const res = await window.host.setPluginEnabled(p.id, !p.enabled);
+  state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
+  state.hotkeys = res.hotkeys;
+  if (state.openId === p.id) { closePanel(); setView('home'); }
+  renderDeck();
+  renderPlugins();
+});
+els.ctxFolder.addEventListener('click', () => {
+  const p = state.ctxTargetPlugin;
+  hideCardContextMenu();
+  if (p) window.host.openPluginFolder(p.id);
+});
+
+window.addEventListener('click', e => {
+  if (!e.target.closest('#cardContextMenu')) hideCardContextMenu();
+});
+window.addEventListener('contextmenu', e => {
+  if (!e.target.closest('.card')) hideCardContextMenu();
+});
+window.addEventListener('scroll', () => hideCardContextMenu(), true);
 window.host.onPaletteFocus(() => {
   if (state.view === 'home') { els.search.focus(); els.search.select(); }
 });

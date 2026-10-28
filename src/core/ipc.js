@@ -57,6 +57,11 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     shell.openPath(manager.userRoot);
   });
 
+  ipcMain.handle('open-plugin-folder', (e, id) => {
+    const p = manager.plugins.get(id);
+    if (p && p.root) shell.openPath(p.root);
+  });
+
   ipcMain.handle('choose-save-png', async () => {
     const parent = getHostWindow();
     const r = await dialog.showSaveDialog(parent, {

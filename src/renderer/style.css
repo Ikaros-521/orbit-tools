@@ -292,3 +292,123 @@ body {
 .panel-view .grow { flex: 1; }
 .panel-view .pane-body { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 14px; }
 .panel-view .hint { font-size: 11px; color: var(--ink-faint); letter-spacing: .06em; }
+
+/* plugins management center ---------------------------------------------------------------- */
+#viewPlugins {
+  display: flex; flex-direction: column; gap: 12px;
+  overflow: hidden; height: 100%;
+}
+
+.plugins-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  flex: 0 0 auto; flex-wrap: wrap;
+}
+.plugin-search-bar {
+  flex: 1; min-width: 240px; max-width: 440px; position: relative;
+  display: flex; align-items: center;
+}
+.plugin-search-bar .search-icon {
+  position: absolute; left: 12px; width: 16px; height: 16px;
+  color: var(--ink-faint); pointer-events: none;
+}
+.plugin-search-bar input {
+  width: 100%; height: 36px; padding-left: 36px; padding-right: 30px;
+  background: var(--inset); border: 1px solid var(--line-strong);
+  border-radius: var(--r-sm); color: var(--ink); font: inherit; font-size: 13px;
+  outline: none; transition: border-color .15s, box-shadow .15s;
+}
+.plugin-search-bar input:focus {
+  border-color: var(--amber);
+  box-shadow: 0 0 0 3px var(--amber-soft);
+}
+.btn-clear {
+  position: absolute; right: 8px; width: 20px; height: 20px;
+  border-radius: 50%; border: 0; background: transparent;
+  color: var(--ink-faint); cursor: pointer; display: flex;
+  align-items: center; justify-content: center; font-size: 11px;
+}
+.btn-clear:hover { color: var(--ink); background: var(--line); }
+
+.plugin-actions-top {
+  display: flex; align-items: center; gap: 8px; flex: 0 0 auto;
+}
+
+.plugin-filter-bar {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  flex-wrap: wrap; flex: 0 0 auto; padding-bottom: 6px;
+  border-bottom: 1px dashed var(--line);
+}
+.filter-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.pill {
+  appearance: none; border: 1px solid var(--line); background: transparent;
+  color: var(--ink-dim); font: inherit; font-size: 12px;
+  padding: 3px 10px; border-radius: 999px; cursor: pointer;
+  transition: all .14s ease;
+}
+.pill:hover { border-color: var(--line-strong); color: var(--ink); background: var(--line); }
+.pill.on {
+  background: var(--amber-soft); border-color: var(--amber);
+  color: var(--amber); font-weight: 600;
+}
+.plugin-count-meta {
+  font-size: 12px; color: var(--ink-faint); margin-left: auto;
+}
+
+.plugins-content {
+  flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-right: 6px;
+}
+.plugins-content::-webkit-scrollbar { width: 8px; }
+.plugins-content::-webkit-scrollbar-thumb { background: var(--line-strong); border-radius: 8px; }
+
+.pagination-bar {
+  display: flex; align-items: center; justify-content: center; gap: 14px;
+  padding: 8px 0 2px; flex: 0 0 auto; border-top: 1px dashed var(--line);
+}
+.page-indicator {
+  font-size: 12px; color: var(--ink-dim); min-width: 80px; text-align: center;
+}
+
+.prow.highlight {
+  animation: prow-flash 1.8s ease-out;
+}
+@keyframes prow-flash {
+  0%, 25% { background: var(--amber-soft); border-radius: var(--r-sm); }
+  100% { background: transparent; }
+}
+
+/* card context menu ------------------------------------------------------------- */
+.context-menu {
+  position: fixed; z-index: 9999;
+  min-width: 175px; padding: 6px;
+  background: rgba(14, 18, 20, 0.94);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  box-shadow: 0 14px 38px -6px rgba(0, 0, 0, 0.75), 0 0 0 1px rgba(255, 255, 255, 0.08);
+  user-select: none;
+  display: flex; flex-direction: column; gap: 2px;
+}
+[data-theme="light"] .context-menu {
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 14px 38px -6px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.ctx-title {
+  font-size: 11px; font-weight: 600; color: var(--ink-faint);
+  letter-spacing: .06em; padding: 4px 8px 6px;
+  border-bottom: 1px dashed var(--line); margin-bottom: 2px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 220px;
+}
+.ctx-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: var(--r-sm);
+  font-size: 12.5px; color: var(--ink); cursor: pointer;
+  transition: background .12s, color .12s;
+}
+.ctx-item:hover {
+  background: var(--amber-soft); color: var(--amber);
+}
+.ctx-icon { font-size: 14px; line-height: 1; flex-shrink: 0; }
+.ctx-sep {
+  height: 1px; background: var(--line); margin: 3px 0;
+}

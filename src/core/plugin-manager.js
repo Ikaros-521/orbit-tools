@@ -97,6 +97,7 @@ class PluginManager {
         version: m.version || '0.0.0',
         author: m.author || '',
         keywords: Array.isArray(m.keywords) ? m.keywords.map(String) : [],
+        category: m.category || 'other',
         iconSvg, iconText,
         source: p.source,
         enabled: p.enabled,

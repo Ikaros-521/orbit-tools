@@ -18,6 +18,7 @@
     </div>
     <nav class="tabs" id="tabs" role="tablist">
       <button type="button" data-view="home" data-i18n="tabTools">工具</button>
+      <button type="button" data-view="plugins" data-i18n="tabPlugins">插件</button>
       <button type="button" data-view="settings" data-i18n="tabSettings">设置</button>
     </nav>
     <div class="rail-right">
@@ -67,6 +68,47 @@
       <div class="panel-host" id="panelHost"></div>
     </section>
 
+    <!-- 插件管理中心 / plugins manager -->
+    <section class="view" id="viewPlugins" hidden>
+      <div class="plugins-header">
+        <div class="plugin-search-bar">
+          <svg class="search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.8-3.8"/></svg>
+          <input id="pluginSearch" type="text" spellcheck="false" autocomplete="off" data-i18n-ph="pluginSearchPh" placeholder="搜索插件…">
+          <button type="button" class="btn-clear" id="btnPluginSearchClear" hidden title="清空搜索">✕</button>
+        </div>
+        <div class="plugin-actions-top">
+          <button type="button" class="btn" id="btnRescan" data-i18n="rescan">重新扫描插件</button>
+          <button type="button" class="btn ghost" id="btnUserPlugins" data-i18n="openUserPlugins">打开用户插件目录</button>
+        </div>
+      </div>
+
+      <div class="plugin-filter-bar">
+        <div class="filter-group" id="catFilter">
+          <button type="button" class="pill on" data-cat="all" data-i18n="catAll">全部</button>
+          <button type="button" class="pill" data-cat="media" data-i18n="catMedia">图像标注</button>
+          <button type="button" class="pill" data-cat="system" data-i18n="catSystem">系统网络</button>
+          <button type="button" class="pill" data-cat="dev" data-i18n="catDev">开发辅助</button>
+        </div>
+        <div class="filter-group filter-status" id="statusFilter">
+          <button type="button" class="pill on" data-status="all" data-i18n="statusAll">全部</button>
+          <button type="button" class="pill" data-status="enabled" data-i18n="statusEnabled">已启用</button>
+          <button type="button" class="pill" data-status="disabled" data-i18n="statusDisabled">已禁用</button>
+        </div>
+        <span class="plugin-count-meta" id="pluginMeta"></span>
+      </div>
+
+      <div class="plugins-content">
+        <div id="pluginList"></div>
+        <p class="empty" id="pluginEmpty" hidden></p>
+      </div>
+
+      <footer class="pagination-bar" id="paginationBar">
+        <button type="button" class="btn ghost small" id="btnPagePrev" data-i18n="pagePrev">上一页</button>
+        <span class="page-indicator mono" id="pageIndicator"></span>
+        <button type="button" class="btn ghost small" id="btnPageNext" data-i18n="pageNext">下一页</button>
+      </footer>
+    </section>
+
     <!-- 设置 / settings -->
     <section class="view" id="viewSettings" hidden>
       <div class="set-group">
@@ -90,16 +132,10 @@
             <button type="button" data-theme="dark" data-i18n="themeDark">深色</button>
           </div>
         </div>
-      </div>
-
-      <div class="set-group">
-        <div class="etiquette">PLUGINS<span class="cn" data-i18n="setPlugins">／ 插件</span></div>
-        <div class="set-tools">
-          <button type="button" class="btn" id="btnRescan" data-i18n="rescan">重新扫描插件</button>
-          <button type="button" class="btn ghost" id="btnUserPlugins" data-i18n="openUserPlugins">打开用户插件目录</button>
+        <div class="set-row">
+          <div class="set-label"><b>插件中心</b><span>管理插件启停、自定义动作热键与用户插件</span></div>
+          <button type="button" class="btn ghost" id="btnGotoPlugins">前往插件管理 →</button>
         </div>
-        <p class="set-hint" data-i18n="userPluginsHint">把插件文件夹放进该目录即可安装；同名 id 会覆盖内置插件。禁用的插件不会加载后端代码。</p>
-        <div id="pluginList"></div>
       </div>
 
       <div class="set-group">
@@ -111,6 +147,24 @@
       </div>
     </section>
   </main>
+</div>
+
+<!-- 右键上下文菜单 / card context menu -->
+<div id="cardContextMenu" class="context-menu" hidden>
+  <div class="ctx-title" id="ctxTitle"></div>
+  <div class="ctx-item" data-action="launch" id="ctxLaunch">
+    <span class="ctx-icon">🚀</span><span data-i18n="ctxLaunch">打开工具面板</span>
+  </div>
+  <div class="ctx-item" data-action="config" id="ctxConfig">
+    <span class="ctx-icon">⚙️</span><span data-i18n="ctxConfigure">配置此插件 (热键)</span>
+  </div>
+  <div class="ctx-item" data-action="toggle" id="ctxToggle">
+    <span class="ctx-icon">⚡</span><span id="ctxToggleText"></span>
+  </div>
+  <div class="ctx-sep"></div>
+  <div class="ctx-item" data-action="folder" id="ctxFolder">
+    <span class="ctx-icon">📂</span><span data-i18n="ctxOpenFolder">打开插件所在目录</span>
+  </div>
 </div>
 
 <script src="i18n.js"></script>
