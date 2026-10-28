@@ -132,13 +132,34 @@ app.whenReady().then(async () => {
         }
       }
 
+      // Test Edge stroke visibility
+      const firstPath = document.querySelector('.wf-svg-layer path');
+      const edgeStroke = firstPath ? window.getComputedStyle(firstPath).stroke : '';
+
+      // Test Sidebar & Console Resizer
+      const sidebarResizer = document.getElementById('wfSidebarResizer');
+      const consoleResizer = document.getElementById('wfConsoleResizer');
+      let resizeTested = false;
+      if (sidebarResizer && consoleResizer) {
+        sidebarResizer.dispatchEvent(new MouseEvent('mousedown', { clientX: 200, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 250, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+
+        consoleResizer.dispatchEvent(new MouseEvent('mousedown', { clientY: 500, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mousemove', { clientY: 450, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        resizeTested = true;
+      }
+
       return {
         viewHidden: document.getElementById('viewWorkflows').hidden,
         nodeCount: document.querySelectorAll('.wf-node').length,
         edgeCount: document.querySelectorAll('.wf-svg-layer path').length,
         libItems: document.querySelectorAll('.wf-lib-item').length,
         scaleText,
-        linkSucceeded
+        linkSucceeded,
+        edgeStroke,
+        resizeTested
       };
     })()
   `);

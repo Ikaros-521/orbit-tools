@@ -17,6 +17,7 @@ const els = {
   viewSettings: $('viewSettings'), viewDevGuide: $('viewDevGuide'), viewWorkflows: $('viewWorkflows'),
   wfSelect: $('wfSelect'), btnWfNew: $('btnWfNew'), btnWfSave: $('btnWfSave'), btnWfDelete: $('btnWfDelete'),
   wfTestInput: $('wfTestInput'), btnWfRun: $('btnWfRun'), wfLibList: $('wfLibList'),
+  wfSidebar: $('wfSidebar'), wfSidebarResizer: $('wfSidebarResizer'), wfConsoleResizer: $('wfConsoleResizer'),
   wfCanvasArea: $('wfCanvasArea'), wfCanvasViewport: $('wfCanvasViewport'), wfCanvasControls: $('wfCanvasControls'),
   wfSvgLayer: $('wfSvgLayer'), wfNodesContainer: $('wfNodesContainer'),
   btnWfZoomIn: $('btnWfZoomIn'), wfZoomScale: $('wfZoomScale'), btnWfZoomOut: $('btnWfZoomOut'),
@@ -1389,48 +1390,7 @@ function renderWorkflowCanvas() {
   els.wfSvgLayer.innerHTML = '';
   if (!currentWorkflow) return;
 
-  // Render SVG Edges (Cubic Bézier)
-  (currentWorkflow.edges || []).forEach(edge => {
-    const fromNode = currentWorkflow.nodes.find(n => n.id === edge.from);
-    const toNode = currentWorkflow.nodes.find(n => n.id === edge.to);
-    if (!fromNode || !toNode) return;
-
-    const x1 = (fromNode.x || 0) + 220;
-    const y1 = (fromNode.y || 0) + 38;
-    const x2 = (toNode.x || 0);
-    const y2 = (toNode.y || 0) + 38;
-
-    const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
-    const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
-
-    const edgeKey = edge.id || `edge-${edge.from}-${edge.to}`;
-    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', d);
-    path.setAttribute('id', `edge-${edge.from}-${edge.to}`);
-    path.setAttribute('data-id', edgeKey);
-    path.style.cursor = 'pointer';
-    if (wfCanvas.selectedEdgeId === edgeKey) {
-      path.classList.add('selected');
-    }
-
-    path.addEventListener('click', (e) => {
-      e.stopPropagation();
-      if (wfCanvas.selectedEdgeId === edgeKey) {
-        currentWorkflow.edges = currentWorkflow.edges.filter(x => x !== edge);
-        wfCanvas.selectedEdgeId = null;
-        renderWorkflowCanvas();
-        logToWfConsole(`✓ 已删除连线: [${fromNode.title}] ➔ [${toNode.title}]`);
-      } else {
-        wfCanvas.selectedEdgeId = edgeKey;
-        renderWorkflowCanvas();
-        logToWfConsole(`已选中连线 [${fromNode.title} ➔ ${toNode.title}]，按 Delete 键或再次点击即可删除`);
-      }
-    });
-
-    els.wfSvgLayer.appendChild(path);
-  });
-
-  // Render Nodes
+  // 1. 先渲染 Nodes 元素进 DOM，以便精确获取卡片实际高度及端口位置
   currentWorkflow.nodes.forEach(node => {
     const el = document.createElement('div');
     el.className = 'wf-node';
@@ -1524,6 +1484,50 @@ function renderWorkflowCanvas() {
 
     els.wfNodesContainer.appendChild(el);
   });
+
+  // 2. 渲染 SVG Edges (Cubic Bézier)，端点精准对齐真实端口中心
+  (currentWorkflow.edges || []).forEach(edge => {
+    const fromNode = currentWorkflow.nodes.find(n => n.id === edge.from);
+    const toNode = currentWorkflow.nodes.find(n => n.id === edge.to);
+    if (!fromNode || !toNode) return;
+
+    const fromEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${edge.from}"]`);
+    const toEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${edge.to}"]`);
+
+    const x1 = (fromNode.x || 0) + 220;
+    const y1 = (fromNode.y || 0) + (fromEl ? (fromEl.offsetHeight / 2) : 36);
+    const x2 = (toNode.x || 0);
+    const y2 = (toNode.y || 0) + (toEl ? (toEl.offsetHeight / 2) : 36);
+
+    const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
+    const d = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`;
+
+    const edgeKey = edge.id || `edge-${edge.from}-${edge.to}`;
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', d);
+    path.setAttribute('id', `edge-${edge.from}-${edge.to}`);
+    path.setAttribute('data-id', edgeKey);
+    path.style.cursor = 'pointer';
+    if (wfCanvas.selectedEdgeId === edgeKey) {
+      path.classList.add('selected');
+    }
+
+    path.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (wfCanvas.selectedEdgeId === edgeKey) {
+        currentWorkflow.edges = currentWorkflow.edges.filter(x => x !== edge);
+        wfCanvas.selectedEdgeId = null;
+        renderWorkflowCanvas();
+        logToWfConsole(`✓ 已删除连线: [${fromNode.title}] ➔ [${toNode.title}]`);
+      } else {
+        wfCanvas.selectedEdgeId = edgeKey;
+        renderWorkflowCanvas();
+        logToWfConsole(`已选中连线 [${fromNode.title} ➔ ${toNode.title}]，按 Delete 键或再次点击即可删除`);
+      }
+    });
+
+    els.wfSvgLayer.appendChild(path);
+  });
 }
 
 function updateSvgEdgesOnly() {
@@ -1534,10 +1538,12 @@ function updateSvgEdgesOnly() {
     if (!fromNode || !toNode) return;
     const path = els.wfSvgLayer.querySelector(`#edge-${edge.from}-${edge.to}`);
     if (path) {
+      const fromEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${edge.from}"]`);
+      const toEl = els.wfNodesContainer.querySelector(`.wf-node[data-id="${edge.to}"]`);
       const x1 = (fromNode.x || 0) + 220;
-      const y1 = (fromNode.y || 0) + 38;
+      const y1 = (fromNode.y || 0) + (fromEl ? (fromEl.offsetHeight / 2) : 36);
       const x2 = (toNode.x || 0);
-      const y2 = (toNode.y || 0) + 38;
+      const y2 = (toNode.y || 0) + (toEl ? (toEl.offsetHeight / 2) : 36);
       const dx = Math.max(40, Math.abs(x2 - x1) * 0.5);
       path.setAttribute('d', `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`);
     }
@@ -1672,6 +1678,72 @@ if (els.btnWfResetView) {
 if (els.btnWfFitView) {
   els.btnWfFitView.addEventListener('click', () => {
     fitWorkflowCanvas();
+  });
+}
+
+// Sidebar width resizer (水平边缘拖拽调整)
+if (els.wfSidebarResizer && els.wfSidebar) {
+  try {
+    const savedW = localStorage.getItem('orbit.wfSidebarWidth');
+    if (savedW) document.documentElement.style.setProperty('--wf-sidebar-w', `${savedW}px`);
+  } catch {}
+
+  els.wfSidebarResizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    els.wfSidebarResizer.classList.add('resizing');
+    document.body.style.cursor = 'ew-resize';
+    document.body.style.userSelect = 'none';
+    const startX = e.clientX;
+    const origW = els.wfSidebar.getBoundingClientRect().width;
+
+    const onMove = (ev) => {
+      const newW = Math.min(480, Math.max(170, Math.round(origW + (ev.clientX - startX))));
+      document.documentElement.style.setProperty('--wf-sidebar-w', `${newW}px`);
+    };
+    const onUp = (ev) => {
+      els.wfSidebarResizer.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      const finalW = Math.min(480, Math.max(170, Math.round(origW + (ev.clientX - startX))));
+      try { localStorage.setItem('orbit.wfSidebarWidth', String(finalW)); } catch {}
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  });
+}
+
+// Console height resizer (垂直边缘拖拽调整)
+if (els.wfConsoleResizer && els.wfConsole) {
+  try {
+    const savedH = localStorage.getItem('orbit.wfConsoleHeight');
+    if (savedH) document.documentElement.style.setProperty('--wf-console-h', `${savedH}px`);
+  } catch {}
+
+  els.wfConsoleResizer.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    els.wfConsoleResizer.classList.add('resizing');
+    document.body.style.cursor = 'ns-resize';
+    document.body.style.userSelect = 'none';
+    const startY = e.clientY;
+    const origH = els.wfConsole.getBoundingClientRect().height;
+
+    const onMove = (ev) => {
+      const newH = Math.min(520, Math.max(65, Math.round(origH + (startY - ev.clientY))));
+      document.documentElement.style.setProperty('--wf-console-h', `${newH}px`);
+    };
+    const onUp = (ev) => {
+      els.wfConsoleResizer.classList.remove('resizing');
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      const finalH = Math.min(520, Math.max(65, Math.round(origH + (startY - ev.clientY))));
+      try { localStorage.setItem('orbit.wfConsoleHeight', String(finalH)); } catch {}
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
   });
 }
 

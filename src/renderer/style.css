@@ -18,6 +18,8 @@
   --green-soft: light-dark(rgba(13, 138, 86, .12), rgba(95, 227, 161, .14));
   --red: light-dark(#c93a2b, #ff5f52);
   --red-soft: light-dark(rgba(201, 58, 43, .12), rgba(255, 95, 82, .16));
+  --accent: light-dark(#0284c7, #38bdf8);
+  --accent-rgb: 56, 189, 248;
   --glass-brd: light-dark(rgba(255, 255, 255, .85), rgba(255, 255, 255, .11));
   --shadow: light-dark(0 14px 34px -22px rgba(18, 48, 40, .5), 0 22px 48px -28px rgba(0, 0, 0, .95));
   --r-lg: 18px; --r-md: 13px; --r-sm: 9px;
@@ -746,14 +748,33 @@ body {
 .wf-test-input:focus { border-color: var(--accent); }
 
 .wf-workbench {
-  flex: 1 1 auto; min-height: 0; display: flex; gap: 10px; position: relative;
+  flex: 1 1 auto; min-height: 0; display: flex; gap: 8px; position: relative;
 }
 .wf-sidebar {
-  width: 220px; flex: 0 0 220px; border-radius: 10px;
+  width: var(--wf-sidebar-w, 220px); flex: 0 0 var(--wf-sidebar-w, 220px);
+  min-width: 170px; max-width: 480px; border-radius: 10px;
   background: light-dark(rgba(245, 248, 246, 0.8), rgba(20, 26, 30, 0.85));
   border: 1px solid var(--line-strong); display: flex; flex-direction: column; padding: 10px; gap: 6px;
   overflow-y: auto;
 }
+.wf-resizer-v {
+  width: 6px; flex: 0 0 6px; margin: 0 -3px; z-index: 10;
+  cursor: ew-resize; display: flex; align-items: center; justify-content: center;
+  border-radius: 3px; transition: background .15s; user-select: none;
+}
+.wf-resizer-v::after {
+  content: ''; width: 2px; height: 32px; border-radius: 1px;
+  background: light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.22));
+  transition: background .15s, height .15s;
+}
+.wf-resizer-v:hover, .wf-resizer-v.resizing {
+  background: rgba(var(--accent-rgb, 56, 189, 248), 0.2);
+}
+.wf-resizer-v:hover::after, .wf-resizer-v.resizing::after {
+  background: var(--accent);
+  height: 48px;
+}
+
 .wf-lib-title { font-size: 12px; font-weight: 700; color: var(--ink); letter-spacing: .05em; }
 .wf-lib-desc { font-size: 11px; color: light-dark(#4b5563, #cbd5e1); margin-bottom: 4px; line-height: 1.4; }
 .wf-lib-list { display: flex; flex-direction: column; gap: 6px; }
@@ -793,20 +814,22 @@ body {
   overflow: visible; pointer-events: none; z-index: 1;
 }
 .wf-svg-layer path {
-  fill: none; stroke: var(--accent); stroke-width: 2.6;
+  fill: none; stroke: light-dark(#0284c7, #38bdf8); stroke-width: 2.6;
   pointer-events: stroke; cursor: pointer;
-  transition: stroke .15s, stroke-width .15s;
+  filter: drop-shadow(0 0 3px rgba(56, 189, 248, 0.45));
+  transition: stroke .15s, stroke-width .15s, filter .15s;
 }
 .wf-svg-layer path:hover {
-  stroke-width: 4; stroke: #38bdf8;
-  filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.7));
+  stroke-width: 4; stroke: #7dd3fc;
+  filter: drop-shadow(0 0 8px rgba(125, 211, 252, 0.8));
 }
 .wf-svg-layer path.selected {
   stroke: #ffab2e !important; stroke-width: 4 !important;
-  filter: drop-shadow(0 0 8px rgba(255, 171, 46, 0.85));
+  filter: drop-shadow(0 0 8px rgba(255, 171, 46, 0.9));
 }
 .wf-svg-layer path.active {
-  stroke-dasharray: 6 3; animation: wfDash 1s linear infinite;
+  stroke: #5fe3a1 !important; stroke-dasharray: 6 3; animation: wfDash 1s linear infinite;
+  filter: drop-shadow(0 0 8px rgba(95, 227, 161, 0.85));
 }
 .wf-svg-layer path.wf-draft-path {
   stroke: #5fe3a1; stroke-width: 2.8; stroke-dasharray: 6 4;
@@ -901,8 +924,32 @@ body {
   user-select: none;
 }
 
+.wf-resizer-h {
+  height: 6px; flex: 0 0 6px; margin: -1px 0; z-index: 10;
+  cursor: ns-resize; display: flex; align-items: center; justify-content: center;
+  border-radius: 3px; transition: background .15s; user-select: none;
+}
+.wf-resizer-h::after {
+  content: ''; width: 36px; height: 2.5px; border-radius: 1px;
+  background: light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.22));
+  transition: background .15s, width .15s;
+}
+.wf-resizer-h:hover, .wf-resizer-h.resizing {
+  background: rgba(var(--accent-rgb, 56, 189, 248), 0.2);
+}
+.wf-resizer-h:hover::after, .wf-resizer-h.resizing::after {
+  background: var(--accent);
+  width: 56px;
+}
+
 .wf-console {
-  height: 105px; flex: 0 0 105px; border-radius: 8px;
+  height: var(--wf-console-h, 110px); flex: 0 0 var(--wf-console-h, 110px);
+  min-height: 65px; max-height: 520px; border-radius: 8px;
+  background: light-dark(#f8fafc, #0a0e12);
+  border: 1px solid light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.2));
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
+  display: flex; flex-direction: column; overflow: hidden;
+}
   background: light-dark(#f8fafc, #0a0e12);
   border: 1px solid light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.2));
   box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35);
