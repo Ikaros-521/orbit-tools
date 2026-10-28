@@ -1,11 +1,11 @@
 {
   "id": "draw-board",
   "name": { "zh": "屏幕画板", "en": "Draw Board" },
-  "desc": { "zh": "在屏幕上直接标注：画笔 / 荧光笔 / 图形 / 橡皮，可导出 PNG", "en": "Annotate right on the screen — pen, highlighter, shapes, eraser, PNG export" },
+  "desc": { "zh": "在屏幕上直接标注：画笔 / 荧光笔 / 图形 / 橡皮，支持黑白板、复制与悬浮贴图", "en": "Annotate right on the screen — pen, highlighter, shapes, eraser, whiteboard, copy & pin" },
   "version": "1.0.0",
   "category": "media",
   "author": "Ikaros-521",
-  "keywords": ["draw", "paint", "annotate", "whiteboard", "画板", "绘图", "标注", "涂鸦"],
+  "keywords": ["draw", "paint", "annotate", "whiteboard", "copy", "pin", "画板", "绘图", "标注", "涂鸦", "复制", "悬浮", "贴图"],
   "icon": "icon.svg",
   "defaultEnabled": true,
   "backend": "backend.js",

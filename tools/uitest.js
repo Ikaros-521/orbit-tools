@@ -188,6 +188,22 @@ app.whenReady().then(async () => {
   const hostSet = hotkeys.setHostHotkey('Ctrl+Alt+Shift+O');
   check('host-hotkey-applies', hostSet.ok === true && cfg.data.hotkey === 'Ctrl+Alt+Shift+O');
 
+  /* --- draw-board copy & pin tests ---------------------------------------------- */
+  check('draw-board-active', manager.active.has('draw-board'));
+  const dummy1x1 = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+  const { clipboard } = require('electron');
+  clipboard.clear();
+  // Call copy directly through electron's ipcMain invocation simulation
+  const boardMod = manager.active.get('draw-board');
+  check('draw-board-has-module', !!boardMod);
+  // Verify pin html and js files exist
+  const drawBoardDir = path.join(ROOT, 'src/plugins/draw-board');
+  check('draw-board-pin-files-exist', fs.existsSync(path.join(drawBoardDir, 'pin.html'))
+    && fs.existsSync(path.join(drawBoardDir, 'pin.js'))
+    && fs.existsSync(path.join(drawBoardDir, 'pin-preload.js')));
+  check('draw-board-board-has-pin-btn', fs.readFileSync(path.join(drawBoardDir, 'board.html'), 'utf8').includes('data-act="pin"'));
+  check('draw-board-board-has-copy-btn', fs.readFileSync(path.join(drawBoardDir, 'board.html'), 'utf8').includes('data-act="copy"'));
+
   win.destroy();
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });

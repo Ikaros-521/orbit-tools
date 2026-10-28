@@ -3,7 +3,7 @@
    showing it we freeze the screen behind it (desktopCapturer thumbnail) so
    strokes have a backdrop and "save" exports a complete PNG. The toolbar is
    DOM inside the board window — one renderer, no cross-window IPC. */
-const { BrowserWindow, dialog, desktopCapturer, screen, ipcMain, nativeImage } = require('electron');
+const { BrowserWindow, Menu, dialog, desktopCapturer, screen, ipcMain, nativeImage, clipboard } = require('electron');
 const fs = require('fs');
 const path = require('path');
 
@@ -16,6 +16,8 @@ module.exports = {
     let board = null;
     let host = null;
     let cachedInit = null;
+    const pins = new Map();
+    const dragAnchors = new Map();
 
     const send = (win, channel, payload) => {
       if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
@@ -160,6 +162,55 @@ module.exports = {
       restoreHost();
     });
 
+    function openPin(dataUrl, bounds) {
+      const w = Math.max(30, Math.round(bounds.width));
+      const h = Math.max(30, Math.round(bounds.height));
+      const win = ctx.windows.create({
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: w,
+        height: h,
+        useContentSize: true,
+        frame: false,
+        transparent: true,
+        resizable: true,
+        alwaysOnTop: true,
+        skipTaskbar: true,
+        hasShadow: false,
+        backgroundColor: '#00000000',
+        webPreferences: { preload: path.join(ctx.root, 'pin-preload.js') },
+      });
+      pins.set(win.id, win);
+      win.setAlwaysOnTop(true, 'screen-saver');
+      win.loadURL(ctx.url('pin.html'));
+      win.once('ready-to-show', () => {
+        send(win, `${P}pin-init`, { image: dataUrl });
+        win.show();
+      });
+      win.on('closed', () => {
+        pins.delete(win.id);
+        dragAnchors.delete(win.id);
+      });
+      return { ok: true };
+    }
+
+    handle(`${P}copy`, async (e, { dataUrl }) => {
+      if (!dataUrl) return { ok: false };
+      const img = nativeImage.createFromDataURL(dataUrl);
+      clipboard.writeImage(img);
+      return { ok: true };
+    });
+
+    handle(`${P}pin`, async (e, { dataUrl, bounds }) => {
+      if (!dataUrl || !bounds) return { ok: false };
+      if (board && !board.isDestroyed()) {
+        board.destroy();
+        board = null;
+      }
+      openPin(dataUrl, bounds);
+      return { ok: true };
+    });
+
     handle(`${P}save`, async (e, { dataUrl }) => {
       if (!dataUrl) return { ok: false };
       const filePath = await chooseSavePngPath();
@@ -169,12 +220,88 @@ module.exports = {
       return { ok: true, filePath };
     });
 
+    /* --- pin window events ----------------------------------------------------- */
+    on(`${P}pin-start-move`, (e, { screenX, screenY }) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win && !win.isDestroyed()) {
+        const b = typeof win.getContentBounds === 'function' ? win.getContentBounds() : win.getBounds();
+        dragAnchors.set(win.id, { startBounds: b, startScreenX: screenX, startScreenY: screenY });
+      }
+    });
+
+    on(`${P}pin-move`, (e, { screenX, screenY }) => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win && !win.isDestroyed()) {
+        const anchor = dragAnchors.get(win.id);
+        if (anchor) {
+          const dx = Math.round(screenX - anchor.startScreenX);
+          const dy = Math.round(screenY - anchor.startScreenY);
+          const target = {
+            x: anchor.startBounds.x + dx,
+            y: anchor.startBounds.y + dy,
+            width: anchor.startBounds.width,
+            height: anchor.startBounds.height,
+          };
+          if (typeof win.setContentBounds === 'function') win.setContentBounds(target);
+          else win.setBounds(target);
+        }
+      }
+    });
+
+    on(`${P}pin-end-move`, e => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win) dragAnchors.delete(win.id);
+    });
+
+    on(`${P}pin-close`, e => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (win && !win.isDestroyed()) win.close();
+    });
+
+    on(`${P}pin-copy`, (e, { dataUrl }) => {
+      if (dataUrl) clipboard.writeImage(nativeImage.createFromDataURL(dataUrl));
+    });
+
+    handle(`${P}pin-save`, async (e, { dataUrl }) => {
+      if (!dataUrl) return { ok: false };
+      const filePath = await chooseSavePngPath();
+      if (!filePath) return { ok: false, canceled: true };
+      fs.writeFileSync(filePath, nativeImage.createFromDataURL(dataUrl).toPNG());
+      return { ok: true, filePath };
+    });
+
+    on(`${P}pin-show-menu`, e => {
+      const win = BrowserWindow.fromWebContents(e.sender);
+      if (!win || win.isDestroyed()) return;
+      const menu = Menu.buildFromTemplate([
+        { label: '复制到剪贴板 (Ctrl+C)', click: () => send(win, `${P}trigger-copy`) },
+        { label: '另存为图片 (Ctrl+S)...', click: () => send(win, `${P}trigger-save`) },
+        { label: '重置缩放 (100%)', click: () => send(win, `${P}reset-zoom`) },
+        { type: 'separator' },
+        {
+          label: '透明度',
+          submenu: [
+            { label: '100%', click: () => send(win, `${P}set-opacity`, 1) },
+            { label: '75%', click: () => send(win, `${P}set-opacity`, 0.75) },
+            { label: '50%', click: () => send(win, `${P}set-opacity`, 0.5) },
+            { label: '25%', click: () => send(win, `${P}set-opacity`, 0.25) },
+          ],
+        },
+        { type: 'separator' },
+        { label: '关闭悬浮 (Esc)', click: () => win.close() },
+      ]);
+      menu.popup({ window: win });
+    });
+
     ctx.ipc.handle('start', () => start());
     ctx.ipc.handle('isOpen', () => !!(board && !board.isDestroyed()));
 
     teardown = () => {
       if (board && !board.isDestroyed()) board.destroy();
       board = null;
+      for (const w of pins.values()) { if (!w.isDestroyed()) w.close(); }
+      pins.clear();
+      dragAnchors.clear();
       cachedInit = null;
       restoreHost();
       for (const [ch, fn] of listeners) {

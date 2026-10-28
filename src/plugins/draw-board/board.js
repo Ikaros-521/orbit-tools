@@ -39,6 +39,7 @@
     strokes: [], redo: [],
     drawing: false, current: null,
     dpr: window.devicePixelRatio || 1, w: 0, h: 0,
+    screenOriginX: 0, screenOriginY: 0,
   };
 
   /* --- canvas sizing & backdrop render ---------------------------------------- */
@@ -313,8 +314,10 @@
     if (act === 'undo') { const s = state.strokes.pop(); if (s) state.redo.push(s); repaint(); }
     else if (act === 'redo') { const s = state.redo.pop(); if (s) state.strokes.push(s); repaint(); }
     else if (act === 'clear') { state.strokes = []; state.redo = []; repaint(); }
-    else if (act === 'exit') window.board.exit();
+    else if (act === 'pin') await pin();
+    else if (act === 'copy') await copy();
     else if (act === 'save') await save();
+    else if (act === 'exit') window.board.exit();
   });
 
   /* --- toolbar dragging ------------------------------------------------------------- */
@@ -352,23 +355,107 @@
   bar.addEventListener('pointerup', stopBarDrag);
   bar.addEventListener('pointercancel', stopBarDrag);
 
-  /* --- save logic ------------------------------------------------------------------- */
-  async function save() {
+  /* --- composite, save, copy & pin logic --------------------------------------------- */
+  function compositeFullCanvas() {
     const out = document.createElement('canvas');
     out.width = inkCanvas.width;
     out.height = inkCanvas.height;
     const octx = out.getContext('2d', { colorSpace: 'srgb' });
     octx.imageSmoothingEnabled = false;
 
-    // Draw backdrop if available
     if (backdropCanvas.width > 0 && backdropCanvas.height > 0) {
       octx.drawImage(backdropCanvas, 0, 0, out.width, out.height);
     }
-    // Draw user annotations
     octx.drawImage(inkCanvas, 0, 0);
+    return out;
+  }
 
+  async function save() {
+    const out = compositeFullCanvas();
     const dataUrl = out.toDataURL('image/png');
     await window.board.save(dataUrl);
+  }
+
+  let copyTimer = null;
+  async function copy() {
+    const out = compositeFullCanvas();
+    const dataUrl = out.toDataURL('image/png');
+    await window.board.copy(dataUrl);
+
+    const btn = document.getElementById('btnCopy');
+    if (btn) {
+      const orig = btn.textContent;
+      btn.textContent = '✓';
+      btn.style.color = '#52c41a';
+      clearTimeout(copyTimer);
+      copyTimer = setTimeout(() => {
+        btn.textContent = orig;
+        btn.style.color = '';
+      }, 1200);
+    }
+  }
+
+  function getStrokesBounds() {
+    if (!state.strokes.length) return null;
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const s of state.strokes) {
+      if (!s.points || !s.points.length) continue;
+      for (const p of s.points) {
+        const r = Math.max(8, (s.size || 4) * 3);
+        if (p.x - r < minX) minX = p.x - r;
+        if (p.y - r < minY) minY = p.y - r;
+        if (p.x + r > maxX) maxX = p.x + r;
+        if (p.y + r > maxY) maxY = p.y + r;
+      }
+    }
+    if (minX >= maxX || minY >= maxY) return null;
+    const pad = 24;
+    return {
+      x: Math.max(0, Math.floor(minX - pad)),
+      y: Math.max(0, Math.floor(minY - pad)),
+      width: Math.min(state.w, Math.ceil(maxX - minX + pad * 2)),
+      height: Math.min(state.h, Math.ceil(maxY - minY + pad * 2)),
+    };
+  }
+
+  async function pin() {
+    let cropRect = getStrokesBounds();
+    if (!cropRect || cropRect.width < 40 || cropRect.height < 40) {
+      const defW = Math.min(state.w - 40, Math.max(400, Math.round(state.w * 0.65)));
+      const defH = Math.min(state.h - 40, Math.max(300, Math.round(state.h * 0.65)));
+      cropRect = {
+        x: Math.round((state.w - defW) / 2),
+        y: Math.round((state.h - defH) / 2),
+        width: defW,
+        height: defH,
+      };
+    }
+
+    const crop = document.createElement('canvas');
+    crop.width = Math.round(cropRect.width * state.dpr);
+    crop.height = Math.round(cropRect.height * state.dpr);
+    const cctx = crop.getContext('2d', { colorSpace: 'srgb' });
+    cctx.imageSmoothingEnabled = false;
+
+    const sx = Math.round(cropRect.x * state.dpr);
+    const sy = Math.round(cropRect.y * state.dpr);
+    const sw = crop.width;
+    const sh = crop.height;
+
+    if (backdropCanvas.width > 0 && backdropCanvas.height > 0) {
+      cctx.drawImage(backdropCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    }
+    cctx.drawImage(inkCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+
+    const dataUrl = crop.toDataURL('image/png');
+    const bounds = {
+      x: (state.screenOriginX || 0) + cropRect.x,
+      y: (state.screenOriginY || 0) + cropRect.y,
+      width: cropRect.width,
+      height: cropRect.height,
+    };
+
+    await window.board.pin({ dataUrl, bounds });
   }
 
   /* --- keyboard shortcuts ----------------------------------------------------------- */
@@ -379,7 +466,13 @@
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === 'z') {
+    if (e.key === 'F3' || (mod && e.key.toLowerCase() === 'p')) {
+      e.preventDefault();
+      pin();
+    } else if (mod && e.key.toLowerCase() === 'c') {
+      e.preventDefault();
+      copy();
+    } else if (mod && e.key.toLowerCase() === 'z') {
       e.preventDefault();
       const s = e.shiftKey ? state.redo.pop() : state.strokes.pop();
       if (s) (e.shiftKey ? state.strokes : state.redo).push(s);
@@ -396,8 +489,12 @@
   });
 
   /* --- boot & IPC handshake --------------------------------------------------------- */
-  window.board.onInit(({ image, dpr }) => {
+  window.board.onInit(({ image, dpr, bounds }) => {
     if (dpr) state.dpr = dpr;
+    if (bounds) {
+      state.screenOriginX = bounds.x || 0;
+      state.screenOriginY = bounds.y || 0;
+    }
     if (image) {
       const img = new Image();
       img.onload = () => {
