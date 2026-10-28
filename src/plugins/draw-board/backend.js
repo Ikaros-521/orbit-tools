@@ -17,6 +17,7 @@ module.exports = {
     let host = null;
     let cachedInit = null;
     const pins = new Map();
+    const pinBgStates = new Map();
     const dragAnchors = new Map();
 
     const send = (win, channel, payload) => {
@@ -162,7 +163,11 @@ module.exports = {
       restoreHost();
     });
 
-    function openPin(dataUrl, bounds) {
+    function openPin(payload, bounds) {
+      const dataUrl = typeof payload === 'string' ? payload : (payload && (payload.image || payload.dataUrl));
+      const isWithBg = (typeof payload === 'object' && payload !== null && payload.withBg !== undefined)
+        ? Boolean(payload.withBg)
+        : true;
       const w = Math.max(30, Math.round(bounds.width));
       const h = Math.max(30, Math.round(bounds.height));
       const win = ctx.windows.create({
@@ -181,14 +186,19 @@ module.exports = {
         webPreferences: { preload: path.join(ctx.root, 'pin-preload.js') },
       });
       pins.set(win.id, win);
+      pinBgStates.set(win.id, isWithBg);
       win.setAlwaysOnTop(true, 'screen-saver');
       win.loadURL(ctx.url('pin.html'));
       win.once('ready-to-show', () => {
-        send(win, `${P}pin-init`, { image: dataUrl });
+        const initData = typeof payload === 'object' && payload !== null
+          ? payload
+          : { image: dataUrl, withBg: true };
+        send(win, `${P}pin-init`, initData);
         win.show();
       });
       win.on('closed', () => {
         pins.delete(win.id);
+        pinBgStates.delete(win.id);
         dragAnchors.delete(win.id);
       });
       return { ok: true };
@@ -201,13 +211,13 @@ module.exports = {
       return { ok: true };
     });
 
-    handle(`${P}pin`, async (e, { dataUrl, bounds }) => {
-      if (!dataUrl || !bounds) return { ok: false };
+    handle(`${P}pin`, async (e, payload) => {
+      if (!payload || !payload.bounds) return { ok: false };
       if (board && !board.isDestroyed()) {
         board.destroy();
         board = null;
       }
-      openPin(dataUrl, bounds);
+      openPin(payload, payload.bounds);
       return { ok: true };
     });
 
@@ -273,10 +283,35 @@ module.exports = {
     on(`${P}pin-show-menu`, e => {
       const win = BrowserWindow.fromWebContents(e.sender);
       if (!win || win.isDestroyed()) return;
+      const isWithBg = pinBgStates.get(win.id) !== false;
       const menu = Menu.buildFromTemplate([
         { label: '复制到剪贴板 (Ctrl+C)', click: () => send(win, `${P}trigger-copy`) },
         { label: '另存为图片 (Ctrl+S)...', click: () => send(win, `${P}trigger-save`) },
         { label: '重置缩放 (100%)', click: () => send(win, `${P}reset-zoom`) },
+        { type: 'separator' },
+        {
+          label: '背景模式',
+          submenu: [
+            {
+              label: '带背景卡片',
+              type: 'radio',
+              checked: isWithBg,
+              click: () => {
+                pinBgStates.set(win.id, true);
+                send(win, `${P}set-bg-mode`, true);
+              },
+            },
+            {
+              label: '透明底 (仅标注)',
+              type: 'radio',
+              checked: !isWithBg,
+              click: () => {
+                pinBgStates.set(win.id, false);
+                send(win, `${P}set-bg-mode`, false);
+              },
+            },
+          ],
+        },
         { type: 'separator' },
         {
           label: '透明度',
@@ -301,6 +336,7 @@ module.exports = {
       board = null;
       for (const w of pins.values()) { if (!w.isDestroyed()) w.close(); }
       pins.clear();
+      pinBgStates.clear();
       dragAnchors.clear();
       cachedInit = null;
       restoreHost();

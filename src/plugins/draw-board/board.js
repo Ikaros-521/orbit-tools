@@ -718,7 +718,8 @@
     if (act === 'undo') { const s = state.strokes.pop(); if (s) state.redo.push(s); repaint(); }
     else if (act === 'redo') { const s = state.redo.pop(); if (s) state.strokes.push(s); repaint(); }
     else if (act === 'clear') { state.strokes = []; state.redo = []; repaint(); }
-    else if (act === 'pin') await pin();
+    else if (act === 'pin') await pin({ withBg: true });
+    else if (act === 'pin-transparent') await pin({ withBg: false });
     else if (act === 'copy') await copy();
     else if (act === 'save') await save();
     else if (act === 'exit') window.board.exit();
@@ -803,65 +804,86 @@
     if (!state.strokes.length) return null;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const s of state.strokes) {
-      if (s.tool === 'text') {
-        const lines = String(s.text || '').split('\n');
-        const approxW = Math.max(...lines.map(l => l.length), 1) * (s.fontSize || 20);
-        const approxH = lines.length * (s.fontSize || 20) * 1.35;
-        if (s.x < minX) minX = s.x;
-        if (s.y < minY) minY = s.y;
-        if (s.x + approxW > maxX) maxX = s.x + approxW;
-        if (s.y + approxH > maxY) maxY = s.y + approxH;
-        continue;
+      const box = getStrokeAABB(s, inkCtx);
+      if (box) {
+        if (box.x < minX) minX = box.x;
+        if (box.y < minY) minY = box.y;
+        if (box.x + box.width > maxX) maxX = box.x + box.width;
+        if (box.y + box.height > maxY) maxY = box.y + box.height;
       }
-      if (!s.points || !s.points.length) continue;
-      for (const p of s.points) {
-        const r = Math.max(8, (s.size || 4) * 3);
-        if (p.x - r < minX) minX = p.x - r;
-        if (p.y - r < minY) minY = p.y - r;
-        if (p.x + r > maxX) maxX = p.x + r;
-        if (p.y + r > maxY) maxY = p.y + r;
+      if (s.tool === 'arrow' && s.points && s.points.length >= 2) {
+        const b = s.points[s.points.length - 1];
+        const head = Math.max(14, (s.size || 4) * 4);
+        if (b.x - head < minX) minX = b.x - head;
+        if (b.x + head > maxX) maxX = b.x + head;
+        if (b.y - head < minY) minY = b.y - head;
+        if (b.y + head > maxY) maxY = b.y + head;
       }
     }
     if (minX >= maxX || minY >= maxY) return null;
     const pad = 24;
-    return {
-      x: Math.max(0, Math.floor(minX - pad)),
-      y: Math.max(0, Math.floor(minY - pad)),
-      width: Math.min(state.w, Math.ceil(maxX - minX + pad * 2)),
-      height: Math.min(state.h, Math.ceil(maxY - minY + pad * 2)),
-    };
+    const x = Math.max(0, Math.floor(minX - pad));
+    const y = Math.max(0, Math.floor(minY - pad));
+    const width = Math.min(state.w - x, Math.max(30, Math.ceil(maxX - minX + pad * 2)));
+    const height = Math.min(state.h - y, Math.max(30, Math.ceil(maxY - minY + pad * 2)));
+    return { x, y, width, height };
   }
 
-  async function pin() {
-    let cropRect = getStrokesBounds();
-    if (!cropRect || cropRect.width < 40 || cropRect.height < 40) {
-      const defW = Math.min(state.w - 40, Math.max(400, Math.round(state.w * 0.65)));
-      const defH = Math.min(state.h - 40, Math.max(300, Math.round(state.h * 0.65)));
+  async function pin(options = {}) {
+    const withBg = options.withBg !== false;
+
+    let cropRect = null;
+    if (state.selectedStroke) {
+      const box = getStrokeAABB(state.selectedStroke, inkCtx);
+      if (box) {
+        const pad = 20;
+        const x = Math.max(0, Math.floor(box.x - pad));
+        const y = Math.max(0, Math.floor(box.y - pad));
+        cropRect = {
+          x,
+          y,
+          width: Math.min(state.w - x, Math.max(30, Math.ceil(box.width + pad * 2))),
+          height: Math.min(state.h - y, Math.max(30, Math.ceil(box.height + pad * 2))),
+        };
+      }
+    }
+    if (!cropRect) cropRect = getStrokesBounds();
+    if (!cropRect || cropRect.width < 30 || cropRect.height < 30) {
       cropRect = {
-        x: Math.round((state.w - defW) / 2),
-        y: Math.round((state.h - defH) / 2),
-        width: defW,
-        height: defH,
+        x: 0,
+        y: 0,
+        width: state.w,
+        height: state.h,
       };
     }
 
-    const crop = document.createElement('canvas');
-    crop.width = Math.round(cropRect.width * state.dpr);
-    crop.height = Math.round(cropRect.height * state.dpr);
-    const cctx = crop.getContext('2d', { colorSpace: 'srgb' });
-    cctx.imageSmoothingEnabled = false;
-
+    const sw = Math.round(cropRect.width * state.dpr);
+    const sh = Math.round(cropRect.height * state.dpr);
     const sx = Math.round(cropRect.x * state.dpr);
     const sy = Math.round(cropRect.y * state.dpr);
-    const sw = crop.width;
-    const sh = crop.height;
 
+    // 1. 纯标注笔迹图 (透明底)
+    const inkCrop = document.createElement('canvas');
+    inkCrop.width = sw;
+    inkCrop.height = sh;
+    const ictx = inkCrop.getContext('2d', { colorSpace: 'srgb' });
+    ictx.imageSmoothingEnabled = false;
+    ictx.drawImage(inkCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    const inkDataUrl = inkCrop.toDataURL('image/png');
+
+    // 2. 带底图的完整合成图
+    const fullCrop = document.createElement('canvas');
+    fullCrop.width = sw;
+    fullCrop.height = sh;
+    const fctx = fullCrop.getContext('2d', { colorSpace: 'srgb' });
+    fctx.imageSmoothingEnabled = false;
     if (backdropCanvas.width > 0 && backdropCanvas.height > 0) {
-      cctx.drawImage(backdropCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      fctx.drawImage(backdropCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
     }
-    cctx.drawImage(inkCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    fctx.drawImage(inkCanvas, sx, sy, sw, sh, 0, 0, sw, sh);
+    const fullDataUrl = fullCrop.toDataURL('image/png');
 
-    const dataUrl = crop.toDataURL('image/png');
+    const chosenDataUrl = withBg ? fullDataUrl : inkDataUrl;
     const bounds = {
       x: (state.screenOriginX || 0) + cropRect.x,
       y: (state.screenOriginY || 0) + cropRect.y,
@@ -869,7 +891,14 @@
       height: cropRect.height,
     };
 
-    await window.board.pin({ dataUrl, bounds });
+    await window.board.pin({
+      dataUrl: chosenDataUrl,
+      image: chosenDataUrl,
+      inkImage: inkDataUrl,
+      fullImage: fullDataUrl,
+      bounds,
+      withBg,
+    });
   }
 
   /* --- keyboard shortcuts ----------------------------------------------------------- */
@@ -922,7 +951,11 @@
     const mod = e.ctrlKey || e.metaKey;
     if (e.key === 'F3' || (mod && e.key.toLowerCase() === 'p')) {
       e.preventDefault();
-      pin();
+      if (e.shiftKey) {
+        pin({ withBg: false });
+      } else {
+        pin({ withBg: true });
+      }
     } else if (mod && e.key.toLowerCase() === 'c') {
       e.preventDefault();
       copy();

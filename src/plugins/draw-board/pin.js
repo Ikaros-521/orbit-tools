@@ -5,6 +5,9 @@
   const badge = document.getElementById('badge');
 
   let dataUrl = '';
+  let fullDataUrl = '';
+  let inkDataUrl = '';
+  let withBg = true;
   let scale = 1;
   let isMoving = false;
   let badgeTimer = null;
@@ -17,15 +20,34 @@
     badgeTimer = setTimeout(() => { badge.hidden = true; }, 1000);
   }
 
-  window.pin.onInit(({ image }) => {
-    dataUrl = image;
-    img.src = image;
-  });
+  function applyBgMode(hasBg) {
+    withBg = !!hasBg;
+    if (withBg) {
+      wrap.classList.remove('no-bg');
+      dataUrl = fullDataUrl || dataUrl;
+    } else {
+      wrap.classList.add('no-bg');
+      dataUrl = inkDataUrl || dataUrl;
+    }
+    if (dataUrl && img.src !== dataUrl) {
+      img.src = dataUrl;
+    }
+  }
 
-  img.onload = () => {
-    wrap.style.width = `${img.naturalWidth}px`;
-    wrap.style.height = `${img.naturalHeight}px`;
-  };
+  window.pin.onInit(payload => {
+    if (typeof payload === 'string') {
+      dataUrl = payload;
+      fullDataUrl = payload;
+      inkDataUrl = payload;
+      withBg = true;
+    } else if (payload && typeof payload === 'object') {
+      fullDataUrl = payload.fullImage || payload.image || payload.dataUrl || '';
+      inkDataUrl = payload.inkImage || payload.image || payload.dataUrl || '';
+      dataUrl = payload.image || payload.dataUrl || fullDataUrl || inkDataUrl;
+      withBg = payload.withBg !== false;
+    }
+    applyBgMode(withBg);
+  });
 
   // --- window dragging ---
   stage.addEventListener('pointerdown', e => {
@@ -99,6 +121,11 @@
   window.pin.onAction('set-opacity', opacity => {
     wrap.style.opacity = String(opacity);
     showBadge(`透明度 ${Math.round(opacity * 100)}%`);
+  });
+
+  window.pin.onAction('set-bg-mode', hasBg => {
+    applyBgMode(hasBg);
+    showBadge(hasBg ? '已开启：带背景卡片' : '已开启：透明底标注');
   });
 
   // --- keyboard shortcuts ---
