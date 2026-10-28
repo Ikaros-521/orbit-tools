@@ -79,6 +79,8 @@ app.whenReady().then(async () => {
   if (!setCapRes.ok || setCapRes.maxItems !== 50) throw new Error('setMaxItems failed');
   const clearRes = await manager.call('clip-history', 'clearAll', { keepPinned: true });
   if (!clearRes.ok) throw new Error('clip-history clearAll failed');
+  const extRes = await manager.call('clip-history', 'openExternal', { url: 'not-a-url' });
+  if (extRes.ok) throw new Error('openExternal should refuse non-http url');
   console.log('clip-history IPC OK');
 
   manager.deactivateAll();

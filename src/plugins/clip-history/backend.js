@@ -1,16 +1,54 @@
 /* clip-history backend: lightweight, high-performance clipboard observer.
    Zero-lag principles:
-   - Poll text first; never decode full images unless availableFormats includes an image
+   - Poll files & text first; never decode full images unless availableFormats includes an image
    - Smart thumbnail generation (fast preview rendering in UI)
    - FIFO cap with pinned/favorite protection
    - Avoid echo: self-written clipboard content updates the last-hash cache immediately */
-const { clipboard, nativeImage } = require('electron');
+const { clipboard, nativeImage, shell } = require('electron');
+const path = require('path');
+const fs = require('fs');
 
 const DEFAULT_MAX_ITEMS = 80;
 const MIN_MAX_ITEMS = 10;
 const MAX_ALLOWED_ITEMS = 1000;
 const POLL_INTERVAL = 800; // ms
 let timer = null;
+
+const URL_REGEX = /^(https?|ftp|file):\/\/[^\s/$.?#].[^\s]*$/i;
+function isUrl(str) {
+  if (!str || typeof str !== 'string') return false;
+  const s = str.trim();
+  if (s.length > 2000) return false;
+  return URL_REGEX.test(s);
+}
+
+function readClipboardFilePath() {
+  try {
+    if (process.platform === 'win32') {
+      const bufW = clipboard.readBuffer('FileNameW');
+      if (bufW && bufW.length > 0) {
+        const p = bufW.toString('utf16le').replace(/\0+$/, '').trim();
+        if (p && (fs.existsSync(p) || /^[a-zA-Z]:[\\/]/.test(p))) {
+          return p;
+        }
+      }
+    }
+  } catch {}
+  return null;
+}
+
+function getFileMetadata(filePath) {
+  const name = path.basename(filePath);
+  const ext = path.extname(filePath).toLowerCase();
+  let size = 0;
+  let isDirectory = false;
+  try {
+    const stat = fs.statSync(filePath);
+    size = stat.size;
+    isDirectory = stat.isDirectory();
+  } catch {}
+  return { path: filePath, name, ext, size, isDirectory };
+}
 
 module.exports = {
   activate(ctx) {
@@ -20,8 +58,9 @@ module.exports = {
       ? Math.floor(data.maxItems)
       : DEFAULT_MAX_ITEMS;
 
-    let lastText = (list.length > 0 && list[0].type === 'text') ? list[0].content : '';
+    let lastText = (list.length > 0 && (list[0].type === 'text' || list[0].type === 'link')) ? list[0].content : '';
     let lastImageHash = (list.length > 0 && list[0].type === 'image') ? list[0].hash : '';
+    let lastFilePath = (list.length > 0 && list[0].type === 'file') ? list[0].path : '';
 
     const save = () => {
       ctx.data.set({ items: list, maxItems });
@@ -43,8 +82,20 @@ module.exports = {
 
     const addItem = item => {
       // De-duplicate matching content by promoting it to top
-      if (item.type === 'text') {
-        const idx = list.findIndex(x => x.type === 'text' && x.content === item.content);
+      if (item.type === 'text' || item.type === 'link') {
+        const idx = list.findIndex(x => (x.type === 'text' || x.type === 'link') && x.content === item.content);
+        if (idx >= 0) {
+          const existing = list.splice(idx, 1)[0];
+          item.pinned = existing.pinned;
+        }
+      } else if (item.type === 'file') {
+        const idx = list.findIndex(x => x.type === 'file' && x.path === item.path);
+        if (idx >= 0) {
+          const existing = list.splice(idx, 1)[0];
+          item.pinned = existing.pinned;
+        }
+      } else if (item.type === 'image') {
+        const idx = list.findIndex(x => x.type === 'image' && x.hash === item.hash);
         if (idx >= 0) {
           const existing = list.splice(idx, 1)[0];
           item.pinned = existing.pinned;
@@ -60,9 +111,55 @@ module.exports = {
 
     const poll = () => {
       try {
+        // 1. Check for system clipboard files (lightweight buffer check)
+        const sysFile = readClipboardFilePath();
+        if (sysFile && sysFile !== lastFilePath) {
+          lastFilePath = sysFile;
+          const meta = getFileMetadata(sysFile);
+          addItem({
+            id: `file_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'file',
+            ...meta,
+            timestamp: Date.now(),
+            pinned: false,
+          });
+          return;
+        }
+
+        // 2. Check for text or links
         const text = clipboard.readText();
         if (text && text.trim() && text !== lastText) {
           lastText = text;
+          const trimmed = text.trim();
+
+          // Check if text is a single existing local file path
+          if ((/^[a-zA-Z]:[\\/]/.test(trimmed) || trimmed.startsWith('/')) && !trimmed.includes('\n') && fs.existsSync(trimmed)) {
+            lastFilePath = trimmed;
+            const meta = getFileMetadata(trimmed);
+            addItem({
+              id: `file_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              type: 'file',
+              ...meta,
+              timestamp: Date.now(),
+              pinned: false,
+            });
+            return;
+          }
+
+          // Check if text is a URL
+          if (isUrl(trimmed)) {
+            addItem({
+              id: `url_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+              type: 'link',
+              content: trimmed,
+              url: trimmed,
+              timestamp: Date.now(),
+              pinned: false,
+            });
+            return;
+          }
+
+          // Standard text
           addItem({
             id: `txt_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             type: 'text',
@@ -74,7 +171,7 @@ module.exports = {
           return;
         }
 
-        // Only inspect image if clipboard declares an image format
+        // 3. Only inspect image if clipboard declares an image format
         const formats = clipboard.availableFormats();
         const hasImg = formats.some(f => f.toLowerCase().includes('image') || f.includes('png') || f.includes('jpeg'));
         if (hasImg) {
@@ -142,9 +239,16 @@ module.exports = {
       const item = list.find(x => x.id === id);
       if (!item) return { ok: false, error: 'item not found' };
 
-      if (item.type === 'text') {
+      if (item.type === 'text' || item.type === 'link') {
         lastText = item.content; // Prevent self-echo loop
         clipboard.writeText(item.content);
+      } else if (item.type === 'file') {
+        lastFilePath = item.path;
+        lastText = item.path;
+        if (process.platform === 'win32') {
+          clipboard.writeBuffer('FileNameW', Buffer.from(item.path + '\0', 'utf16le'));
+        }
+        clipboard.writeText(item.path);
       } else if (item.type === 'image') {
         lastImageHash = item.hash; // Prevent self-echo loop
         const img = nativeImage.createFromDataURL(item.fullImage || item.thumbnail);
@@ -153,6 +257,24 @@ module.exports = {
 
       ctx.send('item-copied', { id });
       return { ok: true };
+    });
+
+    ctx.ipc.handle('showInFolder', (args) => {
+      const { path: p } = args || {};
+      if (p && fs.existsSync(p)) {
+        shell.showItemInFolder(p);
+        return { ok: true };
+      }
+      return { ok: false, error: 'file not found' };
+    });
+
+    ctx.ipc.handle('openExternal', (args) => {
+      const { url } = args || {};
+      if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+        shell.openExternal(url);
+        return { ok: true };
+      }
+      return { ok: false };
     });
 
     ctx.ipc.handle('deleteItem', (args) => {

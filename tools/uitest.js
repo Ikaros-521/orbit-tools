@@ -164,6 +164,33 @@ app.whenReady().then(async () => {
   await sleep(150);
   check('clip-cap-applied-50', await page(`document.querySelector('.clip-cap-select').value`) === '50');
 
+  // Test URL link classification
+  clipboard.writeText('https://github.com/Ikaros-521/orbit-tools');
+  await sleep(1000);
+  await page(`document.querySelector('.clip-filter-btn[data-filter="link"]').click()`);
+  await sleep(150);
+  check('clip-filter-link-active', await page(`document.querySelector('.clip-filter-btn[data-filter="link"]').classList.contains('active')`));
+  check('clip-link-badge-present', await page(`!!document.querySelector('.clip-badge-link')`) === true);
+  check('clip-link-btn-present', await page(`!!document.querySelector('.clip-btn-open-link')`) === true);
+
+  // Test File classification
+  const pkgPath = path.join(ROOT, 'package.json');
+  if (process.platform === 'win32') {
+    clipboard.writeBuffer('FileNameW', Buffer.from(pkgPath + '\0', 'utf16le'));
+  } else {
+    clipboard.writeText(pkgPath);
+  }
+  await sleep(1000);
+  await page(`document.querySelector('.clip-filter-btn[data-filter="file"]').click()`);
+  await sleep(150);
+  check('clip-filter-file-active', await page(`document.querySelector('.clip-filter-btn[data-filter="file"]').classList.contains('active')`));
+  check('clip-file-badge-present', await page(`!!document.querySelector('.clip-badge-file')`) === true);
+  check('clip-file-locate-btn-present', await page(`!!document.querySelector('.clip-btn-locate')`) === true);
+
+  // Switch back to All filter
+  await page(`document.querySelector('.clip-filter-btn[data-filter="all"]').click()`);
+  await sleep(150);
+
   await shot('clip-history-panel');
 
   /* --- settings view ------------------------------------------------------------- */

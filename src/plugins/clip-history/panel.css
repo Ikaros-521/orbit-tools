@@ -228,6 +228,18 @@
   border: 1px solid var(--amber);
 }
 
+.clip-badge-link {
+  background: rgba(0, 180, 216, .12);
+  color: #0096c7;
+  border: 1px solid rgba(0, 180, 216, .25);
+}
+
+.clip-badge-file {
+  background: rgba(247, 127, 0, .12);
+  color: #d97706;
+  border: 1px solid rgba(247, 127, 0, .25);
+}
+
 .clip-time {
   color: var(--ink-dim);
   font-size: 11px;
@@ -281,6 +293,56 @@
 .clip-card-body {
   font-size: 12.5px;
   color: var(--ink);
+}
+
+.clip-link-content {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.clip-link-text {
+  font-family: var(--font-mono);
+  color: #0096c7;
+  font-size: 12.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.clip-file-content {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.clip-file-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.clip-file-size {
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  font-weight: normal;
+}
+
+.clip-file-path {
+  font-size: 11px;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .clip-text-content {

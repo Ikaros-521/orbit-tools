@@ -6,16 +6,20 @@
       searchPlaceholder: isEn ? 'Search clipboard history...' : '搜索剪贴板历史...',
       all: isEn ? 'All' : '全部',
       text: isEn ? 'Text' : '文本',
+      link: isEn ? 'Link' : '链接',
       image: isEn ? 'Image' : '图片',
+      file: isEn ? 'File' : '文件',
       pinned: isEn ? 'Pinned' : '收藏',
       clear: isEn ? 'Clear' : '清空',
       confirmClear: isEn ? 'Clear non-pinned clipboard history?' : '确定清空所有未收藏的历史记录吗？',
-      empty: isEn ? 'Clipboard history is empty. Copied text or images will appear here automatically.' : '剪贴板历史为空，复制文本或图片后将自动记录',
+      empty: isEn ? 'Clipboard history is empty. Copied text, links, files or images will appear here automatically.' : '剪贴板历史为空，复制文本、链接、文件或图片后将自动记录',
       emptyFiltered: isEn ? 'No matching clipboard items.' : '没有找到匹配的记录',
       copied: isEn ? 'Copied' : '已复制',
       pin: isEn ? 'Pin / Star' : '置顶收藏',
       unpin: isEn ? 'Unpin' : '取消收藏',
       del: isEn ? 'Delete' : '删除',
+      openLink: isEn ? 'Open link in browser' : '在浏览器中打开链接',
+      locateFile: isEn ? 'Locate in folder' : '在文件夹中定位',
       chars: isEn ? 'chars' : '字符',
       totalCount: (n) => isEn ? `${n} items` : `共 ${n} 条记录`,
       capLabel: isEn ? 'Max:' : '上限:',
@@ -35,6 +39,14 @@
       return String(str || '').replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
       }[c]));
+    }
+
+    function formatBytes(bytes) {
+      if (!bytes || bytes <= 0) return '0 B';
+      const k = 1024;
+      const sizes = ['B', 'KB', 'MB', 'GB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return (bytes / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1) + ' ' + sizes[i];
     }
 
     function formatRelativeTime(ts) {
@@ -70,7 +82,9 @@
           <div class="clip-filter-seg">
             <button class="clip-filter-btn active" data-filter="all">${T.all}</button>
             <button class="clip-filter-btn" data-filter="text">${T.text}</button>
+            <button class="clip-filter-btn" data-filter="link">${T.link}</button>
             <button class="clip-filter-btn" data-filter="image">${T.image}</button>
+            <button class="clip-filter-btn" data-filter="file">${T.file}</button>
             <button class="clip-filter-btn" data-filter="pinned">${T.pinned}</button>
           </div>
           <button class="clip-btn clip-btn-danger clip-btn-clear" title="${T.confirmClear}">
@@ -175,8 +189,12 @@
       let filtered = historyList;
       if (currentFilter === 'text') {
         filtered = filtered.filter(x => x.type === 'text');
+      } else if (currentFilter === 'link') {
+        filtered = filtered.filter(x => x.type === 'link');
       } else if (currentFilter === 'image') {
         filtered = filtered.filter(x => x.type === 'image');
+      } else if (currentFilter === 'file') {
+        filtered = filtered.filter(x => x.type === 'file');
       } else if (currentFilter === 'pinned') {
         filtered = filtered.filter(x => x.pinned);
       }
@@ -184,8 +202,10 @@
       const q = searchQuery.trim().toLowerCase();
       if (q) {
         filtered = filtered.filter(x => {
-          if (x.type === 'text') {
+          if (x.type === 'text' || x.type === 'link') {
             return (x.content || '').toLowerCase().includes(q);
+          } else if (x.type === 'file') {
+            return (x.name || '').toLowerCase().includes(q) || (x.path || '').toLowerCase().includes(q);
           } else if (x.type === 'image') {
             const sizeStr = `${x.width || ''}x${x.height || ''}`;
             return sizeStr.includes(q) || '图片 image'.includes(q);
@@ -206,6 +226,7 @@
 
       let badgeHtml = '';
       let bodyHtml = '';
+      let extraActionHtml = '';
 
       if (item.type === 'text') {
         badgeHtml = `
@@ -215,6 +236,45 @@
           </span>
         `;
         bodyHtml = `<div class="clip-text-content">${escapeHtml(item.content)}</div>`;
+      } else if (item.type === 'link') {
+        badgeHtml = `
+          <span class="clip-badge clip-badge-link">
+            <span>🔗</span>
+            <span>${T.link}</span>
+          </span>
+        `;
+        bodyHtml = `
+          <div class="clip-link-content">
+            <span class="clip-link-text">${escapeHtml(item.content)}</span>
+          </div>
+        `;
+        extraActionHtml = `
+          <button class="clip-icon-btn clip-btn-open-link" title="${T.openLink}">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path><polyline points="15 3 21 3 21 9"></polyline><line x1="10" y1="14" x2="21" y2="3"></line></svg>
+          </button>
+        `;
+      } else if (item.type === 'file') {
+        badgeHtml = `
+          <span class="clip-badge clip-badge-file">
+            <span>${item.isDirectory ? '📁' : '📄'}</span>
+            <span>${T.file}</span>
+          </span>
+        `;
+        bodyHtml = `
+          <div class="clip-file-content">
+            <div class="clip-file-main">
+              <span>${item.isDirectory ? '📁' : '📄'}</span>
+              <span>${escapeHtml(item.name || item.path)}</span>
+              <span class="clip-file-size">${formatBytes(item.size)}</span>
+            </div>
+            <div class="clip-file-path" title="${escapeHtml(item.path)}">${escapeHtml(item.path)}</div>
+          </div>
+        `;
+        extraActionHtml = `
+          <button class="clip-icon-btn clip-btn-locate" title="${T.locateFile}">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+          </button>
+        `;
       } else if (item.type === 'image') {
         badgeHtml = `
           <span class="clip-badge clip-badge-image">
@@ -238,6 +298,7 @@
           </div>
           <div class="clip-time" title="${exactTime}">${relTime}</div>
           <div class="clip-actions">
+            ${extraActionHtml}
             <button class="clip-icon-btn clip-btn-pin${item.pinned ? ' active' : ''}" title="${item.pinned ? T.unpin : T.pin}">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="${item.pinned ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"></path></svg>
             </button>
@@ -270,6 +331,24 @@
         e.stopPropagation();
         await deleteItem(item.id);
       });
+
+      // Open link button
+      const openLinkBtn = card.querySelector('.clip-btn-open-link');
+      if (openLinkBtn) {
+        openLinkBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await ctx.call('openExternal', { url: item.content });
+        });
+      }
+
+      // Locate file button
+      const locateBtn = card.querySelector('.clip-btn-locate');
+      if (locateBtn) {
+        locateBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          await ctx.call('showInFolder', { path: item.path });
+        });
+      }
 
       return card;
     }
