@@ -391,7 +391,7 @@ function setView(view) {
   } else {
     hideSmartPeek();
   }
-  else if (view === 'plugins') {
+  if (view === 'plugins') {
     renderPlugins();
     els.pluginSearch.focus();
   } else if (view === 'dev-guide') {
