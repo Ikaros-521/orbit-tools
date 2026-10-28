@@ -398,6 +398,11 @@ app.whenReady().then(async () => {
   check('screenshot-pin-has-text-bold', scPinHtml.includes('id="textBold"'));
   check('screenshot-pin-js-draws-text', scPinJs.includes("s.tool === 'text'"));
 
+  /* --- transform select tool verification ------------------------------------ */
+  check('draw-board-has-select-tool-btn', dbJs.includes("id: 'select'"));
+  check('screenshot-selection-has-select-btn', scSelHtml.includes('data-tool="select"'));
+  check('screenshot-pin-has-select-btn', scPinHtml.includes('data-tool="select"'));
+
   win.destroy();
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });

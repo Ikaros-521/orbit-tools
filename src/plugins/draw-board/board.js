@@ -27,6 +27,7 @@
   let backdropImage = null;
 
   const TOOLS = [
+    { id: 'select', title: '选择抓手 (V)', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4l7 17 2.5-6.5L20 12 4 4z"/></svg>' },
     { id: 'pen', title: '画笔', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>' },
     { id: 'highlighter', title: '荧光笔', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m9 11-6 6v3h9l3-3"/><path d="m22 12-4.6-4.6a2 2 0 0 0-2.8 0l-5.2 5.2a2 2 0 0 0 0 2.8l4.6 4.6a2 2 0 0 0 2.8 0l5.2-5.2a2 2 0 0 0 0-2.8z"/></svg>' },
     { id: 'line', title: '直线', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 19 19 5"/><circle cx="5" cy="19" r="1.6" fill="currentColor"/><circle cx="19" cy="5" r="1.6" fill="currentColor"/></svg>' },
@@ -45,6 +46,9 @@
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     bold: true,
     editingText: null,
+    selectedStroke: null,
+    transformMode: null, // null | 'move' | 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w'
+    transformStart: null,
     bgMode: 'screen', // 'screen' | 'white' | 'black'
     strokes: [], redo: [],
     drawing: false, current: null,
@@ -203,6 +207,142 @@
     inkCtx.clearRect(0, 0, state.w, state.h);
     for (const s of state.strokes) drawStroke(s);
     if (state.current) drawStroke(state.current);
+    if (state.selectedStroke && state.strokes.includes(state.selectedStroke)) {
+      drawTransformOverlay(state.selectedStroke, inkCtx);
+    }
+  }
+
+  /* --- stroke geometry & transform handles ------------------------------------- */
+  function cloneStroke(s) {
+    if (!s) return null;
+    const c = { ...s };
+    if (s.points) c.points = s.points.map(p => ({ x: p.x, y: p.y }));
+    return c;
+  }
+
+  function getStrokeAABB(s, ctx) {
+    if (!s) return null;
+    if (s.tool === 'text') {
+      const lines = (s.text || '').split('\n');
+      const fs = s.fontSize || 20;
+      const lh = fs * 1.35;
+      let maxW = 0;
+      if (ctx) {
+        ctx.save();
+        ctx.font = `${s.bold ? 'bold ' : ''}${fs}px ${s.fontFamily || 'sans-serif'}`;
+        for (const line of lines) {
+          const w = ctx.measureText(line).width;
+          if (w > maxW) maxW = w;
+        }
+        ctx.restore();
+      } else {
+        for (const line of lines) {
+          let w = 0;
+          for (const ch of line) w += ch.charCodeAt(0) > 255 ? fs : fs * 0.55;
+          if (w > maxW) maxW = w;
+        }
+      }
+      return {
+        x: s.x,
+        y: s.y,
+        width: Math.max(24, maxW + 4),
+        height: Math.max(fs, lines.length * lh),
+      };
+    }
+    if (s.points && s.points.length > 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of s.points) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const pad = Math.max(4, (s.size || 4) / 2);
+      return {
+        x: minX - pad,
+        y: minY - pad,
+        width: Math.max(12, maxX - minX + pad * 2),
+        height: Math.max(12, maxY - minY + pad * 2),
+      };
+    }
+    return null;
+  }
+
+  function getHandlePoints(box) {
+    const bx = box.x;
+    const by = box.y;
+    const bw = box.width;
+    const bh = box.height;
+    return {
+      nw: { x: bx, y: by },
+      n:  { x: bx + bw / 2, y: by },
+      ne: { x: bx + bw, y: by },
+      e:  { x: bx + bw, y: by + bh / 2 },
+      se: { x: bx + bw, y: by + bh },
+      s:  { x: bx + bw / 2, y: by + bh },
+      sw: { x: bx, y: by + bh },
+      w:  { x: bx, y: by + bh / 2 },
+    };
+  }
+
+  function hitTestHandle(box, x, y) {
+    if (!box) return null;
+    const handles = getHandlePoints(box);
+    const r = 8;
+    for (const [dir, pt] of Object.entries(handles)) {
+      if (Math.abs(x - pt.x) <= r && Math.abs(y - pt.y) <= r) {
+        return dir;
+      }
+    }
+    if (x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height) {
+      return 'move';
+    }
+    return null;
+  }
+
+  function hitTestStroke(x, y) {
+    for (let i = state.strokes.length - 1; i >= 0; i--) {
+      const s = state.strokes[i];
+      const box = getStrokeAABB(s, inkCtx);
+      if (!box) continue;
+      if (x >= box.x - 6 && x <= box.x + box.width + 6 && y >= box.y - 6 && y <= box.y + box.height + 6) {
+        return s;
+      }
+    }
+    return null;
+  }
+
+  const CURSOR_MAP = {
+    nw: 'nwse-resize',
+    se: 'nwse-resize',
+    ne: 'nesw-resize',
+    sw: 'nesw-resize',
+    n:  'ns-resize',
+    s:  'ns-resize',
+    e:  'ew-resize',
+    w:  'ew-resize',
+    move: 'move',
+  };
+
+  function drawTransformOverlay(s, ctx) {
+    const box = getStrokeAABB(s, ctx);
+    if (!box) return;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#ffab2e';
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(box.x - 1, box.y - 1, box.width + 2, box.height + 2);
+    ctx.setLineDash([]);
+
+    const handles = getHandlePoints(box);
+    for (const pt of Object.values(handles)) {
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#ffab2e';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(pt.x - 4, pt.y - 4, 8, 8);
+      ctx.strokeRect(pt.x - 4, pt.y - 4, 8, 8);
+    }
+    ctx.restore();
   }
 
   /* --- floating text editor ----------------------------------------------------- */
@@ -286,6 +426,51 @@
 
   window.addEventListener('pointerdown', e => {
     if (e.button !== 0 || !onBoard(e)) return;
+
+    if (state.tool === 'select') {
+      commitTextEditor();
+      const p = pos(e);
+      // 1. If we have a selected stroke, check handles first
+      if (state.selectedStroke && state.strokes.includes(state.selectedStroke)) {
+        const box = getStrokeAABB(state.selectedStroke, inkCtx);
+        const hit = hitTestHandle(box, p.x, p.y);
+        if (hit) {
+          state.transformMode = hit;
+          state.transformStart = {
+            mouseX: p.x,
+            mouseY: p.y,
+            initialStroke: cloneStroke(state.selectedStroke),
+            initialBox: { ...box },
+          };
+          return;
+        }
+      }
+      // 2. Otherwise test if any stroke is hit
+      const targetStroke = hitTestStroke(p.x, p.y);
+      if (targetStroke) {
+        state.selectedStroke = targetStroke;
+        const box = getStrokeAABB(state.selectedStroke, inkCtx);
+        state.transformMode = 'move';
+        state.transformStart = {
+          mouseX: p.x,
+          mouseY: p.y,
+          initialStroke: cloneStroke(state.selectedStroke),
+          initialBox: { ...box },
+        };
+      } else {
+        state.selectedStroke = null;
+        state.transformMode = null;
+        state.transformStart = null;
+      }
+      repaint();
+      return;
+    }
+
+    // Normal drawing tools
+    state.selectedStroke = null;
+    state.transformMode = null;
+    state.transformStart = null;
+
     if (state.tool === 'text') {
       e.preventDefault();
       spawnTextEditor(e.clientX, e.clientY);
@@ -298,12 +483,87 @@
   });
 
   window.addEventListener('pointermove', e => {
+    const p = pos(e);
+
+    // Transforming selected stroke in select mode
+    if (state.tool === 'select' && state.transformMode && state.transformStart && state.selectedStroke) {
+      const { mouseX, mouseY, initialStroke, initialBox } = state.transformStart;
+      const dx = p.x - mouseX;
+      const dy = p.y - mouseY;
+      const s = state.selectedStroke;
+
+      if (state.transformMode === 'move') {
+        if (s.tool === 'text') {
+          s.x = initialStroke.x + dx;
+          s.y = initialStroke.y + dy;
+        } else if (s.points) {
+          s.points = initialStroke.points.map(pt => ({ x: pt.x + dx, y: pt.y + dy }));
+        }
+      } else {
+        let nx = initialBox.x;
+        let ny = initialBox.y;
+        let nw = initialBox.width;
+        let nh = initialBox.height;
+        const mode = state.transformMode;
+
+        if (mode.includes('e')) nw += dx;
+        if (mode.includes('s')) nh += dy;
+        if (mode.includes('w')) { nx += dx; nw -= dx; }
+        if (mode.includes('n')) { ny += dy; nh -= dy; }
+
+        if (nw < 12) nw = 12;
+        if (nh < 12) nh = 12;
+
+        if (s.tool === 'text') {
+          s.x = nx;
+          s.y = ny;
+          const ratio = nh / initialBox.height;
+          s.fontSize = Math.max(12, Math.min(128, Math.round(initialStroke.fontSize * ratio)));
+        } else if (s.tool === 'rect' || s.tool === 'ellipse') {
+          s.points = [
+            { x: nx, y: ny },
+            { x: nx + nw, y: ny + nh }
+          ];
+        } else if (s.points) {
+          const sx = nw / Math.max(1, initialBox.width);
+          const sy = nh / Math.max(1, initialBox.height);
+          s.points = initialStroke.points.map(pt => ({
+            x: nx + (pt.x - initialBox.x) * sx,
+            y: ny + (pt.y - initialBox.y) * sy,
+          }));
+        }
+      }
+      repaint();
+      return;
+    }
+
+    // Update cursor when hovering in select mode
+    if (state.tool === 'select' && onBoard(e)) {
+      if (state.selectedStroke && state.strokes.includes(state.selectedStroke)) {
+        const box = getStrokeAABB(state.selectedStroke, inkCtx);
+        const hit = hitTestHandle(box, p.x, p.y);
+        if (hit && CURSOR_MAP[hit]) {
+          document.body.style.cursor = CURSOR_MAP[hit];
+          return;
+        }
+      }
+      const hoverStroke = hitTestStroke(p.x, p.y);
+      document.body.style.cursor = hoverStroke ? 'pointer' : 'default';
+      return;
+    }
+
     if (!state.drawing || !state.current) return;
-    state.current.points.push(pos(e));
+    state.current.points.push(p);
     repaint();
   });
 
   window.addEventListener('pointerup', () => {
+    if (state.tool === 'select' && state.transformMode) {
+      state.transformMode = null;
+      state.transformStart = null;
+      state.redo = [];
+      return;
+    }
     if (!state.drawing || !state.current) return;
     state.drawing = false;
     state.strokes.push(state.current);
@@ -370,7 +630,11 @@
     sizesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', Number(b.dataset.size) === state.size));
     if (sizeSlider) sizeSlider.value = String(state.size);
     if (sizeVal) sizeVal.textContent = `${state.size}px`;
-    document.body.style.cursor = isText ? 'text' : (state.tool === 'eraser' ? 'cell' : 'crosshair');
+    document.body.style.cursor = isText ? 'text' : (state.tool === 'select' ? 'default' : (state.tool === 'eraser' ? 'cell' : 'crosshair'));
+    if (state.tool !== 'select' && state.selectedStroke) {
+      state.selectedStroke = null;
+      repaint();
+    }
   }
 
   // Text tool control events
@@ -617,7 +881,36 @@
         state.editingText = null;
         return;
       }
+      if (state.selectedStroke) {
+        state.selectedStroke = null;
+        repaint();
+        return;
+      }
+      if (state.tool !== 'pen') {
+        state.tool = 'pen';
+        syncBar();
+        return;
+      }
       window.board.exit();
+      return;
+    }
+    // Delete or Backspace to delete selected stroke
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.closest('input, textarea, select')) {
+      if (state.selectedStroke) {
+        const idx = state.strokes.indexOf(state.selectedStroke);
+        if (idx !== -1) {
+          state.strokes.splice(idx, 1);
+          state.selectedStroke = null;
+          state.redo = [];
+          repaint();
+        }
+        return;
+      }
+    }
+    // 'v' or 'V' shortcut for select / transform tool
+    if ((e.key === 'v' || e.key === 'V') && !e.target.closest('input, textarea, select')) {
+      state.tool = 'select';
+      syncBar();
       return;
     }
     // 't' or 'T' shortcuts when not in an input

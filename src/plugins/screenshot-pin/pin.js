@@ -31,6 +31,9 @@
   const strokes = [];
   let isDrawing = false;
   let curStroke = null;
+  let selectedStroke = null;
+  let transformMode = null;
+  let transformStart = null;
 
   const customColorInput = document.getElementById('customColor');
   const customColorBtn = document.getElementById('customColorBtn');
@@ -218,10 +221,148 @@
     ctx2d.clearRect(0, 0, ink.width, ink.height);
     for (const s of strokes) drawStroke(s);
     if (curStroke) drawStroke(curStroke);
+    if (selectedStroke && strokes.includes(selectedStroke)) {
+      drawTransformOverlay(selectedStroke, ctx2d);
+    }
+  };
+
+  /* --- stroke geometry & transform handles ------------------------------------- */
+  const cloneStroke = s => {
+    if (!s) return null;
+    const c = { ...s };
+    if (s.points) c.points = s.points.map(p => ({ x: p.x, y: p.y }));
+    return c;
+  };
+
+  const getStrokeAABB = (s, ctx) => {
+    if (!s) return null;
+    if (s.tool === 'text') {
+      const lines = (s.text || '').split('\n');
+      const fs = s.fontSize || 20;
+      const lh = fs * 1.35;
+      let maxW = 0;
+      if (ctx) {
+        ctx.save();
+        ctx.font = `${s.bold ? 'bold ' : ''}${fs}px ${s.fontFamily || 'sans-serif'}`;
+        for (const line of lines) {
+          const w = ctx.measureText(line).width;
+          if (w > maxW) maxW = w;
+        }
+        ctx.restore();
+      } else {
+        for (const line of lines) {
+          let w = 0;
+          for (const ch of line) w += ch.charCodeAt(0) > 255 ? fs : fs * 0.55;
+          if (w > maxW) maxW = w;
+        }
+      }
+      return {
+        x: s.x,
+        y: s.y,
+        width: Math.max(24, maxW + 4),
+        height: Math.max(fs, lines.length * lh),
+      };
+    }
+    if (s.points && s.points.length > 0) {
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+      for (const p of s.points) {
+        if (p.x < minX) minX = p.x;
+        if (p.x > maxX) maxX = p.x;
+        if (p.y < minY) minY = p.y;
+        if (p.y > maxY) maxY = p.y;
+      }
+      const pad = Math.max(4, (s.size || 4) / 2);
+      return {
+        x: minX - pad,
+        y: minY - pad,
+        width: Math.max(12, maxX - minX + pad * 2),
+        height: Math.max(12, maxY - minY + pad * 2),
+      };
+    }
+    return null;
+  };
+
+  const getHandlePoints = box => {
+    const bx = box.x;
+    const by = box.y;
+    const bw = box.width;
+    const bh = box.height;
+    return {
+      nw: { x: bx, y: by },
+      n:  { x: bx + bw / 2, y: by },
+      ne: { x: bx + bw, y: by },
+      e:  { x: bx + bw, y: by + bh / 2 },
+      se: { x: bx + bw, y: by + bh },
+      s:  { x: bx + bw / 2, y: by + bh },
+      sw: { x: bx, y: by + bh },
+      w:  { x: bx, y: by + bh / 2 },
+    };
+  };
+
+  const hitTestHandle = (box, x, y) => {
+    if (!box) return null;
+    const handles = getHandlePoints(box);
+    const r = 8;
+    for (const [dir, pt] of Object.entries(handles)) {
+      if (Math.abs(x - pt.x) <= r && Math.abs(y - pt.y) <= r) {
+        return dir;
+      }
+    }
+    if (x >= box.x && x <= box.x + box.width && y >= box.y && y <= box.y + box.height) {
+      return 'move';
+    }
+    return null;
+  };
+
+  const hitTestStroke = (x, y) => {
+    for (let i = strokes.length - 1; i >= 0; i--) {
+      const s = strokes[i];
+      const box = getStrokeAABB(s, ctx2d);
+      if (!box) continue;
+      if (x >= box.x - 6 && x <= box.x + box.width + 6 && y >= box.y - 6 && y <= box.y + box.height + 6) {
+        return s;
+      }
+    }
+    return null;
+  };
+
+  const CURSOR_MAP = {
+    nw: 'nwse-resize',
+    se: 'nwse-resize',
+    ne: 'nesw-resize',
+    sw: 'nesw-resize',
+    n:  'ns-resize',
+    s:  'ns-resize',
+    e:  'ew-resize',
+    w:  'ew-resize',
+    move: 'move',
+  };
+
+  const drawTransformOverlay = (s, ctx) => {
+    const box = getStrokeAABB(s, ctx);
+    if (!box) return;
+    ctx.save();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#ffab2e';
+    ctx.setLineDash([4, 4]);
+    ctx.strokeRect(box.x - 1, box.y - 1, box.width + 2, box.height + 2);
+    ctx.setLineDash([]);
+
+    const handles = getHandlePoints(box);
+    for (const pt of Object.values(handles)) {
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = '#ffab2e';
+      ctx.lineWidth = 1.5;
+      ctx.fillRect(pt.x - 4, pt.y - 4, 8, 8);
+      ctx.strokeRect(pt.x - 4, pt.y - 4, 8, 8);
+    }
+    ctx.restore();
   };
 
   // --- compose final image (photo + annotations) ---
   const composeImage = () => {
+    selectedStroke = null;
+    repaintInk();
     if (!img.naturalWidth || !img.naturalHeight) return dataUrl;
     const cw = img.naturalWidth;
     const ch = img.naturalHeight;
@@ -266,8 +407,9 @@
     if (customColorInput) customColorInput.value = color;
 
     const isText = tool === 'text';
+    const isSelect = tool === 'select';
     if (textGroup) textGroup.style.display = isText ? 'flex' : 'none';
-    if (sizeGroup) sizeGroup.style.display = isText ? 'none' : 'flex';
+    if (sizeGroup) sizeGroup.style.display = (isText || isSelect) ? 'none' : 'flex';
     if (textFont) textFont.value = fontFamily;
     if (textSize) textSize.value = String(fontSize);
     if (textBold) textBold.classList.toggle('on', bold);
@@ -277,6 +419,13 @@
     });
     if (sizeSlider) sizeSlider.value = String(size);
     if (sizeVal) sizeVal.textContent = `${size}px`;
+
+    if (isSelect) {
+      stage.style.cursor = 'default';
+    } else {
+      selectedStroke = null;
+      repaintInk();
+    }
   };
 
   // Wire text tool controls
@@ -343,12 +492,52 @@
     if (e.target && typeof e.target.closest === 'function' && (e.target.closest('#toolbar') || e.target.closest('.pin-text-editor'))) return;
 
     if (e.button === 0) {
+      if (tool === 'select') {
+        commitTextEditor();
+        const pt = getCanvasCoords(e);
+        // 1. If we have a selected stroke, check handles first
+        if (selectedStroke && strokes.includes(selectedStroke)) {
+          const box = getStrokeAABB(selectedStroke, ctx2d);
+          const hit = hitTestHandle(box, pt.x, pt.y);
+          if (hit) {
+            transformMode = hit;
+            transformStart = {
+              mouseX: pt.x,
+              mouseY: pt.y,
+              initialStroke: cloneStroke(selectedStroke),
+              initialBox: { ...box },
+            };
+            return;
+          }
+        }
+        // 2. Otherwise test if any other stroke is clicked
+        const targetStroke = hitTestStroke(pt.x, pt.y);
+        if (targetStroke) {
+          selectedStroke = targetStroke;
+          const box = getStrokeAABB(selectedStroke, ctx2d);
+          transformMode = 'move';
+          transformStart = {
+            mouseX: pt.x,
+            mouseY: pt.y,
+            initialStroke: cloneStroke(selectedStroke),
+            initialBox: { ...box },
+          };
+        } else {
+          selectedStroke = null;
+          transformMode = null;
+          transformStart = null;
+        }
+        repaintInk();
+        return;
+      }
+
       if (tool === 'text') {
         e.preventDefault();
         spawnTextEditor(e.clientX, e.clientY);
         return;
       }
       commitTextEditor();
+      selectedStroke = null;
       if (tool) {
         // Annotation mode: start drawing
         isDrawing = true;
@@ -364,6 +553,73 @@
   });
 
   window.addEventListener('mousemove', e => {
+    if (tool === 'select' && transformMode && transformStart && selectedStroke) {
+      const pt = getCanvasCoords(e);
+      const { mouseX, mouseY, initialStroke, initialBox } = transformStart;
+      const dx = pt.x - mouseX;
+      const dy = pt.y - mouseY;
+      const s = selectedStroke;
+
+      if (transformMode === 'move') {
+        if (s.tool === 'text') {
+          s.x = initialStroke.x + dx;
+          s.y = initialStroke.y + dy;
+        } else if (s.points) {
+          s.points = initialStroke.points.map(p => ({ x: p.x + dx, y: p.y + dy }));
+        }
+      } else {
+        let nx = initialBox.x;
+        let ny = initialBox.y;
+        let nw = initialBox.width;
+        let nh = initialBox.height;
+        const mode = transformMode;
+
+        if (mode.includes('e')) nw += dx;
+        if (mode.includes('s')) nh += dy;
+        if (mode.includes('w')) { nx += dx; nw -= dx; }
+        if (mode.includes('n')) { ny += dy; nh -= dy; }
+
+        if (nw < 12) nw = 12;
+        if (nh < 12) nh = 12;
+
+        if (s.tool === 'text') {
+          s.x = nx;
+          s.y = ny;
+          const ratio = nh / initialBox.height;
+          s.fontSize = Math.max(12, Math.min(128, Math.round(initialStroke.fontSize * ratio)));
+        } else if (s.tool === 'rect' || s.tool === 'ellipse') {
+          s.points = [
+            { x: nx, y: ny },
+            { x: nx + nw, y: ny + nh }
+          ];
+        } else if (s.points) {
+          const sx = nw / Math.max(1, initialBox.width);
+          const sy = nh / Math.max(1, initialBox.height);
+          s.points = initialStroke.points.map(p => ({
+            x: nx + (p.x - initialBox.x) * sx,
+            y: ny + (p.y - initialBox.y) * sy,
+          }));
+        }
+      }
+      repaintInk();
+      return;
+    }
+
+    if (tool === 'select') {
+      const pt = getCanvasCoords(e);
+      if (selectedStroke && strokes.includes(selectedStroke)) {
+        const box = getStrokeAABB(selectedStroke, ctx2d);
+        const hit = hitTestHandle(box, pt.x, pt.y);
+        if (hit && CURSOR_MAP[hit]) {
+          stage.style.cursor = CURSOR_MAP[hit];
+          return;
+        }
+      }
+      const hoverStroke = hitTestStroke(pt.x, pt.y);
+      stage.style.cursor = hoverStroke ? 'pointer' : 'default';
+      return;
+    }
+
     if (isDrawing && curStroke) {
       const pt = getCanvasCoords(e);
       curStroke.points.push(pt);
@@ -375,6 +631,11 @@
 
   window.addEventListener('mouseup', e => {
     if (e.button === 0) {
+      if (tool === 'select' && transformMode) {
+        transformMode = null;
+        transformStart = null;
+        return;
+      }
       if (isDrawing) {
         isDrawing = false;
         if (curStroke && curStroke.points.length >= 1) {
@@ -434,8 +695,17 @@
 
   // --- keyboard shortcuts ---
   window.addEventListener('keydown', e => {
-    if (editingText) return;
     if (e.key === 'Escape') {
+      if (editingText) {
+        editingText.textarea.remove();
+        editingText = null;
+        return;
+      }
+      if (selectedStroke) {
+        selectedStroke = null;
+        repaintInk();
+        return;
+      }
       if (tool) {
         setTool(null);
         return;
@@ -447,17 +717,33 @@
       window.pin.close();
       return;
     }
+    // Delete or Backspace
+    if ((e.key === 'Delete' || e.key === 'Backspace') && !e.target.closest('input, textarea, select')) {
+      if (selectedStroke) {
+        const idx = strokes.indexOf(selectedStroke);
+        if (idx !== -1) {
+          strokes.splice(idx, 1);
+          selectedStroke = null;
+          repaintInk();
+        }
+        return;
+      }
+    }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
       commitTextEditor();
       e.preventDefault();
       if (strokes.length > 0) {
         strokes.pop();
+        selectedStroke = null;
         repaintInk();
       }
       return;
     }
     if (!e.ctrlKey && !e.metaKey && !e.altKey) {
-      if (e.key.toLowerCase() === 't') {
+      if (e.key.toLowerCase() === 'v') {
+        if (toolbar.hidden) toggleToolbar(true);
+        setTool('select');
+      } else if (e.key.toLowerCase() === 't') {
         if (toolbar.hidden) toggleToolbar(true);
         setTool('text');
       }
