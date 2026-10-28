@@ -27,7 +27,11 @@ app.whenReady().then(async () => {
   if (!info.find(p => p.id === 'mirror-hub').hasBackend) throw new Error('mirror-hub should have a backend');
   for (const p of info) {
     if (!p.name.zh || !p.panel) throw new Error(`bad manifest for ${p.id}`);
+    if (!Array.isArray(p.actions) || p.actions.length === 0) {
+      throw new Error(`plugin ${p.id} must support actions/hotkeys`);
+    }
   }
+  console.log('all plugins action/hotkey support OK');
 
   /* --- plugin:// protocol -------------------------------------------------- */
   registerPluginProtocol(manager);
@@ -115,6 +119,32 @@ app.whenReady().then(async () => {
   const pingRes = await manager.call('mirror-hub', 'pingMirror', { url: 'https://hk.gh-proxy.org/https://github.com/' });
   if (typeof pingRes.ms !== 'number') throw new Error('mirror-hub pingMirror failed');
   console.log('mirror-hub IPC OK');
+
+  // verify openPanel routing for no-backend plugin (codec-lab) and host event delivery
+  let mockReceivedChannel = null, mockReceivedPayload = null;
+  const mockHost = {
+    isDestroyed: () => false,
+    isMinimized: () => false,
+    restore: () => {},
+    show: () => {},
+    focus: () => {},
+    setAlwaysOnTop: () => {},
+    moveTop: () => {},
+    webContents: {
+      isDestroyed: () => false,
+      send: (channel, payload) => {
+        mockReceivedChannel = channel;
+        mockReceivedPayload = payload;
+      }
+    }
+  };
+  manager.getHostWindow = () => mockHost;
+  const openRes = await manager.call('codec-lab', 'openPanel');
+  if (!openRes.ok) throw new Error('codec-lab openPanel failed');
+  if (mockReceivedChannel !== 'open-plugin' || mockReceivedPayload !== 'codec-lab') {
+    throw new Error('openPanel did not dispatch open-plugin event to host window');
+  }
+  console.log('codec-lab openPanel host routing OK');
 
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });

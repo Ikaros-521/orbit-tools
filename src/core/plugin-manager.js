@@ -98,6 +98,18 @@ class PluginManager {
         const id = String(manifest.id || ent.name).toLowerCase();
         if (!ID_RE.test(id)) { this.loadErrors.set(ent.name, `bad id "${id}"`); continue; }
         if (!manifest.name) { this.loadErrors.set(ent.name, 'manifest.name missing'); continue; }
+        if (manifest.panel && (!Array.isArray(manifest.actions) || manifest.actions.length === 0)) {
+          const zh = (manifest.name && manifest.name.zh) || manifest.name || id;
+          const en = (manifest.name && manifest.name.en) || manifest.name || id;
+          manifest.actions = [
+            {
+              id: 'open',
+              label: { zh: `打开${zh}`, en: `Open ${en}` },
+              method: 'openPanel',
+              hotkey: null,
+            },
+          ];
+        }
         if (this.plugins.has(id)) continue; // user copy shadows the built-in
         this.plugins.set(id, {
           id,
@@ -207,11 +219,47 @@ class PluginManager {
 
   /* --- IPC routing --------------------------------------------------------- */
 
+  bringToForeground(targetWin) {
+    if (!targetWin || (typeof targetWin.isDestroyed === 'function' && targetWin.isDestroyed())) return;
+    if (typeof targetWin.isMinimized === 'function' && targetWin.isMinimized()) targetWin.restore();
+    if (typeof targetWin.show === 'function') targetWin.show();
+    if (process.platform === 'win32') {
+      if (typeof targetWin.setAlwaysOnTop === 'function') {
+        targetWin.setAlwaysOnTop(true);
+        targetWin.setAlwaysOnTop(false);
+      }
+      if (typeof targetWin.moveTop === 'function') targetWin.moveTop();
+    }
+    if (typeof targetWin.focus === 'function') targetWin.focus();
+  }
+
   async call(id, method, args, event) {
     const state = this.active.get(id);
     const handler = state && state.handlers.get(method);
-    if (!handler) throw new Error(`plugin "${id}" has no handler "${method}"`);
-    return handler(args === undefined ? {} : args, event);
+    if (!handler) {
+      if (method === 'openPanel') {
+        const host = this.getHostWindow && this.getHostWindow();
+        if (host && !host.isDestroyed()) {
+          this.bringToForeground(host);
+          if (host.webContents && !host.webContents.isDestroyed()) {
+            host.webContents.send('open-plugin', id);
+          }
+        }
+        return { ok: true };
+      }
+      throw new Error(`plugin "${id}" has no handler "${method}"`);
+    }
+    const result = await handler(args === undefined ? {} : args, event);
+    if (method === 'openPanel') {
+      const host = this.getHostWindow && this.getHostWindow();
+      if (host && !host.isDestroyed()) {
+        this.bringToForeground(host);
+        if (host.webContents && !host.webContents.isDestroyed()) {
+          host.webContents.send('open-plugin', id);
+        }
+      }
+    }
+    return result;
   }
 
   // Backend -> every renderer that cares about this plugin (host + its own windows).

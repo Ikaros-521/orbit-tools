@@ -876,6 +876,11 @@ if (els.btnRescanFromGuide) {
 window.host.onPaletteFocus(() => {
   if (state.view === 'home') { els.search.focus(); els.search.select(); }
 });
+if (window.host.onOpenPlugin) {
+  window.host.onOpenPlugin(id => {
+    openPlugin(id);
+  });
+}
 window.addEventListener('keydown', e => {
   if (e.key === 'Escape' && state.view === 'panel') { closePanel(); setView('home'); }
   else if (e.key === 'Escape' && state.view === 'dev-guide') { setView('plugins'); }

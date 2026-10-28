@@ -27,4 +27,5 @@ contextBridge.exposeInMainWorld('host', {
   win: action => ipcRenderer.send('win', action),
   onPluginEvent: (id, fn) => on(`plugin-event:${id}`, fn),
   onPaletteFocus: fn => on('palette-focus', fn),
+  onOpenPlugin: fn => on('open-plugin', fn),
 });
