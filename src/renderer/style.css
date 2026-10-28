@@ -685,7 +685,15 @@ body {
 .ap-item-left {
   display: flex; align-items: center; gap: 10px; min-width: 0;
 }
-.ap-item-icon { font-size: 15px; flex-shrink: 0; line-height: 1; }
+.ap-item-icon {
+  font-size: 15px; flex-shrink: 0; line-height: 1;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+}
+.ap-item-icon svg {
+  width: 16px; height: 16px;
+  max-width: 100%; max-height: 100%;
+}
 .ap-item-title { font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ap-item-sub {
   font-size: 11.5px;
@@ -874,15 +882,22 @@ body {
   border: 1px solid light-dark(rgba(0, 0, 0, 0.18), rgba(255, 255, 255, 0.22));
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5); cursor: move;
   display: flex; flex-direction: column; transition: border-color .15s, box-shadow .15s;
+  pointer-events: auto; user-select: none;
 }
-.wf-node:hover, .wf-node.selected {
-  border-color: var(--accent); box-shadow: 0 8px 30px rgba(var(--accent-rgb, 100, 160, 255), 0.35);
+.wf-node:hover {
+  border-color: rgba(var(--accent-rgb, 56, 189, 248), 0.7);
+  box-shadow: 0 8px 30px rgba(var(--accent-rgb, 56, 189, 248), 0.25);
+}
+.wf-node.selected {
+  border-color: #ffab2e !important;
+  box-shadow: 0 8px 32px rgba(255, 171, 46, 0.35) !important;
 }
 .wf-node-head {
   display: flex; align-items: center; justify-content: space-between; gap: 8px;
   padding: 8px 10px; border-bottom: 1px solid var(--line);
   font-size: 12px; font-weight: 600; color: light-dark(#111827, #f3f4f6); border-radius: 7px 7px 0 0;
   background: light-dark(rgba(0, 0, 0, 0.03), rgba(255, 255, 255, 0.05));
+  pointer-events: auto;
 }
 .wf-node-head.trigger { border-left: 3px solid #3498db; }
 .wf-node-head.action { border-left: 3px solid #2ecc71; }
@@ -890,9 +905,14 @@ body {
 .wf-node-head.warn { border-left: 3px solid #ff4757; }
 .wf-node-del {
   appearance: none; border: 0; background: transparent; cursor: pointer;
-  color: light-dark(#6b7280, #94a3b8); font-size: 14px; line-height: 1; padding: 2px 4px;
+  color: light-dark(#6b7280, #94a3b8); font-size: 16px; line-height: 1;
+  padding: 2px 6px; border-radius: 4px; pointer-events: auto; z-index: 5;
+  transition: all .12s ease;
 }
-.wf-node-del:hover { color: #ff5252; }
+.wf-node-del:hover {
+  color: #ffffff; background: #ff4757;
+  transform: scale(1.15);
+}
 
 .wf-node-body {
   padding: 8px 10px; font-size: 11.5px; color: light-dark(#374151, #e2e8f0);

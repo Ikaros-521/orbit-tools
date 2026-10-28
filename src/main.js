@@ -90,13 +90,21 @@ function toggleWindow() {
   }
 }
 
+function toggleActionPalette() {
+  if (!win) return;
+  const wasActive = win.isVisible() && win.isFocused();
+  bringToForeground(win);
+  win.webContents.send('open-action-palette', { wasActive });
+}
+
 /* --- tray --------------------------------------------------------------------- */
 
 function createTray() {
   tray = new Tray(path.join(__dirname, '..', 'build', 'icon.png'));
   tray.setToolTip(`${APP_NAME.en} · ${APP_NAME.zh}`);
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: '显示工具箱 / Show', click: () => toggleWindow() },
+    { label: '显示工具箱 / Show Toolbox', click: () => toggleWindow() },
+    { label: '呼出动作抽屉 / Action Palette', click: () => toggleActionPalette() },
     { type: 'separator' },
     { label: '退出 / Quit', click: () => { quitting = true; app.quit(); } },
   ]));
@@ -113,7 +121,12 @@ if (!app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     cfg = new Config(app.getPath('userData'));
     manager = new PluginManager({ userDataDir: app.getPath('userData'), config: cfg, getHostWindow: () => win });
-    hotkeys = createHotkeys({ cfg, manager, onSummon: toggleWindow });
+    hotkeys = createHotkeys({
+      cfg,
+      manager,
+      onSummon: toggleWindow,
+      onSummonActionPalette: toggleActionPalette,
+    });
 
     registerPluginProtocol(manager);
     registerIpc({ app, cfg, manager, hotkeys, getHostWindow: () => win });

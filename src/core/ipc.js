@@ -61,11 +61,16 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   });
 
   ipcMain.handle('set-hotkey', (e, accel) => hotkeys.setHostHotkey(String(accel || '')));
+  ipcMain.handle('set-palette-hotkey', (e, accel) => hotkeys.setActionPaletteHotkey(accel ? String(accel) : null));
   ipcMain.handle('set-plugin-hotkey', (e, payload) => hotkeys.setPluginHotkey(payload.key, payload.accel || null));
   ipcMain.handle('hotkeys', () => hotkeys.status);
 
   ipcMain.handle('set-pref', (e, { k, v }) => {
-    if (!['lang', 'theme', 'actionPaletteHotkey'].includes(k)) return cfg.data;
+    if (k === 'actionPaletteHotkey') {
+      const res = hotkeys.setActionPaletteHotkey(v ? String(v) : null);
+      return { ...cfg.data, hotkeyRes: res };
+    }
+    if (!['lang', 'theme'].includes(k)) return cfg.data;
     cfg.set({ [k]: v });
     return cfg.data;
   });
@@ -148,6 +153,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     const win = getHostWindow();
     if (!win) return;
     if (action === 'minimize') win.minimize();
+    else if (action === 'hide') win.hide();
     else if (action === 'close') win.close();
     else if (action === 'maximize') win.isMaximized() ? win.unmaximize() : win.maximize();
   });

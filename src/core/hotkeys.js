@@ -5,9 +5,10 @@
 const { globalShortcut } = require('electron');
 
 const HOST_KEY = 'host';
+const PALETTE_KEY = 'action-palette';
 const HOST_FALLBACKS = ['Alt+Shift+Space', 'Ctrl+Shift+Space', 'Alt+O'];
 
-module.exports = function createHotkeys({ cfg, manager, onSummon }) {
+module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonActionPalette }) {
   let status = []; // [{key, accel, ok, conflictKey, externalOccupied, error}]
 
   const actionOf = key => {
@@ -22,6 +23,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
   function effectiveAssignments() {
     const rows = [];
     if (cfg.data.hotkey) rows.push({ key: HOST_KEY, accel: cfg.data.hotkey });
+    if (cfg.data.actionPaletteHotkey) rows.push({ key: PALETTE_KEY, accel: cfg.data.actionPaletteHotkey });
     for (const p of manager.plugins.values()) {
       if (!p.enabled || !Array.isArray(p.manifest.actions)) continue;
       for (const a of p.manifest.actions) {
@@ -82,6 +84,10 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
       }
     }
 
+    if (cfg.data.actionPaletteHotkey && onSummonActionPalette) {
+      put(PALETTE_KEY, cfg.data.actionPaletteHotkey, onSummonActionPalette);
+    }
+
     for (const p of manager.plugins.values()) {
       if (!p.enabled || !Array.isArray(p.manifest.actions)) continue;
       for (const a of p.manifest.actions) {
@@ -127,6 +133,27 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
     );
   }
 
+  function setActionPaletteHotkey(accel) {
+    const prev = cfg.data.actionPaletteHotkey;
+    if ((accel || null) === (prev || null)) return { ok: true, hotkey: accel || undefined };
+    if (accel) {
+      const owner = conflictOwner(PALETTE_KEY, accel);
+      if (owner) return { ok: false, conflictKey: owner, hotkey: prev || undefined };
+      return applyWithRollback(
+        PALETTE_KEY,
+        () => cfg.set({ actionPaletteHotkey: accel }),
+        () => cfg.set({ actionPaletteHotkey: prev }),
+      );
+    } else {
+      const rollback = prev;
+      return applyWithRollback(
+        PALETTE_KEY,
+        () => cfg.set({ actionPaletteHotkey: null }),
+        () => cfg.set({ actionPaletteHotkey: rollback }),
+      );
+    }
+  }
+
   function setPluginHotkey(key, accel /* string | null to clear */) {
     const prev = cfg.data.pluginHotkeys[key] ?? null;
     if ((accel || null) === prev) return { ok: true, hotkey: accel || undefined };
@@ -159,8 +186,10 @@ module.exports = function createHotkeys({ cfg, manager, onSummon }) {
 
   return {
     HOST_KEY,
+    PALETTE_KEY,
     registerAll,
     setHostHotkey,
+    setActionPaletteHotkey,
     setPluginHotkey,
     get status() { return status; },
   };

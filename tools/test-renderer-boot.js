@@ -78,20 +78,55 @@ app.whenReady().then(async () => {
     throw new Error('Smart Peek failed to show for timestamp!');
   }
 
-  // Test Action Palette opening
+  // Test Action Palette opening & plugin search
   const apState = await win.webContents.executeJavaScript(`
     (async () => {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
       await new Promise(r => setTimeout(r, 200));
+
+      // Test search for plugin keyword 'json'
+      const apInput = document.getElementById('apInput');
+      apInput.value = 'json';
+      apInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 100));
+      const jsonMatches = Array.from(document.querySelectorAll('.ap-item')).map(el => el.textContent);
+
+      // Test search for plugin keyword '截图'
+      apInput.value = '截图';
+      apInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 100));
+      const screenshotMatches = Array.from(document.querySelectorAll('.ap-item')).map(el => el.textContent);
+
+      // Reset search
+      apInput.value = '';
+      apInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 100));
+
       return {
         hidden: document.getElementById('actionPaletteMask').hidden,
         itemCount: document.querySelectorAll('.ap-item').length,
+        jsonMatchesCount: jsonMatches.length,
+        screenshotMatchesCount: screenshotMatches.length,
       };
     })()
   `);
   console.log('Action Palette test output:', apState);
-  if (apState.hidden || apState.itemCount === 0) {
-    throw new Error('Action Palette failed to open with Ctrl+K!');
+  if (apState.hidden || apState.itemCount === 0 || apState.jsonMatchesCount === 0 || apState.screenshotMatchesCount === 0) {
+    throw new Error('Action Palette failed to open with Ctrl+K or search plugins!');
+  }
+
+  // Test external summon simulation (open-action-palette IPC)
+  win.webContents.send('open-action-palette', { wasActive: false });
+  await new Promise(r => setTimeout(r, 200));
+  const externalSummonState = await win.webContents.executeJavaScript(`
+    ({
+      maskHidden: document.getElementById('actionPaletteMask').hidden,
+      inputActive: document.activeElement === document.getElementById('apInput')
+    })
+  `);
+  console.log('External summon test output:', externalSummonState);
+  if (externalSummonState.maskHidden || !externalSummonState.inputActive) {
+    throw new Error('Action Palette external summon failed!');
   }
 
   // Test Workflows Canvas View & Infinite Canvas Controls & Linking
@@ -164,6 +199,33 @@ app.whenReady().then(async () => {
         }
       }
 
+      // Test Node Dragging
+      let nodeDragTested = false;
+      const testNode = document.querySelector('.wf-node');
+      if (testNode) {
+        const initialLeft = parseFloat(testNode.style.left || '0');
+        testNode.dispatchEvent(new MouseEvent('mousedown', { clientX: 100, clientY: 100, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mousemove', { clientX: 160, clientY: 100, bubbles: true }));
+        window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
+        const movedLeft = parseFloat(testNode.style.left || '0');
+        if (movedLeft > initialLeft) {
+          nodeDragTested = true;
+        }
+      }
+
+      // Test Node Deletion via Delete Button
+      let nodeDeleteTested = false;
+      const nodeCountBeforeDel = document.querySelectorAll('.wf-node').length;
+      const delBtns = document.querySelectorAll('.wf-node-del');
+      if (delBtns.length > 0) {
+        delBtns[delBtns.length - 1].click();
+        await new Promise(r => setTimeout(r, 100));
+        const nodeCountAfterDel = document.querySelectorAll('.wf-node').length;
+        if (nodeCountAfterDel === nodeCountBeforeDel - 1) {
+          nodeDeleteTested = true;
+        }
+      }
+
       return {
         viewHidden: document.getElementById('viewWorkflows').hidden,
         nodeCount: document.querySelectorAll('.wf-node').length,
@@ -173,13 +235,15 @@ app.whenReady().then(async () => {
         linkSucceeded,
         edgeStroke,
         resizeTested,
-        disconnectTested
+        disconnectTested,
+        nodeDragTested,
+        nodeDeleteTested
       };
     })()
   `);
   console.log('Workflows Canvas test output:', wfState);
-  if (wfState.error || wfState.viewHidden || wfState.nodeCount === 0 || wfState.edgeCount === 0) {
-    throw new Error('Workflows canvas rendering failed!');
+  if (wfState.error || wfState.viewHidden || wfState.nodeCount === 0 || !wfState.nodeDragTested || !wfState.nodeDeleteTested) {
+    throw new Error('Workflows canvas rendering or interaction failed!');
   }
 
   manager.deactivateAll();

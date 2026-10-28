@@ -9,11 +9,14 @@ const fs = require('fs');
 const PluginManager = require('../src/core/plugin-manager');
 const Config = require('../src/core/config');
 const { registerPluginProtocol } = require('../src/core/plugin-protocol');
+const createHotkeys = require('../src/core/hotkeys');
 
 app.whenReady().then(async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'orbit-smoke-'));
   const cfg = new Config(tmp);
   const manager = new PluginManager({ userDataDir: tmp, config: cfg, getHostWindow: () => null });
+  const hotkeys = createHotkeys({ cfg, manager, onSummon: () => {}, onSummonActionPalette: () => {} });
+  hotkeys.registerAll({ allowFallback: true });
 
   const found = manager.discover();
   const info = manager.serialize();
@@ -199,13 +202,19 @@ app.whenReady().then(async () => {
   }
   manager.setEnabled('json-editor', true);
 
-  // test actionPaletteHotkey config persistence
+  // test actionPaletteHotkey config persistence & hotkey manager integration
   if (cfg.data.actionPaletteHotkey !== 'Ctrl+K') {
     throw new Error(`expected default actionPaletteHotkey Ctrl+K, got ${cfg.data.actionPaletteHotkey}`);
   }
-  cfg.set({ actionPaletteHotkey: 'Alt+K' });
-  if (cfg.data.actionPaletteHotkey !== 'Alt+K') throw new Error('actionPaletteHotkey update failed');
-  cfg.set({ actionPaletteHotkey: 'Ctrl+K' });
+  const apHotkeyRes = hotkeys.setActionPaletteHotkey('Alt+K');
+  if (!apHotkeyRes.ok || cfg.data.actionPaletteHotkey !== 'Alt+K') {
+    throw new Error('actionPaletteHotkey update via hotkeys failed');
+  }
+  const statusRow = hotkeys.status.find(r => r.key === 'action-palette');
+  if (!statusRow || statusRow.accel !== 'Alt+K') {
+    throw new Error('action-palette not found in hotkeys status');
+  }
+  hotkeys.setActionPaletteHotkey('Ctrl+K');
   console.log('pipeline transit actions & custom actionPaletteHotkey OK');
 
   // verify workflow engine DAG execution & self-healing

@@ -99,6 +99,7 @@ const state = {
    WHAT a conflicting accelerator belongs to. */
 function labelForKey(key) {
   if (key === 'host') return t('hotkey');
+  if (key === 'action-palette') return window.I18N.lang === 'en' ? 'Action Palette' : '动作抽屉';
   const pid = key.split(':')[0];
   const p = state.plugins.find(x => x.id === pid);
   const a = p && p.actions.find(x => x.key === key);
@@ -797,12 +798,25 @@ function renderSettings() {
     els.actionPaletteHotkeyCtrl.appendChild(hotkeyEditor({
       initial: state.config.actionPaletteHotkey || 'Ctrl+K',
       onApply: async accel => {
-        state.config.actionPaletteHotkey = accel;
-        if (els.apHint) els.apHint.textContent = accel;
-        await window.host.setPref('actionPaletteHotkey', accel);
-        return { ok: true, hotkey: accel };
+        const res = await window.host.setPaletteHotkey(accel);
+        if (res && res.ok) {
+          state.config.actionPaletteHotkey = res.hotkey || accel;
+          if (els.apHint) els.apHint.textContent = state.config.actionPaletteHotkey;
+          state.hotkeys = await window.host.hotkeys();
+          renderSettings();
+        }
+        return res;
       }
     }));
+    const apRow = hotkeyRow('action-palette');
+    if (apRow && !apRow.ok) {
+      const chip = document.createElement('span');
+      chip.className = 'chip bad';
+      chip.textContent = apRow.conflictKey
+        ? t('conflictWith', { name: labelForKey(apRow.conflictKey) })
+        : t('hotkeyBad');
+      els.actionPaletteHotkeyCtrl.appendChild(chip);
+    }
   }
 }
 
@@ -1079,6 +1093,7 @@ const wfCanvas = {
   panStartX: 0,
   panStartY: 0,
   selectedEdgeId: null,
+  selectedNodeId: null,
   connecting: null // { active, fromNodeId, fromType: 'out'|'in', fromPortEl, startX, startY, dragDistance }
 };
 
@@ -1393,7 +1408,7 @@ function renderWorkflowCanvas() {
   // 1. 先渲染 Nodes 元素进 DOM，以便精确获取卡片实际高度及端口位置
   currentWorkflow.nodes.forEach(node => {
     const el = document.createElement('div');
-    el.className = 'wf-node';
+    el.className = 'wf-node' + (wfCanvas.selectedNodeId === node.id ? ' selected' : '');
     el.style.left = `${node.x || 0}px`;
     el.style.top = `${node.y || 0}px`;
     el.dataset.id = node.id;
@@ -1421,17 +1436,40 @@ function renderWorkflowCanvas() {
       ${!node.type.startsWith('output') ? '<div class="wf-port out" title="连线出口 (按住拖出连线)"></div>' : ''}
     `;
 
-    el.querySelector('.wf-node-del').addEventListener('click', (e) => {
+    const delBtn = el.querySelector('.wf-node-del');
+    if (delBtn) {
+      delBtn.addEventListener('mousedown', (e) => e.stopPropagation());
+      delBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
+        currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
+        if (wfCanvas.selectedNodeId === node.id) wfCanvas.selectedNodeId = null;
+        renderWorkflowCanvas();
+        logToWfConsole(`已删除节点 [${node.title}]`);
+      });
+    }
+
+    // 卡片右键快捷删除节点
+    el.addEventListener('contextmenu', (e) => {
+      if (e.target.closest('.wf-port') || e.target.closest('.wf-node-del')) return;
+      e.preventDefault();
       e.stopPropagation();
       currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
       currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
+      if (wfCanvas.selectedNodeId === node.id) wfCanvas.selectedNodeId = null;
       renderWorkflowCanvas();
-      logToWfConsole(`已删除节点 [${node.title}]`);
+      logToWfConsole(`✂️ 右键已删除节点 [${node.title}]`);
     });
 
     el.addEventListener('mousedown', (e) => {
-      if (e.target.classList.contains('wf-port') || e.target.classList.contains('wf-node-del')) return;
+      if (e.target.closest('.wf-port') || e.target.closest('.wf-node-del')) return;
       e.stopPropagation();
+      wfCanvas.selectedNodeId = node.id;
+      wfCanvas.selectedEdgeId = null;
+      document.querySelectorAll('.wf-node.selected').forEach(n => { if (n !== el) n.classList.remove('selected'); });
+      el.classList.add('selected');
+      el.style.zIndex = 30; // 拖动时提升至最顶层
+
       let startX = e.clientX, startY = e.clientY;
       let origX = node.x || 0, origY = node.y || 0;
 
@@ -1443,6 +1481,7 @@ function renderWorkflowCanvas() {
         updateSvgEdgesOnly();
       };
       const onMouseUp = () => {
+        el.style.zIndex = '';
         window.removeEventListener('mousemove', onMouseMove);
         window.removeEventListener('mouseup', onMouseUp);
       };
@@ -1672,6 +1711,10 @@ if (els.wfCanvasArea) {
     const isBlankTarget = (e.target === els.wfCanvasArea || e.target === els.wfSvgLayer || e.target === els.wfCanvasViewport || e.target === els.wfNodesContainer);
     if (isBlankTarget || e.button === 1) {
       cancelDraftConnection();
+      if (wfCanvas.selectedNodeId) {
+        wfCanvas.selectedNodeId = null;
+        document.querySelectorAll('.wf-node.selected').forEach(n => n.classList.remove('selected'));
+      }
       if (wfCanvas.selectedEdgeId) {
         wfCanvas.selectedEdgeId = null;
         renderWorkflowCanvas();
@@ -1835,7 +1878,19 @@ window.addEventListener('keydown', (e) => {
       wfCanvas.selectedEdgeId = null;
       renderWorkflowCanvas();
     }
-  } else if ((e.key === 'Delete' || e.key === 'Backspace') && wfCanvas.selectedEdgeId && currentWorkflow) {
+  } else if ((e.key === 'Delete' || e.key === 'Backspace') && currentWorkflow) {
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    if (wfCanvas.selectedNodeId) {
+      const targetNode = currentWorkflow.nodes.find(n => n.id === wfCanvas.selectedNodeId);
+      if (targetNode) {
+        currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== targetNode.id);
+        currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== targetNode.id && ed.to !== targetNode.id);
+        wfCanvas.selectedNodeId = null;
+        renderWorkflowCanvas();
+        logToWfConsole(`✓ 已删除选中的节点 [${targetNode.title}]`);
+        return;
+      }
+    }
     if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
     const removedEdge = currentWorkflow.edges.find(ed => (ed.id || `edge-${ed.from}-${ed.to}`) === wfCanvas.selectedEdgeId);
     if (removedEdge) {
@@ -1917,7 +1972,19 @@ if (window.host.onOpenPlugin) {
     openPlugin(id);
   });
 }
-/* --- action palette (Ctrl+K) controller --------------------------------------- */
+
+if (window.host.onOpenActionPalette) {
+  window.host.onOpenActionPalette(payload => {
+    if (state.actionPaletteOpen && payload && payload.wasActive) {
+      closeActionPalette();
+      window.host.win('hide');
+    } else {
+      openActionPalette();
+    }
+  });
+}
+
+/* --- action palette controller ------------------------------------------------ */
 let hoveredPlugin = null;
 
 function matchHotkey(e, targetAccel) {
@@ -1932,7 +1999,7 @@ async function collectActionPaletteItems() {
   const lang = window.I18N.lang;
   const isZh = lang !== 'en';
 
-  // 1. 当前上下文插件 (正在浏览的插件 / 右键选中的 / 鼠标悬停的)
+  // 1. 正在浏览的上下文插件
   const activePlugin = (state.view === 'panel' && state.plugins.find(p => p.id === state.openId))
     || state.ctxTargetPlugin
     || hoveredPlugin;
@@ -1941,16 +2008,12 @@ async function collectActionPaletteItems() {
     const pName = isZh ? (activePlugin.name.zh || activePlugin.name.en) : (activePlugin.name.en || activePlugin.name.zh);
     items.push({
       group: isZh ? `当前插件 · ${pName}` : `Current Plugin · ${pName}`,
-      icon: '🚀',
-      title: isZh ? `打开 ${pName}` : `Open ${pName}`,
-      sub: activePlugin.id,
-      run: () => openPlugin(activePlugin.id),
-    });
-    items.push({
-      group: isZh ? `当前插件 · ${pName}` : `Current Plugin · ${pName}`,
       icon: '📂',
+      iconSvg: activePlugin.iconSvg || null,
       title: isZh ? '打开插件安装目录' : 'Open Plugin Folder',
       sub: activePlugin.root || '',
+      badge: 'Folder',
+      searchKey: `${pName} folder 插件目录 文件夹 ${activePlugin.id}`.toLowerCase(),
       run: () => window.host.openPluginFolder(activePlugin.id),
     });
     items.push({
@@ -1958,6 +2021,8 @@ async function collectActionPaletteItems() {
       icon: '📋',
       title: isZh ? '复制插件 ID' : 'Copy Plugin ID',
       sub: activePlugin.id,
+      badge: 'Copy',
+      searchKey: `${pName} id 复制 标识 ${activePlugin.id}`.toLowerCase(),
       run: () => window.host.writeClipboardText(activePlugin.id),
     });
   }
@@ -1981,42 +2046,142 @@ async function collectActionPaletteItems() {
     for (const pa of pipeActions) {
       const pTitle = isZh ? (pa.title.zh || pa.title.en) : (pa.title.en || pa.title.zh);
       items.push({
-        group: isZh ? '跨插件管道流转 (Pipeline)' : 'Pipeline Transit',
+        group: isZh ? '⚡ 跨插件管道流转 (Pipeline)' : '⚡ Pipeline Transit',
         icon: '⚡',
         title: pTitle,
         sub: `${type} ➔ ${pa.pluginId}`,
         badge: 'Transit',
+        searchKey: `pipeline 流转 管道 ${pTitle} ${pa.pluginId}`.toLowerCase(),
         run: () => openPlugin(pa.pluginId, { payload: envelope }),
       });
     }
   }
 
-  // 3. 全局导航与系统动作
+  // 3. 所有已启用的工具与插件 (All Plugins)
+  const enabledPlugins = (state.plugins || []).filter(p => p.enabled);
+  for (const p of enabledPlugins) {
+    const pName = isZh ? (p.name.zh || p.name.en) : (p.name.en || p.name.zh);
+    const pDesc = isZh ? (p.desc.zh || p.desc.en) : (p.desc.en || p.desc.zh);
+    const searchKey = [
+      p.id,
+      p.name.zh || '',
+      p.name.en || '',
+      p.desc.zh || '',
+      p.desc.en || '',
+      ...(p.keywords || [])
+    ].join(' ').toLowerCase();
+
+    items.push({
+      group: isZh ? '🧩 工具与插件' : '🧩 Tools & Plugins',
+      icon: p.iconText || '🧩',
+      iconSvg: p.iconSvg || null,
+      title: pName,
+      sub: pDesc || p.id,
+      badge: isZh ? '插件' : 'Plugin',
+      searchKey,
+      run: () => {
+        if (p.panel) {
+          openPlugin(p.id);
+        } else if (p.actions && p.actions.length > 0) {
+          const firstAct = p.actions[0];
+          window.host.pluginCall(p.id, firstAct.method || firstAct.id, {}).catch(() => {});
+        }
+      },
+    });
+  }
+
+  // 4. 插件快捷动作 (Plugin Actions)
+  for (const p of enabledPlugins) {
+    if (!Array.isArray(p.actions) || p.actions.length === 0) continue;
+    const pName = isZh ? (p.name.zh || p.name.en) : (p.name.en || p.name.zh);
+    for (const a of p.actions) {
+      const aLabel = isZh ? (a.label.zh || a.label.en) : (a.label.en || a.label.zh);
+      if (p.panel && (aLabel === `打开${pName}` || aLabel === `Open ${pName}`)) continue;
+      const searchKey = [
+        p.id,
+        pName,
+        aLabel,
+        a.key,
+        ...(p.keywords || [])
+      ].join(' ').toLowerCase();
+
+      items.push({
+        group: isZh ? '🎯 插件快捷动作' : '🎯 Plugin Actions',
+        icon: p.iconText || '⚡',
+        iconSvg: p.iconSvg || null,
+        title: `${pName} · ${aLabel}`,
+        sub: a.method ? `调用 ${p.id}:${a.method}` : a.key,
+        badge: a.hotkey || (isZh ? '动作' : 'Action'),
+        searchKey,
+        run: async () => {
+          if (a.method) {
+            await window.host.pluginCall(p.id, a.method, {}).catch(() => {});
+          } else {
+            openPlugin(p.id);
+          }
+        },
+      });
+    }
+  }
+
+  // 5. 可视化工作流 (Visual Workflows)
+  if (Array.isArray(state.workflows) && state.workflows.length > 0) {
+    for (const wf of state.workflows) {
+      items.push({
+        group: isZh ? '🔀 可视化工作流' : '🔀 Workflows',
+        icon: '🔀',
+        title: isZh ? `运行工作流: ${wf.name}` : `Run Workflow: ${wf.name}`,
+        sub: `${(wf.nodes || []).length} 节点 · ${wf.desc || wf.id}`,
+        badge: 'Workflow',
+        searchKey: `workflow 工作流 ${wf.name} ${wf.desc || ''}`.toLowerCase(),
+        run: async () => {
+          setView('workflows');
+          if (typeof selectWorkflow === 'function') selectWorkflow(wf.id);
+          if (typeof runCurrentWorkflow === 'function') setTimeout(runCurrentWorkflow, 100);
+        },
+      });
+    }
+  }
+
+  // 6. 快速导航与系统动作 (System & Navigation)
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '🏠',
     title: isZh ? '返回工具主页' : 'Go to Home',
     badge: 'View',
+    searchKey: 'home 主页 返回'.toLowerCase(),
     run: () => { closePanel(); setView('home'); },
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '🧩',
     title: isZh ? '打开插件中心' : 'Plugin Center',
     badge: 'View',
+    searchKey: 'plugin center 插件中心 市场'.toLowerCase(),
     run: () => { closePanel(); setView('plugins'); },
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
+    icon: '🔀',
+    title: isZh ? '打开工作流画布' : 'Workflow Canvas',
+    badge: 'View',
+    searchKey: 'workflow 工作流 画布 DAG'.toLowerCase(),
+    run: () => { closePanel(); setView('workflows'); },
+  });
+  items.push({
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '⚙️',
     title: isZh ? '打开偏好设置' : 'Preferences',
     badge: 'View',
+    searchKey: 'settings 设置 偏好'.toLowerCase(),
     run: () => { closePanel(); setView('settings'); },
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '🔄',
     title: isZh ? '重新扫描插件' : 'Rescan Plugins',
+    badge: 'Action',
+    searchKey: 'rescan 重新扫描 刷新插件'.toLowerCase(),
     run: async () => {
       const res = await window.host.rescanPlugins();
       state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
@@ -2025,21 +2190,27 @@ async function collectActionPaletteItems() {
     },
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '📁',
     title: isZh ? '打开通用数据存储目录' : 'Open Plugin Data Folder',
+    badge: 'Folder',
+    searchKey: 'data folder 存储目录 数据'.toLowerCase(),
     run: () => window.host.openPluginDataDir(),
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '📂',
     title: isZh ? '打开用户插件目录' : 'Open User Plugins Folder',
+    badge: 'Folder',
+    searchKey: 'user plugins folder 用户插件目录'.toLowerCase(),
     run: () => window.host.openUserPlugins(),
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '🌓',
     title: isZh ? '切换主题模式 (深色/浅色)' : 'Toggle Theme',
+    badge: 'Pref',
+    searchKey: 'theme 主题 浅色 深色 暗黑 模式'.toLowerCase(),
     run: async () => {
       const next = state.config.theme === 'dark' ? 'light' : 'dark';
       state.config.theme = next;
@@ -2048,9 +2219,11 @@ async function collectActionPaletteItems() {
     },
   });
   items.push({
-    group: isZh ? '快速导航与系统操作' : 'System & Navigation',
+    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
     icon: '🌐',
     title: isZh ? '切换界面语言 (中文 / English)' : 'Switch Language',
+    badge: 'Pref',
+    searchKey: 'language 语言 中文 英文 english'.toLowerCase(),
     run: async () => {
       const next = state.config.lang === 'zh' ? 'en' : 'zh';
       state.config.lang = next;
@@ -2063,14 +2236,21 @@ async function collectActionPaletteItems() {
 }
 
 async function openActionPalette() {
-  if (state.actionPaletteOpen) return;
+  if (state.actionPaletteOpen) {
+    els.apInput.focus();
+    els.apInput.select();
+    return;
+  }
   state.actionPaletteOpen = true;
   els.actionPaletteMask.hidden = false;
   els.apInput.value = '';
   state.actionPaletteItems = await collectActionPaletteItems();
   state.actionPaletteIndex = 0;
   renderActionPaletteList();
-  setTimeout(() => els.apInput.focus(), 30);
+  setTimeout(() => {
+    els.apInput.focus();
+    els.apInput.select();
+  }, 20);
 }
 
 function closeActionPalette() {
@@ -2085,7 +2265,11 @@ function renderActionPaletteList() {
   const q = els.apInput.value.trim().toLowerCase();
   state.actionPaletteFiltered = state.actionPaletteItems.filter(item => {
     if (!q) return true;
-    return item.title.toLowerCase().includes(q) || (item.sub && item.sub.toLowerCase().includes(q));
+    if (item.title && item.title.toLowerCase().includes(q)) return true;
+    if (item.sub && item.sub.toLowerCase().includes(q)) return true;
+    if (item.searchKey && item.searchKey.includes(q)) return true;
+    if (item.group && item.group.toLowerCase().includes(q)) return true;
+    return false;
   });
 
   if (state.actionPaletteIndex >= state.actionPaletteFiltered.length) {
@@ -2094,7 +2278,7 @@ function renderActionPaletteList() {
 
   els.apList.innerHTML = '';
   if (state.actionPaletteFiltered.length === 0) {
-    els.apList.innerHTML = `<div class="ap-empty">${window.I18N && window.I18N.lang === 'en' ? 'No matching actions' : '无匹配动作'}</div>`;
+    els.apList.innerHTML = `<div class="ap-empty">${window.I18N && window.I18N.lang === 'en' ? 'No matching plugins or actions' : '无匹配的插件或动作'}</div>`;
     return;
   }
 
@@ -2110,9 +2294,12 @@ function renderActionPaletteList() {
 
     const row = document.createElement('div');
     row.className = `ap-item ${idx === state.actionPaletteIndex ? 'selected' : ''}`;
+    const iconHtml = item.iconSvg
+      ? `<span class="ap-item-icon ap-svg">${item.iconSvg}</span>`
+      : `<span class="ap-item-icon">${item.icon || '⚡'}</span>`;
     row.innerHTML = `
       <div class="ap-item-left">
-        <span class="ap-item-icon">${item.icon || '⚡'}</span>
+        ${iconHtml}
         <span class="ap-item-title">${escapeHtml(item.title)}</span>
         ${item.sub ? `<span class="ap-item-sub">${escapeHtml(item.sub)}</span>` : ''}
       </div>
@@ -2194,9 +2381,9 @@ window.addEventListener('keydown', e => {
     return;
   }
 
-  // 匹配动作面板自定义快捷键 (默认 Ctrl+K)
+  // 匹配动作面板自定义快捷键 (默认 Ctrl+K，同时软件内也始终支持 Ctrl+K)
   const apHotkey = state.config.actionPaletteHotkey || 'Ctrl+K';
-  if (matchHotkey(e, apHotkey)) {
+  if (matchHotkey(e, apHotkey) || (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K'))) {
     e.preventDefault();
     openActionPalette();
     return;
@@ -2204,6 +2391,11 @@ window.addEventListener('keydown', e => {
 
   if (e.key === 'Escape' && state.view === 'panel') { closePanel(); setView('home'); }
   else if (e.key === 'Escape' && state.view === 'dev-guide') { setView('plugins'); }
+  else if (e.key === 'Escape' && state.view === 'home') {
+    if (state.smartPeekData) hideSmartPeek();
+    else if (els.search.value) { els.search.value = ''; state.query = ''; renderDeck(); }
+    else window.host.win('hide');
+  }
 });
 
 init();
