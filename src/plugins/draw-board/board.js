@@ -18,6 +18,11 @@
   const sizeSlider = document.getElementById('sizeSlider');
   const sizeVal = document.getElementById('sizeVal');
   const sizeSliderWrap = document.getElementById('sizeSliderWrap');
+  const textControls = document.getElementById('textControls');
+  const textFont = document.getElementById('textFont');
+  const textSize = document.getElementById('textSize');
+  const textBold = document.getElementById('textBold');
+  const sizeSep = document.getElementById('sizeSep');
 
   let backdropImage = null;
 
@@ -28,6 +33,7 @@
     { id: 'arrow', title: '箭头', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 19 19 5"/><path d="M13 5h6v6"/></svg>' },
     { id: 'rect', title: '矩形', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="6" width="16" height="12" rx="2"/></svg>' },
     { id: 'ellipse', title: '椭圆', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><ellipse cx="12" cy="12" rx="9" ry="6"/></svg>' },
+    { id: 'text', title: '文字 (T)', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>' },
     { id: 'eraser', title: '橡皮', svg: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="m7 21-4.3-4.3a1 1 0 0 1 0-1.4l10-10a1 1 0 0 1 1.4 0l5.6 5.6a1 1 0 0 1 0 1.4L13 18"/><path d="M22 21H7"/><path d="m5 11 9 9"/></svg>' },
   ];
   const COLORS = ['#ff4d4f', '#ff7a45', '#ffc53d', '#52c41a', '#13c2c2', '#1677ff', '#ffffff', '#141414'];
@@ -35,6 +41,10 @@
 
   const state = {
     tool: 'pen', color: COLORS[0], size: 4,
+    fontSize: 20,
+    fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+    bold: true,
+    editingText: null,
     bgMode: 'screen', // 'screen' | 'white' | 'black'
     strokes: [], redo: [],
     drawing: false, current: null,
@@ -130,6 +140,24 @@
   }
 
   function drawStroke(s) {
+    if (s.tool === 'text') {
+      inkCtx.globalAlpha = 1;
+      inkCtx.globalCompositeOperation = 'source-over';
+      inkCtx.font = `${s.bold ? 'bold ' : ''}${s.fontSize || 20}px ${s.fontFamily || 'sans-serif'}`;
+      inkCtx.fillStyle = s.color;
+      inkCtx.textBaseline = 'top';
+      const lines = String(s.text || '').split('\n');
+      const lh = (s.fontSize || 20) * 1.35;
+      for (let i = 0; i < lines.length; i++) {
+        inkCtx.shadowColor = s.color === '#ffffff' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.4)';
+        inkCtx.shadowBlur = 3;
+        inkCtx.fillText(lines[i], s.x, s.y + i * lh);
+      }
+      inkCtx.shadowColor = 'transparent';
+      inkCtx.shadowBlur = 0;
+      return;
+    }
+
     strokeStyle(s);
     const pts = s.points;
     if (!pts || pts.length === 0) return;
@@ -177,12 +205,93 @@
     if (state.current) drawStroke(state.current);
   }
 
+  /* --- floating text editor ----------------------------------------------------- */
+  function commitTextEditor() {
+    if (!state.editingText) return;
+    const { textarea, x, y } = state.editingText;
+    const val = textarea.value.trim();
+    if (val) {
+      state.strokes.push({
+        tool: 'text',
+        x,
+        y,
+        text: val,
+        color: state.color,
+        fontSize: state.fontSize,
+        fontFamily: state.fontFamily,
+        bold: state.bold,
+      });
+      state.redo = [];
+    }
+    textarea.remove();
+    state.editingText = null;
+    repaint();
+  }
+
+  function updateActiveTextEditor() {
+    if (!state.editingText) return;
+    const { textarea } = state.editingText;
+    textarea.style.color = state.color;
+    textarea.style.fontSize = `${state.fontSize}px`;
+    textarea.style.fontFamily = state.fontFamily;
+    textarea.style.fontWeight = state.bold ? 'bold' : 'normal';
+  }
+
+  function spawnTextEditor(clientX, clientY) {
+    commitTextEditor();
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'board-text-editor';
+    textarea.placeholder = '输入文字 (Ctrl+Enter 确定, Esc 取消)';
+    textarea.style.left = `${clientX}px`;
+    textarea.style.top = `${clientY}px`;
+    textarea.style.color = state.color;
+    textarea.style.fontSize = `${state.fontSize}px`;
+    textarea.style.fontFamily = state.fontFamily;
+    textarea.style.fontWeight = state.bold ? 'bold' : 'normal';
+    textarea.style.minWidth = '120px';
+    textarea.style.minHeight = `${state.fontSize * 1.8}px`;
+
+    const autoSize = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.max(state.fontSize * 1.8, textarea.scrollHeight)}px`;
+      textarea.style.width = 'auto';
+      textarea.style.width = `${Math.max(120, textarea.scrollWidth + 12)}px`;
+    };
+    textarea.addEventListener('input', autoSize);
+
+    textarea.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        commitTextEditor();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        textarea.remove();
+        state.editingText = null;
+      }
+    });
+
+    textarea.addEventListener('blur', () => {
+      setTimeout(commitTextEditor, 50);
+    });
+
+    document.body.appendChild(textarea);
+    textarea.focus();
+    state.editingText = { textarea, x: clientX, y: clientY };
+  }
+
   /* --- pointer input -------------------------------------------------------------- */
   const pos = e => ({ x: e.clientX, y: e.clientY });
-  const onBoard = e => !e.target.closest('#bar');
+  const onBoard = e => !(e.target && typeof e.target.closest === 'function' && e.target.closest('#bar'));
 
   window.addEventListener('pointerdown', e => {
     if (e.button !== 0 || !onBoard(e)) return;
+    if (e.target && typeof e.target.closest === 'function' && e.target.closest('.board-text-editor')) return; // Editing
+    if (state.tool === 'text') {
+      spawnTextEditor(e.clientX, e.clientY);
+      return;
+    }
+    commitTextEditor();
     state.drawing = true;
     state.current = { tool: state.tool, color: state.color, size: state.size, points: [pos(e)] };
     repaint();
@@ -248,10 +357,41 @@
       customColorBtn.textContent = !isPresetColor ? '' : '🎨';
     }
     if (customColorInput) customColorInput.value = state.color;
+
+    const isText = state.tool === 'text';
+    if (textControls) textControls.style.display = isText ? 'flex' : 'none';
+    if (sizesEl) sizesEl.style.display = isText ? 'none' : 'flex';
+    if (sizeSliderWrap) sizeSliderWrap.style.display = isText ? 'none' : 'inline-flex';
+
+    if (textFont) textFont.value = state.fontFamily;
+    if (textSize) textSize.value = String(state.fontSize);
+    if (textBold) textBold.classList.toggle('on', state.bold);
+
     sizesEl.querySelectorAll('button').forEach(b => b.classList.toggle('on', Number(b.dataset.size) === state.size));
     if (sizeSlider) sizeSlider.value = String(state.size);
     if (sizeVal) sizeVal.textContent = `${state.size}px`;
-    document.body.style.cursor = state.tool === 'eraser' ? 'cell' : 'crosshair';
+    document.body.style.cursor = isText ? 'text' : (state.tool === 'eraser' ? 'cell' : 'crosshair');
+  }
+
+  // Text tool control events
+  if (textFont) {
+    textFont.addEventListener('change', () => {
+      state.fontFamily = textFont.value;
+      updateActiveTextEditor();
+    });
+  }
+  if (textSize) {
+    textSize.addEventListener('change', () => {
+      state.fontSize = Number(textSize.value) || 20;
+      updateActiveTextEditor();
+    });
+  }
+  if (textBold) {
+    textBold.addEventListener('click', () => {
+      state.bold = !state.bold;
+      textBold.classList.toggle('on', state.bold);
+      updateActiveTextEditor();
+    });
   }
 
   // Custom color picker input events
@@ -399,6 +539,16 @@
     if (!state.strokes.length) return null;
     let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
     for (const s of state.strokes) {
+      if (s.tool === 'text') {
+        const lines = String(s.text || '').split('\n');
+        const approxW = Math.max(...lines.map(l => l.length), 1) * (s.fontSize || 20);
+        const approxH = lines.length * (s.fontSize || 20) * 1.35;
+        if (s.x < minX) minX = s.x;
+        if (s.y < minY) minY = s.y;
+        if (s.x + approxW > maxX) maxX = s.x + approxW;
+        if (s.y + approxH > maxY) maxY = s.y + approxH;
+        continue;
+      }
       if (!s.points || !s.points.length) continue;
       for (const p of s.points) {
         const r = Math.max(8, (s.size || 4) * 3);
@@ -462,7 +612,18 @@
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
       e.preventDefault();
+      if (state.editingText) {
+        state.editingText.textarea.remove();
+        state.editingText = null;
+        return;
+      }
       window.board.exit();
+      return;
+    }
+    // 't' or 'T' shortcuts when not in an input
+    if ((e.key === 't' || e.key === 'T') && !e.target.closest('input, textarea, select')) {
+      state.tool = 'text';
+      syncBar();
       return;
     }
     const mod = e.ctrlKey || e.metaKey;

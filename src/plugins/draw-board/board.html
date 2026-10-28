@@ -25,11 +25,34 @@
     <input type="color" id="customColor" value="#ff4d4f">
     <span class="color-picker-btn" id="customColorBtn">🎨</span>
   </label>
-  <div class="sep"></div>
+  <div class="sep" id="sizeSep"></div>
   <div class="grp" id="sizes"></div>
   <div class="size-slider-wrap" id="sizeSliderWrap" title="无级调节粗细 (可滚轮微调)">
     <input type="range" id="sizeSlider" min="1" max="40" value="4">
     <span id="sizeVal">4px</span>
+  </div>
+  <div class="grp text-controls" id="textControls" style="display:none">
+    <select id="textFont" class="board-select" title="字体">
+      <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">默认无衬线</option>
+      <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+      <option value="'SimHei', 'PingFang SC', sans-serif">黑体</option>
+      <option value="'KaiTi', 'STKaiti', serif">楷体</option>
+      <option value="'SimSun', serif">宋体</option>
+      <option value="'Consolas', monospace">等宽代码</option>
+      <option value="'Georgia', serif">衬线体</option>
+    </select>
+    <select id="textSize" class="board-select" title="字号">
+      <option value="14">14px</option>
+      <option value="16">16px</option>
+      <option value="18">18px</option>
+      <option value="20" selected>20px</option>
+      <option value="24">24px</option>
+      <option value="28">28px</option>
+      <option value="36">36px</option>
+      <option value="48">48px</option>
+      <option value="64">64px</option>
+    </select>
+    <button type="button" id="textBold" class="text-bold-btn on" title="加粗">B</button>
   </div>
   <div class="sep"></div>
   <button data-act="undo" title="撤销 (Ctrl+Z)">↶</button>

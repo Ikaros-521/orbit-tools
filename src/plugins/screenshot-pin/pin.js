@@ -19,9 +19,14 @@
   let isMoving = false;
 
   // --- annotation state ---
-  let tool = null; // 'rect' | 'ellipse' | 'arrow' | 'pen' | null
+  let tool = null; // 'rect' | 'ellipse' | 'arrow' | 'pen' | 'text' | null
   let color = '#ff4d4f';
   let size = 4;
+  let fontSize = 20;
+  let fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  let bold = true;
+  let editingText = null;
+
   const PRESET_COLORS = ['#ff4d4f', '#ff7a45', '#ffc53d', '#52c41a', '#1677ff', '#ffffff', '#141414'];
   const strokes = [];
   let isDrawing = false;
@@ -32,9 +37,18 @@
   const sizeSlider = document.getElementById('sizeSlider');
   const sizeVal = document.getElementById('sizeVal');
   const sizeGroup = document.getElementById('sizeGroup');
+  const textGroup = document.getElementById('textGroup');
+  const textFont = document.getElementById('textFont');
+  const textSize = document.getElementById('textSize');
+  const textBold = document.getElementById('textBold');
 
   // ensure toolbar is initially hidden
   toolbar.hidden = true;
+
+  if (!window.pin) {
+    console.warn('pin bridge not available');
+    return;
+  }
 
   // --- initialize image & canvas ---
   window.pin.onInit(({ image }) => {
@@ -61,6 +75,27 @@
   };
 
   const drawStroke = s => {
+    if (s.tool === 'text') {
+      ctx2d.globalAlpha = 1;
+      ctx2d.globalCompositeOperation = 'source-over';
+      const rect = ink.getBoundingClientRect();
+      const ratio = (rect && rect.width) ? (ink.width / rect.width) : 1;
+      const actualSize = (s.fontSize || 20) * ratio;
+      ctx2d.font = `${s.bold ? 'bold ' : ''}${actualSize}px ${s.fontFamily || 'sans-serif'}`;
+      ctx2d.fillStyle = s.color;
+      ctx2d.textBaseline = 'top';
+      const lines = String(s.text || '').split('\n');
+      const lh = actualSize * 1.35;
+      for (let i = 0; i < lines.length; i++) {
+        ctx2d.shadowColor = s.color === '#ffffff' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.4)';
+        ctx2d.shadowBlur = 3 * ratio;
+        ctx2d.fillText(lines[i], s.x, s.y + i * lh);
+      }
+      ctx2d.shadowColor = 'transparent';
+      ctx2d.shadowBlur = 0;
+      return;
+    }
+
     applyStrokeStyle(s);
     const pts = s.points;
     if (!pts || !pts.length) return;
@@ -103,6 +138,80 @@
     }
   };
 
+  const commitTextEditor = () => {
+    if (!editingText) return;
+    const { textarea, canvasX, canvasY } = editingText;
+    const val = textarea.value.trim();
+    if (val) {
+      strokes.push({
+        tool: 'text',
+        x: canvasX,
+        y: canvasY,
+        text: val,
+        color,
+        fontSize,
+        fontFamily,
+        bold,
+      });
+    }
+    textarea.remove();
+    editingText = null;
+    repaintInk();
+  };
+
+  const updateActiveTextEditor = () => {
+    if (!editingText) return;
+    const { textarea } = editingText;
+    textarea.style.color = color;
+    textarea.style.fontSize = `${fontSize}px`;
+    textarea.style.fontFamily = fontFamily;
+    textarea.style.fontWeight = bold ? 'bold' : 'normal';
+  };
+
+  const spawnTextEditor = (clientX, clientY) => {
+    commitTextEditor();
+    const coords = getCanvasCoords({ clientX, clientY });
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'pin-text-editor';
+    textarea.placeholder = '输入文字 (Ctrl+Enter 确定, Esc 取消)';
+    textarea.style.left = `${clientX}px`;
+    textarea.style.top = `${clientY}px`;
+    textarea.style.color = color;
+    textarea.style.fontSize = `${fontSize}px`;
+    textarea.style.fontFamily = fontFamily;
+    textarea.style.fontWeight = bold ? 'bold' : 'normal';
+    textarea.style.minWidth = '110px';
+    textarea.style.minHeight = `${fontSize * 1.8}px`;
+
+    const autoSize = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.max(fontSize * 1.8, textarea.scrollHeight)}px`;
+      textarea.style.width = 'auto';
+      textarea.style.width = `${Math.max(110, textarea.scrollWidth + 12)}px`;
+    };
+    textarea.addEventListener('input', autoSize);
+
+    textarea.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        commitTextEditor();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        textarea.remove();
+        editingText = null;
+      }
+    });
+
+    textarea.addEventListener('blur', () => {
+      setTimeout(commitTextEditor, 50);
+    });
+
+    document.body.appendChild(textarea);
+    textarea.focus();
+    editingText = { textarea, canvasX: coords.x, canvasY: coords.y };
+  };
+
   const repaintInk = () => {
     ctx2d.clearRect(0, 0, ink.width, ink.height);
     for (const s of strokes) drawStroke(s);
@@ -137,6 +246,7 @@
 
   // --- tool state management ---
   const setTool = nextTool => {
+    commitTextEditor();
     tool = nextTool;
     document.body.classList.toggle('annotating', !!tool);
     toolbar.querySelectorAll('[data-tool]').forEach(b => {
@@ -153,6 +263,13 @@
     }
     if (customColorInput) customColorInput.value = color;
 
+    const isText = tool === 'text';
+    if (textGroup) textGroup.style.display = isText ? 'flex' : 'none';
+    if (sizeGroup) sizeGroup.style.display = isText ? 'none' : 'flex';
+    if (textFont) textFont.value = fontFamily;
+    if (textSize) textSize.value = String(fontSize);
+    if (textBold) textBold.classList.toggle('on', bold);
+
     toolbar.querySelectorAll('[data-size]').forEach(b => {
       b.classList.toggle('on', Number(b.dataset.size) === size);
     });
@@ -160,12 +277,34 @@
     if (sizeVal) sizeVal.textContent = `${size}px`;
   };
 
+  // Wire text tool controls
+  if (textFont) {
+    textFont.addEventListener('change', () => {
+      fontFamily = textFont.value;
+      updateActiveTextEditor();
+    });
+  }
+  if (textSize) {
+    textSize.addEventListener('change', () => {
+      fontSize = Number(textSize.value) || 20;
+      updateActiveTextEditor();
+    });
+  }
+  if (textBold) {
+    textBold.addEventListener('click', () => {
+      bold = !bold;
+      textBold.classList.toggle('on', bold);
+      updateActiveTextEditor();
+    });
+  }
+
   // Wire custom color picker
   if (customColorInput) {
     const onCustomColor = e => {
       color = e.target.value;
       if (!tool) setTool('pen');
       else setTool(tool);
+      updateActiveTextEditor();
     };
     customColorInput.addEventListener('input', onCustomColor);
     customColorInput.addEventListener('change', onCustomColor);
@@ -199,9 +338,14 @@
 
   // --- mouse events for moving window vs drawing ---
   stage.addEventListener('mousedown', e => {
-    if (e.target.closest('#toolbar')) return;
+    if (e.target && typeof e.target.closest === 'function' && (e.target.closest('#toolbar') || e.target.closest('.pin-text-editor'))) return;
 
     if (e.button === 0) {
+      if (tool === 'text') {
+        spawnTextEditor(e.clientX, e.clientY);
+        return;
+      }
+      commitTextEditor();
       if (tool) {
         // Annotation mode: start drawing
         isDrawing = true;
@@ -252,10 +396,12 @@
   // --- context menu actions from main process ---
   window.pin.onToggleAnnotate(() => toggleToolbar());
   window.pin.onTriggerCopy(() => {
+    commitTextEditor();
     const merged = composeImage();
     window.pin.copy(merged);
   });
   window.pin.onTriggerSave(async () => {
+    commitTextEditor();
     const merged = composeImage();
     await window.pin.save(merged);
   });
@@ -285,6 +431,7 @@
 
   // --- keyboard shortcuts ---
   window.addEventListener('keydown', e => {
+    if (editingText) return;
     if (e.key === 'Escape') {
       if (tool) {
         setTool(null);
@@ -298,10 +445,18 @@
       return;
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      commitTextEditor();
       e.preventDefault();
       if (strokes.length > 0) {
         strokes.pop();
         repaintInk();
+      }
+      return;
+    }
+    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+      if (e.key.toLowerCase() === 't') {
+        if (toolbar.hidden) toggleToolbar(true);
+        setTool('text');
       }
     }
   });
@@ -332,6 +487,7 @@
     if (!act) return;
 
     if (act === 'undo') {
+      commitTextEditor();
       if (strokes.length > 0) {
         strokes.pop();
         repaintInk();
@@ -340,6 +496,7 @@
     }
 
     if (act === 'copy') {
+      commitTextEditor();
       const merged = composeImage();
       window.pin.copy(merged);
       toolbar.classList.add('flash');
@@ -348,6 +505,7 @@
     }
 
     if (act === 'save') {
+      commitTextEditor();
       const merged = composeImage();
       b.disabled = true;
       await window.pin.save(merged);
@@ -356,6 +514,7 @@
     }
 
     if (act === 'close-tool') {
+      commitTextEditor();
       toggleToolbar(false);
     }
   });

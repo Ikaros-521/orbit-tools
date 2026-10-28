@@ -25,9 +25,14 @@
   let base = null;       // lossless crop of the current selection, decoded
 
   // --- annotation state ---
-  let tool = null;       // null = no tool, 'pen' | 'rect' | 'ellipse' | 'arrow'
+  let tool = null;       // null = no tool, 'pen' | 'rect' | 'ellipse' | 'arrow' | 'text'
   let color = '#ff4d4f';
   let size = 4;
+  let fontSize = 20;
+  let fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif";
+  let bold = true;
+  let editingText = null;
+
   const PRESET_COLORS = ['#ff4d4f', '#ff7a45', '#ffc53d', '#52c41a', '#1677ff', '#ffffff', '#141414'];
   const strokes = [];
   let drawing = false;
@@ -38,6 +43,15 @@
   const sizeSlider = document.getElementById('sizeSlider');
   const sizeVal = document.getElementById('sizeVal');
   const sizeGroup = document.getElementById('sizeGroup');
+  const textGroup = document.getElementById('textGroup');
+  const textFont = document.getElementById('textFont');
+  const textSize = document.getElementById('textSize');
+  const textBold = document.getElementById('textBold');
+
+  if (!window.overlay) {
+    console.warn('overlay bridge not available');
+    return;
+  }
 
   window.overlay.onImage(({ image, width, height, dipWidth, dipHeight }) => {
     const img = new Image();
@@ -153,6 +167,24 @@
   };
 
   const drawStroke = s => {
+    if (s.tool === 'text') {
+      inkCtx.globalAlpha = 1;
+      inkCtx.globalCompositeOperation = 'source-over';
+      inkCtx.font = `${s.bold ? 'bold ' : ''}${s.fontSize || 20}px ${s.fontFamily || 'sans-serif'}`;
+      inkCtx.fillStyle = s.color;
+      inkCtx.textBaseline = 'top';
+      const lines = String(s.text || '').split('\n');
+      const lh = (s.fontSize || 20) * 1.35;
+      for (let i = 0; i < lines.length; i++) {
+        inkCtx.shadowColor = s.color === '#ffffff' ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.4)';
+        inkCtx.shadowBlur = 3;
+        inkCtx.fillText(lines[i], s.x, s.y + i * lh);
+      }
+      inkCtx.shadowColor = 'transparent';
+      inkCtx.shadowBlur = 0;
+      return;
+    }
+
     applyStyle(s);
     const pts = s.points;
     if (pts.length < 2 && (s.tool === 'pen')) {
@@ -193,6 +225,83 @@
         inkCtx.stroke();
       }
     }
+  };
+
+  const commitTextEditor = () => {
+    if (!editingText) return;
+    const { textarea, lx, ly } = editingText;
+    const val = textarea.value.trim();
+    if (val) {
+      strokes.push({
+        tool: 'text',
+        x: lx,
+        y: ly,
+        text: val,
+        color,
+        fontSize,
+        fontFamily,
+        bold,
+      });
+    }
+    textarea.remove();
+    editingText = null;
+    repaintInk();
+  };
+
+  const updateActiveTextEditor = () => {
+    if (!editingText) return;
+    const { textarea } = editingText;
+    textarea.style.color = color;
+    textarea.style.fontSize = `${fontSize}px`;
+    textarea.style.fontFamily = fontFamily;
+    textarea.style.fontWeight = bold ? 'bold' : 'normal';
+  };
+
+  const spawnTextEditor = (clientX, clientY) => {
+    commitTextEditor();
+    if (!selRect) return;
+
+    const lx = clientX - selRect.x;
+    const ly = clientY - selRect.y;
+
+    const textarea = document.createElement('textarea');
+    textarea.className = 'sel-text-editor';
+    textarea.placeholder = '输入文字 (Ctrl+Enter 确定, Esc 取消)';
+    textarea.style.left = `${clientX}px`;
+    textarea.style.top = `${clientY}px`;
+    textarea.style.color = color;
+    textarea.style.fontSize = `${fontSize}px`;
+    textarea.style.fontFamily = fontFamily;
+    textarea.style.fontWeight = bold ? 'bold' : 'normal';
+    textarea.style.minWidth = '110px';
+    textarea.style.minHeight = `${fontSize * 1.8}px`;
+
+    const autoSize = () => {
+      textarea.style.height = 'auto';
+      textarea.style.height = `${Math.max(fontSize * 1.8, textarea.scrollHeight)}px`;
+      textarea.style.width = 'auto';
+      textarea.style.width = `${Math.max(110, textarea.scrollWidth + 12)}px`;
+    };
+    textarea.addEventListener('input', autoSize);
+
+    textarea.addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        commitTextEditor();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        textarea.remove();
+        editingText = null;
+      }
+    });
+
+    textarea.addEventListener('blur', () => {
+      setTimeout(commitTextEditor, 50);
+    });
+
+    document.body.appendChild(textarea);
+    textarea.focus();
+    editingText = { textarea, lx, ly };
   };
 
   const repaintInk = () => {
@@ -247,6 +356,13 @@
     }
     if (customColorInput) customColorInput.value = color;
 
+    const isText = tool === 'text';
+    if (textGroup) textGroup.style.display = isText ? 'flex' : 'none';
+    if (sizeGroup) sizeGroup.style.display = isText ? 'none' : 'flex';
+    if (textFont) textFont.value = fontFamily;
+    if (textSize) textSize.value = String(fontSize);
+    if (textBold) textBold.classList.toggle('on', bold);
+
     toolbar.querySelectorAll('[data-size]').forEach(b => {
       b.classList.toggle('on', Number(b.dataset.size) === size);
     });
@@ -256,12 +372,34 @@
     document.body.classList.toggle('annotating', !!tool);
   };
 
+  // Wire text tool controls
+  if (textFont) {
+    textFont.addEventListener('change', () => {
+      fontFamily = textFont.value;
+      updateActiveTextEditor();
+    });
+  }
+  if (textSize) {
+    textSize.addEventListener('change', () => {
+      fontSize = Number(textSize.value) || 20;
+      updateActiveTextEditor();
+    });
+  }
+  if (textBold) {
+    textBold.addEventListener('click', () => {
+      bold = !bold;
+      textBold.classList.toggle('on', bold);
+      updateActiveTextEditor();
+    });
+  }
+
   // Wire custom color picker
   if (customColorInput) {
     const onCustomColor = e => {
       color = e.target.value;
       if (!tool) tool = 'pen';
       syncToolButtons();
+      updateActiveTextEditor();
     };
     customColorInput.addEventListener('input', onCustomColor);
     customColorInput.addEventListener('change', onCustomColor);
@@ -296,7 +434,17 @@
   // --- mouse events for region selection ---
   window.addEventListener('mousedown', e => {
     if (e.button !== 0) return;
+    if (e.target && typeof e.target.closest === 'function' && e.target.closest('.sel-text-editor')) return; // inside text editor
     if (phase === 'selected') {
+      if (tool === 'text' && selRect) {
+        const lx = e.clientX - selRect.x;
+        const ly = e.clientY - selRect.y;
+        if (lx >= 0 && ly >= 0 && lx <= selRect.width && ly <= selRect.height) {
+          spawnTextEditor(e.clientX, e.clientY);
+          return;
+        }
+      }
+      commitTextEditor();
       // if clicking inside selection area with a tool, start drawing
       if (tool && selRect) {
         const lx = e.clientX - selRect.x;
@@ -393,6 +541,11 @@
   // --- keyboard ---
   window.addEventListener('keydown', e => {
     if (e.key === 'Escape') {
+      if (editingText) {
+        editingText.textarea.remove();
+        editingText = null;
+        return;
+      }
       if (phase === 'selected') {
         // If we have annotations, first clear them. Otherwise cancel.
         if (strokes.length > 0) {
@@ -412,8 +565,14 @@
       }
       window.overlay.cancel();
     }
+    if ((e.key === 't' || e.key === 'T') && !e.target.closest('input, textarea, select') && phase === 'selected') {
+      tool = 'text';
+      syncToolButtons();
+      return;
+    }
     if (e.key === 'z' && (e.ctrlKey || e.metaKey) && phase === 'selected') {
       e.preventDefault();
+      commitTextEditor();
       if (strokes.length > 0) {
         strokes.pop();
         repaintInk();
@@ -428,6 +587,7 @@
 
     // tool selection
     if (btn.dataset.tool) {
+      commitTextEditor();
       tool = (tool === btn.dataset.tool) ? null : btn.dataset.tool;
       syncToolButtons();
       return;
@@ -438,6 +598,7 @@
       color = btn.dataset.color;
       if (!tool) tool = 'pen';
       syncToolButtons();
+      updateActiveTextEditor();
       return;
     }
 
@@ -451,6 +612,8 @@
     // actions
     const act = btn.dataset.act;
     if (!act || !selRect) return;
+
+    commitTextEditor();
 
     if (act === 'undo') {
       if (strokes.length > 0) {

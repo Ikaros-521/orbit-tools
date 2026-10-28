@@ -28,6 +28,9 @@
     <button type="button" data-tool="pen" title="画笔">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
     </button>
+    <button type="button" data-tool="text" title="文字 (T)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+    </button>
   </div>
   <div class="tb-sep"></div>
   <div class="tb-group tb-colors" id="colorGroup">
@@ -50,6 +53,29 @@
     <button type="button" data-size="8" class="tb-szdot" title="8px"><i style="width:11px;height:11px"></i></button>
     <input type="range" id="sizeSlider" min="1" max="32" value="4" class="tb-slider" title="滑动微调粗细">
     <span id="sizeVal" class="tb-size-val">4px</span>
+  </div>
+  <div class="tb-group tb-text-opts" id="textGroup" style="display:none">
+    <select id="textFont" class="tb-select" title="字体">
+      <option value="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">默认无衬线</option>
+      <option value="'Microsoft YaHei', sans-serif">微软雅黑</option>
+      <option value="'SimHei', 'PingFang SC', sans-serif">黑体</option>
+      <option value="'KaiTi', 'STKaiti', serif">楷体</option>
+      <option value="'SimSun', serif">宋体</option>
+      <option value="'Consolas', monospace">等宽代码</option>
+      <option value="'Georgia', serif">衬线体</option>
+    </select>
+    <select id="textSize" class="tb-select" title="字号">
+      <option value="14">14px</option>
+      <option value="16">16px</option>
+      <option value="18">18px</option>
+      <option value="20" selected>20px</option>
+      <option value="24">24px</option>
+      <option value="28">28px</option>
+      <option value="36">36px</option>
+      <option value="48">48px</option>
+      <option value="64">64px</option>
+    </select>
+    <button type="button" id="textBold" class="tb-bold-btn on" title="加粗">B</button>
   </div>
   <div class="tb-sep"></div>
   <div class="tb-group tb-acts">
