@@ -1972,6 +1972,23 @@ if (window.host.onOpenPlugin) {
     openPlugin(id);
   });
 }
+if (window.host.onNavigateTo) {
+  window.host.onNavigateTo(opts => {
+    if (!opts) return;
+    if (opts.view === 'panel' && opts.pluginId) {
+      openPlugin(opts.pluginId, { payload: opts.payload });
+    } else if (opts.view === 'workflows') {
+      closePanel();
+      setView('workflows');
+      if (opts.workflowId && typeof selectWorkflow === 'function') {
+        selectWorkflow(opts.workflowId);
+      }
+    } else if (opts.view) {
+      closePanel();
+      setView(opts.view);
+    }
+  });
+}
 
 if (window.host.onOpenActionPalette) {
   window.host.onOpenActionPalette(payload => {

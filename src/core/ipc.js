@@ -1,10 +1,10 @@
 /* The app's IPC surface, split out of main.js so tests can boot the whole
    stack (config + manager + hotkeys + handlers + real window) headlessly. */
-const { ipcMain, shell, dialog } = require('electron');
+const { ipcMain, shell, dialog, BrowserWindow } = require('electron');
 const fs = require('fs');
 const { WorkflowManager } = require('./workflows');
 
-module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindow }) {
+module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindow, getPaletteWindow, openWorkbench, toggleActionPalette }) {
   const workflowManager = new WorkflowManager(cfg, manager);
 
   ipcMain.handle('boot', () => ({
@@ -149,8 +149,22 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   ipcMain.handle('workflow-delete', (e, id) => workflowManager.delete(id));
   ipcMain.handle('workflow-run', (e, { id, input }) => workflowManager.run(id, input));
 
+  ipcMain.handle('open-workbench', (e, opts) => {
+    if (typeof openWorkbench === 'function') openWorkbench(opts);
+    return true;
+  });
+
+  ipcMain.handle('toggle-action-palette', () => {
+    if (typeof toggleActionPalette === 'function') toggleActionPalette();
+    return true;
+  });
+
   ipcMain.on('win', (e, action) => {
-    const win = getHostWindow();
+    let win = null;
+    try {
+      win = BrowserWindow.fromWebContents(e.sender);
+    } catch { /* fallback */ }
+    if (!win) win = getHostWindow();
     if (!win) return;
     if (action === 'minimize') win.minimize();
     else if (action === 'hide') win.hide();

@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Tray, Menu, protocol, globalShortcut } = require('electron');
+const { app, BrowserWindow, Tray, Menu, protocol, globalShortcut, screen } = require('electron');
 const path = require('path');
 
 // Enforce standard sRGB color profile to avoid screen-capture color shifts across displays
@@ -12,6 +12,7 @@ const registerIpc = require('./core/ipc');
 const APP_NAME = { en: 'Orbit Toolbox', zh: '轨道工具箱' };
 
 let win = null;
+let paletteWin = null;
 let tray = null;
 let cfg = null;
 let manager = null;
@@ -90,11 +91,68 @@ function toggleWindow() {
   }
 }
 
-function toggleActionPalette() {
-  if (!win) return;
-  const wasActive = win.isVisible() && win.isFocused();
+function createPaletteWindow() {
+  paletteWin = new BrowserWindow({
+    width: 650,
+    height: 440,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
+    resizable: false,
+    show: false,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    },
+  });
+  paletteWin.loadFile(path.join(__dirname, 'renderer', 'palette.html'));
+  paletteWin.on('blur', () => {
+    if (!paletteWin.isDestroyed() && paletteWin.isVisible()) {
+      paletteWin.hide();
+    }
+  });
+  paletteWin.on('close', e => {
+    if (quitting) return;
+    e.preventDefault();
+    paletteWin.hide();
+  });
+}
+
+function openWorkbench(opts = {}) {
+  if (paletteWin && !paletteWin.isDestroyed() && paletteWin.isVisible()) {
+    paletteWin.hide();
+  }
+  if (!win || win.isDestroyed()) createWindow();
   bringToForeground(win);
-  win.webContents.send('open-action-palette', { wasActive });
+  win.webContents.send('navigate-to', opts);
+}
+
+function toggleActionPalette() {
+  if (!paletteWin || paletteWin.isDestroyed()) {
+    createPaletteWindow();
+  }
+  if (paletteWin.isVisible() && paletteWin.isFocused()) {
+    paletteWin.hide();
+    return;
+  }
+  try {
+    const point = screen.getCursorScreenPoint();
+    const curDisplay = screen.getDisplayNearestPoint(point) || screen.getPrimaryDisplay();
+    const area = curDisplay.workArea;
+    const x = Math.round(area.x + (area.width - 650) / 2);
+    const y = Math.round(area.y + Math.max(80, (area.height - 440) * 0.32));
+    paletteWin.setPosition(x, y);
+  } catch {
+    paletteWin.center();
+  }
+
+  bringToForeground(paletteWin);
+  paletteWin.webContents.send('palette-focus');
 }
 
 /* --- tray --------------------------------------------------------------------- */
@@ -129,13 +187,23 @@ if (!app.requestSingleInstanceLock()) {
     });
 
     registerPluginProtocol(manager);
-    registerIpc({ app, cfg, manager, hotkeys, getHostWindow: () => win });
+    registerIpc({
+      app,
+      cfg,
+      manager,
+      hotkeys,
+      getHostWindow: () => win,
+      getPaletteWindow: () => paletteWin,
+      openWorkbench,
+      toggleActionPalette,
+    });
 
     manager.discover();
     for (const p of manager.plugins.values()) if (p.enabled) manager.activate(p.id);
     hotkeys.registerAll({ allowFallback: true });
 
     createWindow();
+    createPaletteWindow();
     createTray();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else toggleWindow(); });
   });

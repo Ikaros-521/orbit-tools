@@ -246,6 +246,46 @@ app.whenReady().then(async () => {
     throw new Error('Workflows canvas rendering or interaction failed!');
   }
 
+  // Test dedicated standalone Action Palette Window (palette.html)
+  const palWin = new BrowserWindow({
+    show: false,
+    width: 650,
+    height: 440,
+    webPreferences: {
+      preload: path.join(__dirname, '..', 'src', 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+    }
+  });
+  await palWin.loadFile(path.join(__dirname, '..', 'src', 'renderer', 'palette.html'));
+  await new Promise(r => setTimeout(r, 800));
+
+  const standalonePalState = await palWin.webContents.executeJavaScript(`
+    (async () => {
+      const apInput = document.getElementById('apInput');
+      apInput.value = '截图';
+      apInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 100));
+      const screenshotMatches = Array.from(document.querySelectorAll('.ap-item')).map(el => el.textContent);
+
+      apInput.value = '';
+      apInput.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise(r => setTimeout(r, 100));
+
+      return {
+        hasWrapper: !!document.querySelector('.palette-window-wrapper'),
+        totalItems: document.querySelectorAll('.ap-item').length,
+        screenshotMatchesCount: screenshotMatches.length,
+      };
+    })()
+  `);
+  console.log('Standalone Palette test output:', standalonePalState);
+  if (!standalonePalState.hasWrapper || standalonePalState.totalItems === 0 || standalonePalState.screenshotMatchesCount === 0) {
+    throw new Error('Standalone Palette window failed to render or search plugins!');
+  }
+  palWin.close();
+
   manager.deactivateAll();
   fs.rmSync(tmp, { recursive: true, force: true });
 
