@@ -173,6 +173,24 @@ app.whenReady().then(async () => {
   check('clip-link-badge-present', await page(`!!document.querySelector('.clip-badge-link')`) === true);
   check('clip-link-btn-present', await page(`!!document.querySelector('.clip-btn-open-link')`) === true);
 
+  // Pure link also visible in Text filter (links are also text)
+  await page(`document.querySelector('.clip-filter-btn[data-filter="text"]').click()`);
+  await sleep(150);
+  check('clip-pure-link-visible-in-text-filter', await page(`document.querySelectorAll('.clip-card').length >= 1`));
+
+  // Test text with embedded URL extraction & dual classification
+  clipboard.writeText('访问项目地址：https://github.com/Ikaros-521/orbit-tools 了解详情！');
+  await sleep(1000);
+  // Check in Text filter
+  check('clip-text-with-link-in-text-filter', await page(`document.querySelectorAll('.clip-card').length >= 1`));
+  // Check in Link filter
+  await page(`document.querySelector('.clip-filter-btn[data-filter="link"]').click()`);
+  await sleep(150);
+  check('clip-text-with-link-in-link-filter', await page(`document.querySelectorAll('.clip-card').length >= 1`));
+  check('clip-extracted-links-present', await page(`!!document.querySelector('.clip-extracted-links')`) === true);
+  check('clip-extracted-link-row-present', await page(`!!document.querySelector('.clip-extracted-link-row')`) === true);
+  check('clip-extracted-copy-btn-present', await page(`!!document.querySelector('.clip-btn-copy-ext')`) === true);
+
   // Test File classification
   const pkgPath = path.join(ROOT, 'package.json');
   if (process.platform === 'win32') {
@@ -204,6 +222,31 @@ app.whenReady().then(async () => {
   check('mirror-hub-panel-mounted', await page(`!!document.querySelector('.mhub-container')`) === true);
   check('mirror-hub-tabs-rendered', await page(`document.querySelectorAll('.mhub-tab-btn').length`) >= 5);
   check('mirror-hub-cards-rendered', await page(`document.querySelectorAll('.mhub-card').length`) >= 3);
+  check('mirror-hub-proxy-input-present', await page(`!!document.querySelector('.mhub-proxy-input')`) === true);
+  check('mirror-hub-detect-proxy-btn-present', await page(`!!document.querySelector('.mhub-btn-detect-proxy')`) === true);
+
+  // Click auto detect proxy button
+  await page(`document.querySelector('.mhub-btn-detect-proxy').click()`);
+  await sleep(400);
+  check('mirror-hub-detected-proxy-valid', await page(`/^https?:\\/\\//.test(document.querySelector('.mhub-proxy-input').value)`) === true);
+
+  // Switch to git tab
+  await page(`document.querySelector('.mhub-tab-btn[data-env="git"]').click()`);
+  await sleep(150);
+  check('mirror-hub-git-active', await page(`document.querySelector('.mhub-tab-btn[data-env="git"]').classList.contains('active')`));
+  check('mirror-hub-release-card-present', await page(`!!document.querySelector('.mhub-card[data-card-id="release-download"]')`) === true);
+  check('mirror-hub-download-input-present', await page(`!!document.querySelector('.mhub-download-input')`) === true);
+  check('mirror-hub-open-url-btn-present', await page(`!!document.querySelector('.mhub-btn-open-url')`) === true);
+
+  // Test custom mirrors modal
+  check('mirror-hub-manage-btn-present', await page(`!!document.querySelector('.mhub-btn-manage-mirrors')`) === true);
+  await page(`document.querySelector('.mhub-btn-manage-mirrors').click()`);
+  await sleep(150);
+  check('mirror-hub-modal-opened', await page(`!!document.querySelector('.mhub-modal')`) === true);
+  check('mirror-hub-modal-table-rows', await page(`document.querySelectorAll('.mhub-mirror-table tbody tr').length`) >= 10);
+  await page(`document.querySelector('.mhub-modal-close').click()`);
+  await sleep(100);
+  check('mirror-hub-modal-closed', await page(`!document.querySelector('.mhub-modal')`) === true);
 
   // Switch to npm tab
   await page(`document.querySelector('.mhub-tab-btn[data-env="npm"]').click()`);
@@ -326,6 +369,34 @@ app.whenReady().then(async () => {
     && fs.existsSync(path.join(drawBoardDir, 'pin-preload.js')));
   check('draw-board-board-has-pin-btn', fs.readFileSync(path.join(drawBoardDir, 'board.html'), 'utf8').includes('data-act="pin"'));
   check('draw-board-board-has-copy-btn', fs.readFileSync(path.join(drawBoardDir, 'board.html'), 'utf8').includes('data-act="copy"'));
+
+  /* --- text tool controls verification (draw-board & screenshot-pin) ---------- */
+  const dbHtml = fs.readFileSync(path.join(drawBoardDir, 'board.html'), 'utf8');
+  const dbJs = fs.readFileSync(path.join(drawBoardDir, 'board.js'), 'utf8');
+  check('draw-board-has-text-tool-btn', dbJs.includes("id: 'text'"));
+  check('draw-board-has-text-controls', dbHtml.includes('id="textControls"'));
+  check('draw-board-has-text-font', dbHtml.includes('id="textFont"'));
+  check('draw-board-has-text-size', dbHtml.includes('id="textSize"'));
+  check('draw-board-has-text-bold', dbHtml.includes('id="textBold"'));
+  check('draw-board-js-renders-text', dbJs.includes("s.tool === 'text'"));
+
+  const scDir = path.join(ROOT, 'src/plugins/screenshot-pin');
+  const scSelHtml = fs.readFileSync(path.join(scDir, 'selection.html'), 'utf8');
+  const scSelJs = fs.readFileSync(path.join(scDir, 'selection.js'), 'utf8');
+  const scPinHtml = fs.readFileSync(path.join(scDir, 'pin.html'), 'utf8');
+  const scPinJs = fs.readFileSync(path.join(scDir, 'pin.js'), 'utf8');
+
+  check('screenshot-selection-has-text-btn', scSelHtml.includes('data-tool="text"'));
+  check('screenshot-selection-has-text-font', scSelHtml.includes('id="textFont"'));
+  check('screenshot-selection-has-text-size', scSelHtml.includes('id="textSize"'));
+  check('screenshot-selection-has-text-bold', scSelHtml.includes('id="textBold"'));
+  check('screenshot-selection-js-draws-text', scSelJs.includes("s.tool === 'text'"));
+
+  check('screenshot-pin-has-text-btn', scPinHtml.includes('data-tool="text"'));
+  check('screenshot-pin-has-text-font', scPinHtml.includes('id="textFont"'));
+  check('screenshot-pin-has-text-size', scPinHtml.includes('id="textSize"'));
+  check('screenshot-pin-has-text-bold', scPinHtml.includes('id="textBold"'));
+  check('screenshot-pin-js-draws-text', scPinJs.includes("s.tool === 'text'"));
 
   win.destroy();
   manager.deactivateAll();

@@ -82,6 +82,8 @@ app.whenReady().then(async () => {
   if (!clearRes.ok) throw new Error('clip-history clearAll failed');
   const extRes = await manager.call('clip-history', 'openExternal', { url: 'not-a-url' });
   if (extRes.ok) throw new Error('openExternal should refuse non-http url');
+  const writeRes = await manager.call('clip-history', 'writeClipboardText', { text: 'https://test-clip.org' });
+  if (!writeRes.ok) throw new Error('writeClipboardText failed');
   console.log('clip-history IPC OK');
 
   // test plugin data dir custom switch
@@ -95,8 +97,23 @@ app.whenReady().then(async () => {
   // mirror-hub live IPC verification
   const mSettings = await manager.call('mirror-hub', 'getSettings');
   if (!mSettings || !mSettings.proxyUrl) throw new Error('mirror-hub getSettings failed');
+  const detectRes = await manager.call('mirror-hub', 'detectProxy');
+  if (!detectRes.ok || !detectRes.url) throw new Error('mirror-hub detectProxy failed');
+  const saveCustomProxyRes = await manager.call('mirror-hub', 'saveSettings', { proxyUrl: 'http://127.0.0.1:19999' });
+  if (!saveCustomProxyRes.ok || saveCustomProxyRes.settings.proxyUrl !== 'http://127.0.0.1:19999') throw new Error('mirror-hub saveSettings custom proxy failed');
   const copyRes = await manager.call('mirror-hub', 'copyCommand', { command: 'npm install test' });
   if (!copyRes.ok) throw new Error('mirror-hub copyCommand failed');
+  const addMirrorRes = await manager.call('mirror-hub', 'addCustomMirror', {
+    envId: 'git',
+    mirror: { name: '测试自定义加速', url: 'https://test.mirror.com/https://github.com/' }
+  });
+  if (!addMirrorRes.ok || !addMirrorRes.item) throw new Error('mirror-hub addCustomMirror failed');
+  const customList = await manager.call('mirror-hub', 'getCustomMirrors');
+  if (!customList.git || customList.git.length !== 1) throw new Error('customMirrors persistence failed');
+  const delMirrorRes = await manager.call('mirror-hub', 'removeCustomMirror', { envId: 'git', id: addMirrorRes.item.id });
+  if (!delMirrorRes.ok) throw new Error('mirror-hub removeCustomMirror failed');
+  const pingRes = await manager.call('mirror-hub', 'pingMirror', { url: 'https://hk.gh-proxy.org/https://github.com/' });
+  if (typeof pingRes.ms !== 'number') throw new Error('mirror-hub pingMirror failed');
   console.log('mirror-hub IPC OK');
 
   manager.deactivateAll();
