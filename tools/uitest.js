@@ -69,8 +69,8 @@ app.whenReady().then(async () => {
   check('css-applied', await page(`getComputedStyle(document.querySelector('.chassis')).display`) === 'flex');
   const visibleViews = await page(`['viewHome','viewPanel','viewPlugins','viewSettings','viewDevGuide'].filter(id => getComputedStyle(document.getElementById(id)).display !== 'none')`);
   check('single-view-visible', visibleViews.length === 1 && visibleViews[0] === 'viewHome');
-  check('deck-has-7-cards', await page(`document.querySelectorAll('#deck .card').length`) === 7);
-  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 7);
+  check('deck-has-8-cards', await page(`document.querySelectorAll('#deck .card').length`) === 8);
+  check('cards-have-icons', await page(`document.querySelectorAll('#deck .card-icon svg').length`) === 8);
   await shot('home');
 
   /* --- open a plugin panel (codec-lab) -------------------------------------- */
@@ -93,6 +93,66 @@ app.whenReady().then(async () => {
   check('codec-swap-btn-zh', await page(`document.querySelector('[data-act="swap"]').textContent.includes('对调')`));
   check('codec-copy-btn-zh', await page(`document.querySelector('[data-act="copyOut"]').textContent.includes('复制')`));
   await shot('codec-panel');
+
+  /* --- back + open json-editor panel ---------------------------------------- */
+  await page(`document.getElementById('btnBack').click()`);
+  await sleep(300);
+  await page(`(() => {
+    const card = Array.from(document.querySelectorAll('#deck .card')).find(c => c.textContent.includes('JSON 编辑器'));
+    if (card) card.click();
+  })()`);
+  await sleep(700);
+  check('json-editor-mounted', await page(`!!document.querySelector('.je-ta')`) === true);
+  check('json-editor-valid-initial', await page(`document.getElementById('jeStatusTag').textContent.includes('语法正确')`));
+
+  // Test Python fix
+  await page(`(() => {
+    const ta = document.getElementById('jeTa');
+    ta.value = "{'name': 'orbit', 'active': True, 'score': None, 'tags': ('tool', 'electron',),}";
+    document.querySelector('.je-toolbar [data-act="fixPython"]').click();
+  })()`);
+  await sleep(200);
+  const fixedVal = await page(`document.getElementById('jeTa').value`);
+  check('json-python-fix-quotes-and-types', fixedVal.includes('"name": "orbit"') && fixedVal.includes('true') && fixedVal.includes('null') && !fixedVal.includes("'name'"));
+  check('json-python-fix-valid', await page(`document.getElementById('jeStatusTag').textContent.includes('语法正确')`));
+
+  // Test Minify
+  await page(`document.querySelector('.je-toolbar [data-act="minify"]').click()`);
+  await sleep(150);
+  const minifiedVal = await page(`document.getElementById('jeTa').value`);
+  check('json-minify-single-line', minifiedVal.split('\n').length === 1);
+
+  // Test Format
+  await page(`document.querySelector('.je-toolbar [data-act="format"]').click()`);
+  await sleep(150);
+  const formattedVal = await page(`document.getElementById('jeTa').value`);
+  check('json-format-multiline', formattedVal.split('\n').length > 1);
+
+  // Test Tree folding
+  check('json-tree-has-nodes', await page(`document.querySelectorAll('.je-node').length`) > 0);
+  await page(`document.querySelector('.je-fold-toggle').click()`);
+  await sleep(100);
+  check('json-tree-can-fold', await page(`!!document.querySelector('.je-children.folded')`) === true);
+
+  // Test Clean Comments
+  await page(`(() => {
+    const ta = document.getElementById('jeTa');
+    ta.value = '{\\n  // single comment\\n  "key": "/* safe */",\\n  # hash comment\\n  "num": 1\\n}';
+    document.querySelector('.je-toolbar [data-act="cleanComments"]').click();
+  })()`);
+  await sleep(200);
+  const cleanedVal = await page(`document.getElementById('jeTa').value`);
+  check('json-clean-comments', !cleanedVal.includes('single comment') && !cleanedVal.includes('hash comment') && cleanedVal.includes('/* safe */'));
+
+  // Test Escape & Unescape
+  await page(`document.querySelector('.je-toolbar [data-act="escape"]').click()`);
+  await sleep(150);
+  check('json-escaped', (await page(`document.getElementById('jeTa').value`)).startsWith('"'));
+  await page(`document.querySelector('.je-toolbar [data-act="unescape"]').click()`);
+  await sleep(150);
+  check('json-unescaped', (await page(`document.getElementById('jeTa').value`)).includes('"key"'));
+
+  await shot('json-editor-panel');
 
   /* --- back + search filter --------------------------------------------------- */
   await page(`document.getElementById('btnBack').click()`);
@@ -302,10 +362,10 @@ app.whenReady().then(async () => {
   check('prev-btn-disabled', await page(`document.getElementById('btnPagePrev').disabled`) === true);
   check('next-btn-enabled', await page(`document.getElementById('btnPageNext').disabled`) === false);
 
-  // Next page: should show the remaining 3 items
+  // Next page: should show the remaining 4 items
   await page(`document.getElementById('btnPageNext').click()`);
   await sleep(200);
-  check('plugins-page2-has-3', await page(`document.querySelectorAll('#pluginList .prow').length`) === 3);
+  check('plugins-page2-has-4', await page(`document.querySelectorAll('#pluginList .prow').length`) === 4);
   check('prev-btn-enabled', await page(`document.getElementById('btnPagePrev').disabled`) === false);
   check('next-btn-disabled', await page(`document.getElementById('btnPageNext').disabled`) === true);
 

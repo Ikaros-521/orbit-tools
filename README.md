@@ -13,6 +13,9 @@ A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or
 | 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存 | `Ctrl+Shift+A` |
 | 屏幕画板 Draw Board | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG | `Ctrl+Shift+D` |
 | 反重力代理启动器 Antigravity Launcher | Google Antigravity 进程级代理启动器：握手探测、网络诊断、终端代理与一键拉起 | `Ctrl+Shift+G` |
+| JSON 编辑器 JSON Editor | JSON 语法校验 / 格式化展开 / 树状折叠 / Python 字典转合法 JSON / 单行压缩 / 快速转义 / 一键去注释 | `Ctrl+Shift+J` |
+| 剪贴板历史 Clip History | 剪贴板多条历史记录与置顶收藏，一键回填、搜索与图片预览 | `Ctrl+Shift+V` |
+| 镜像源切换 Mirror Hub | npm / pip / docker / maven / rust 常见开发工具国内镜像源一键测速与切换 | — |
 | 端口与进程 Port Scope | 查 TCP/UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | — |
 | 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转 | — |
 
@@ -61,10 +64,13 @@ src/
 ├── renderer/                # 宿主 UI：搜索面板、插件面板容器、设置页、i18n、主题
 └── plugins/
     ├── antigravity-launcher/# 反重力代理启动器（探测 / 诊断 / 终端 / 代理拉起）
+    ├── clip-history/        # 剪贴板历史（多条历史、置顶收藏与图片预览）
     ├── codec-lab/           # 编码转换（纯面板插件，无后端）
+    ├── draw-board/          # 屏幕画板（全屏透明画布 + 屏幕底图快照）
+    ├── json-editor/         # JSON 编辑器（语法校验 / 树状折叠 / Python转JSON / 压缩转义）
+    ├── mirror-hub/          # 镜像源切换（npm/pip/docker 等国内镜像源测速与切换）
     ├── port-scope/          # 端口进程（后端拆分 ports.js 平台层 + backend.js IPC 层）
-    ├── screenshot-pin/      # 截图悬浮（选区覆盖窗口 + 贴图窗口，各自独立 preload）
-    └── draw-board/          # 屏幕画板（全屏透明画布 + 屏幕底图快照）
+    └── screenshot-pin/      # 截图悬浮（选区覆盖窗口 + 贴图窗口，各自独立 preload）
 ```
 
 测试：`node tools/test-port-parsers.js`（解析器单测）、`electron tools/smoke-plugins.js`（插件系统冒烟）、`electron tools/uitest.js`（真实窗口 UI 回归，含热键冲突，截图输出到 dist/）。

@@ -1,0 +1,15 @@
+{
+  "id": "json-editor",
+  "name": { "zh": "JSON 编辑器", "en": "JSON Editor" },
+  "desc": { "zh": "JSON 语法校验 / 格式化 / 树状折叠 / Python 字典转 JSON / 压缩转义 / 去注释", "en": "JSON syntax check, format, folding tree, Python dict to JSON, minify & escape" },
+  "version": "1.0.0",
+  "category": "dev",
+  "author": "Ikaros-521",
+  "keywords": ["json", "editor", "format", "tree", "python", "minify", "escape", "comment", "校验", "格式化", "折叠", "转义", "去注释"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "open", "label": { "zh": "打开 JSON 编辑器", "en": "Open JSON Editor" }, "method": "openPanel", "hotkey": "Ctrl+Shift+J" }
+  ]
+}

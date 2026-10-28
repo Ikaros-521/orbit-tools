@@ -19,10 +19,11 @@ app.whenReady().then(async () => {
   const info = manager.serialize();
   console.log('discovered:', found.map(p => `${p.id}(${p.source})`).join(', '));
 
-  const expect = ['antigravity-launcher', 'clip-history', 'codec-lab', 'draw-board', 'mirror-hub', 'port-scope', 'screenshot-pin'];
+  const expect = ['antigravity-launcher', 'clip-history', 'codec-lab', 'draw-board', 'json-editor', 'mirror-hub', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
   if (info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have no backend');
+  if (info.find(p => p.id === 'json-editor').hasBackend) throw new Error('json-editor should have no backend');
   if (!info.find(p => p.id === 'clip-history').hasBackend) throw new Error('clip-history should have a backend');
   if (!info.find(p => p.id === 'mirror-hub').hasBackend) throw new Error('mirror-hub should have a backend');
   for (const p of info) {
@@ -39,6 +40,9 @@ app.whenReady().then(async () => {
   const fetchStatus = async url => (await net.fetch(url)).status;
   if (await fetchStatus('plugin://codec-lab/panel.js') !== 200) throw new Error('plugin:// panel.js not served');
   if (await fetchStatus('plugin://codec-lab/icon.svg') !== 200) throw new Error('plugin:// icon.svg not served');
+  if (await fetchStatus('plugin://json-editor/panel.js') !== 200) throw new Error('plugin:// json-editor panel.js not served');
+  if (await fetchStatus('plugin://json-editor/panel.css') !== 200) throw new Error('plugin:// json-editor panel.css not served');
+  if (await fetchStatus('plugin://json-editor/icon.svg') !== 200) throw new Error('plugin:// json-editor icon.svg not served');
   // The WHATWG URL parser collapses encoded ../ segments during normalization,
   // so traversal dies as 404; the handler's containment check would 403 anything
   // that still slips through. Either way the file must NOT be served.
