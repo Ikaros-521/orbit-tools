@@ -22,13 +22,15 @@ app.whenReady().then(async () => {
   const info = manager.serialize();
   console.log('discovered:', found.map(p => `${p.id}(${p.source})`).join(', '));
 
-  const expect = ['antigravity-launcher', 'clip-history', 'codec-lab', 'draw-board', 'json-editor', 'mirror-hub', 'port-scope', 'screenshot-pin'];
+  const expect = ['antigravity-launcher', 'calculator', 'clip-history', 'codec-lab', 'draw-board', 'json-editor', 'memo', 'mirror-hub', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
   if (!info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have a backend');
   if (info.find(p => p.id === 'json-editor').hasBackend) throw new Error('json-editor should have no backend');
   if (!info.find(p => p.id === 'clip-history').hasBackend) throw new Error('clip-history should have a backend');
   if (!info.find(p => p.id === 'mirror-hub').hasBackend) throw new Error('mirror-hub should have a backend');
+  if (!info.find(p => p.id === 'calculator').hasBackend) throw new Error('calculator should have a backend');
+  if (!info.find(p => p.id === 'memo').hasBackend) throw new Error('memo should have a backend');
   for (const p of info) {
     if (!p.name.zh || !p.panel) throw new Error(`bad manifest for ${p.id}`);
     if (!Array.isArray(p.actions) || p.actions.length === 0) {
@@ -46,6 +48,10 @@ app.whenReady().then(async () => {
   if (await fetchStatus('plugin://json-editor/panel.js') !== 200) throw new Error('plugin:// json-editor panel.js not served');
   if (await fetchStatus('plugin://json-editor/panel.css') !== 200) throw new Error('plugin:// json-editor panel.css not served');
   if (await fetchStatus('plugin://json-editor/icon.svg') !== 200) throw new Error('plugin:// json-editor icon.svg not served');
+  if (await fetchStatus('plugin://calculator/panel.js') !== 200) throw new Error('plugin:// calculator panel.js not served');
+  if (await fetchStatus('plugin://calculator/eval.js') !== 200) throw new Error('plugin:// calculator eval.js not served');
+  if (await fetchStatus('plugin://memo/panel.js') !== 200) throw new Error('plugin:// memo panel.js not served');
+  if (await fetchStatus('plugin://memo/panel.css') !== 200) throw new Error('plugin:// memo panel.css not served');
   // The WHATWG URL parser collapses encoded ../ segments during normalization,
   // so traversal dies as 404; the handler's containment check would 403 anything
   // that still slips through. Either way the file must NOT be served.
@@ -65,6 +71,28 @@ app.whenReady().then(async () => {
   const r = await manager.call('port-scope', 'refresh');
   if (!Array.isArray(r.rows)) throw new Error('port-scope refresh returned no rows');
   console.log(`port-scope refresh OK (${r.rows.length} rows)`);
+
+  // calculator: engine sanity + workflow capability envelope round-trip
+  const calc = await manager.call('calculator', 'calc', { value: '1+2*3' });
+  if (calc !== '7') throw new Error(`calculator calc returned "${calc}", expected "7"`);
+  const peek = manager.detectSmartPeek('(1200-200)*15%');
+  if (!peek || peek.pluginId !== 'calculator' || peek.copyValue !== '150') {
+    throw new Error(`smart-peek math detection failed: ${JSON.stringify(peek)}`);
+  }
+  if (manager.detectSmartPeek('2026-10-29')) throw new Error('date-like string must not be detected as math');
+  console.log('calculator calc + math smart-peek OK');
+
+  // memo: seeded welcome note + create/save/remove round-trip
+  const memoList = await manager.call('memo', 'list');
+  const memoSeeded = memoList.notes.length; // snapshot: backend returns a live array
+  if (!Array.isArray(memoList.notes) || memoSeeded < 1) throw new Error('memo should seed a welcome note');
+  const created = await manager.call('memo', 'create', { content: '# 测试笔记\n正文 **加粗**' });
+  if (!created.ok || created.note.title !== '测试笔记') throw new Error(`memo create/auto-title failed: ${JSON.stringify(created.note || {})}`);
+  const saved = await manager.call('memo', 'save', { id: created.note.id, content: '# 改过啦' });
+  if (!saved.ok || saved.note.title !== '改过啦') throw new Error('memo save/auto-title failed');
+  const removed = await manager.call('memo', 'remove', { id: created.note.id });
+  if (!removed.ok || removed.notes.some(n => n.id === created.note.id)) throw new Error('memo remove failed');
+  console.log(`memo round-trip OK (${memoSeeded} seeded note${memoSeeded === 1 ? '' : 's'})`);
 
   // kill guard through the router
   try {

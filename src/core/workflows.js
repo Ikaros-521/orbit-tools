@@ -52,9 +52,10 @@ const DEFAULT_WORKFLOWS = [
 
 /* Detector probe order matters: JWT/Base64 overlap with plain text, JSON is
    the most specific, and bare hex ("cafebabe…") also passes the base64 probe
-   so hex must run first. Mirrors what the smart-peek banner would detect. */
+   so hex must run first. Math runs before everything — its charset (digits +
+   operators only) can't shadow the others. Mirrors the smart-peek banner. */
 const DETECT_ORDER = [
-  'application/json', 'text/timestamp', 'text/jwt', 'text/unicode', 'text/hex', 'text/base64', 'text/url', 'system/port'
+  'math/expression', 'application/json', 'text/timestamp', 'text/jwt', 'text/unicode', 'text/hex', 'text/base64', 'text/url', 'system/port'
 ];
 
 function detectEnvelopeType(text) {

@@ -3,6 +3,38 @@
    and maps them to enabled plugin capabilities without hardcoding. */
 
 const DETECTORS = {
+  'math/expression': {
+    /* Arithmetic-only charset (digits + operators); letters, braces, URLs
+       never match, so math is the most specific probe in every chain.
+       Date / phone / version shapes are excluded on purpose — they parse as
+       arithmetic but read as data ("2026-10-29", "138-1234-5678"). */
+    test: text => {
+      const t = text.trim();
+      if (t.length < 3 || t.length > 200) return false;
+      if (!/^[\d\s+\-*/().%^,×÷−]+$/.test(t)) return false;
+      if (!/[+\-*/%^×÷−]/.test(t)) return false;
+      if (t.replace(/[^\d]/g, '').length < 2) return false;
+      const compact = t.replace(/\s/g, '');
+      if (/^\d{1,4}[-/.]\d{1,4}([-/.]\d{1,4})?$/.test(compact)) return false;
+      if (/^\d{2,4}(-\d{2,4}){2,}$/.test(compact)) return false;
+      return true;
+    },
+    resolve: (text) => {
+      // same engine the calculator panel & backend use — one truth everywhere
+      let engine = null;
+      try { engine = require('../plugins/calculator/eval'); } catch { return null; }
+      const res = engine.evaluate(text.trim());
+      if (!res || !res.ok) return null;
+      return {
+        type: 'math/expression',
+        badge: '算式求值',
+        preview: `= ${res.display}`,
+        copyValue: res.display,
+        subText: `${text.trim()} = ${res.display} · Enter 复制结果`,
+        targetAction: 'openPanel',
+      };
+    }
+  },
   'text/timestamp': {
     test: text => /^\d{10}(\d{3})?$/.test(text.trim()),
     resolve: (text) => {

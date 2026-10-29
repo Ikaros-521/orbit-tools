@@ -1,0 +1,20 @@
+{
+  "id": "calculator",
+  "name": { "zh": "计算器", "en": "Calculator" },
+  "desc": { "zh": "科学算式计算器：四则/乘方/阶乘/百分比/三角函数，键盘输入 + 实时预览 + 历史记录", "en": "Scientific expression calculator: arithmetic, power, factorial, percent & trig, live preview + history" },
+  "version": "1.0.0",
+  "category": "dev",
+  "author": "Ikaros-521",
+  "keywords": ["calc", "calculator", "math", "expression", "计算器", "计算", "算式", "求值", "数学", "表达式", "三角函数", "科学计算"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "backend": "backend.js",
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "open", "label": { "zh": "打开计算器", "en": "Open Calculator" }, "method": "openPanel", "hotkey": "Ctrl+Shift+L" }
+  ],
+  "consumes": ["text/plain", "math/expression"],
+  "capabilities": [
+    { "id": "calc", "method": "calc", "type": "math/expression", "title": { "zh": "算式求值", "en": "Evaluate Expression" } }
+  ]
+}

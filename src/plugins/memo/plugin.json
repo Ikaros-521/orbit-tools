@@ -1,0 +1,17 @@
+{
+  "id": "memo",
+  "name": { "zh": "备忘录", "en": "Memo Notes" },
+  "desc": { "zh": "Markdown 备忘录：分屏实时预览、行号行列定位、行/字/词与选中统计、自动保存与置顶", "en": "Markdown memo notes: split live preview, Ln/Col cursor, line/word/char & selection stats, autosave & pin" },
+  "version": "1.0.0",
+  "category": "other",
+  "author": "Ikaros-521",
+  "keywords": ["memo", "note", "notes", "markdown", "md", "editor", "备忘录", "笔记", "记事本", "便签", "markdown", "编辑器", "统计"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "backend": "backend.js",
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "open", "label": { "zh": "打开备忘录", "en": "Open Memo Notes" }, "method": "openPanel", "hotkey": "Ctrl+Shift+N" }
+  ],
+  "consumes": ["text/plain"]
+}

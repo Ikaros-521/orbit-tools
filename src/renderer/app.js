@@ -1467,6 +1467,7 @@ function scheduleWfAutosave() {
    utilities; plugin capabilities are appended dynamically below. */
 const WF_TRIGGER_TYPE_OPTIONS = [
   ['any', '任意文本'],
+  ['math/expression', '算式 (数学表达式)'],
   ['application/json', 'JSON'],
   ['text/timestamp', '时间戳'],
   ['text/base64', 'Base64'],

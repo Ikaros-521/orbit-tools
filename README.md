@@ -64,10 +64,12 @@ src/
 ├── renderer/                # 宿主 UI：搜索面板、插件面板容器、设置页、i18n、主题
 └── plugins/
     ├── antigravity-launcher/# 反重力代理启动器（探测 / 诊断 / 终端 / 代理拉起）
+    ├── calculator/          # 计算器（科学算式 + 实时预览 + 历史；剪贴板算式智能求值）
     ├── clip-history/        # 剪贴板历史（多条历史、置顶收藏与图片预览）
     ├── codec-lab/           # 编码转换（纯面板插件，无后端）
     ├── draw-board/          # 屏幕画板（全屏透明画布 + 屏幕底图快照）
     ├── json-editor/         # JSON 编辑器（语法校验 / 树状折叠 / Python转JSON / 压缩转义）
+    ├── memo/                # 备忘录（Markdown 分屏实时预览 + 行/字/词统计 + 自动保存）
     ├── mirror-hub/          # 镜像源切换（npm/pip/docker 等国内镜像源测速与切换）
     ├── port-scope/          # 端口进程（后端拆分 ports.js 平台层 + backend.js IPC 层）
     └── screenshot-pin/      # 截图悬浮（选区覆盖窗口 + 贴图窗口，各自独立 preload）
