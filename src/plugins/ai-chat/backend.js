@@ -123,6 +123,44 @@ module.exports = {
       return { ok: true, config };
     });
 
+    ctx.ipc.handle('savePersona', args => {
+      const p = (args && args.persona) || args || {};
+      if (!String(p.title || '').trim()) {
+        return { ok: false, error: '人设名称不能为空' };
+      }
+      const id = p.id ? String(p.id) : genId('persona');
+      const pIndex = personas.findIndex(x => x.id === id);
+      const newP = {
+        id,
+        title: String(p.title).trim(),
+        icon: String(p.icon || '✨').trim(),
+        prompt: String(p.prompt || '').trim(),
+        temperature: typeof p.temperature === 'number' ? p.temperature : 0.7
+      };
+      if (pIndex >= 0) {
+        personas[pIndex] = newP;
+      } else {
+        personas.push(newP);
+      }
+      save();
+      return { ok: true, persona: newP, personas };
+    });
+
+    ctx.ipc.handle('deletePersona', args => {
+      const id = args && (args.id || args.personaId);
+      if (!id) return { ok: false, error: '缺少人设 ID' };
+      if (personas.length <= 1) return { ok: false, error: '必须保留至少一个人设' };
+      personas = personas.filter(p => p.id !== id);
+      save();
+      return { ok: true, personas };
+    });
+
+    ctx.ipc.handle('resetPersonas', () => {
+      personas = [...DEFAULT_PERSONAS];
+      save();
+      return { ok: true, personas };
+    });
+
     ctx.ipc.handle('fetchModels', async args => {
       try {
         const p = args || {};
@@ -217,30 +255,6 @@ module.exports = {
       s.updatedAt = Date.now();
       save();
       return { ok: true, session: s };
-    });
-
-    ctx.ipc.handle('savePersona', args => {
-      const p = args && args.persona;
-      if (!p || !p.title) return { ok: false, error: '人设卡标题不能为空' };
-      const idx = personas.findIndex(x => x.id === p.id);
-      const record = {
-        id: p.id || genId('p'),
-        title: String(p.title).trim(),
-        icon: p.icon || '🎭',
-        prompt: String(p.prompt || ''),
-        temperature: typeof p.temperature === 'number' ? p.temperature : 0.7
-      };
-      if (idx >= 0) personas[idx] = record;
-      else personas.push(record);
-      save();
-      return { ok: true, personas };
-    });
-
-    ctx.ipc.handle('deletePersona', args => {
-      if (personas.length <= 1) return { ok: false, error: '至少需保留一个人设卡' };
-      personas = personas.filter(p => p.id !== args.id);
-      save();
-      return { ok: true, personas };
     });
 
     ctx.ipc.handle('abortStream', args => {

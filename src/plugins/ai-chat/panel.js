@@ -289,10 +289,18 @@
         <div class="ai-modal-overlay hidden" id="settingsModal">
           <div class="ai-modal-card">
             <div class="ai-modal-header">
-              <span class="ai-modal-title">⚙️ AI 模型与协议配置</span>
+              <span class="ai-modal-title">⚙️ AI 设置与管理</span>
               <button class="ai-modal-close" id="btnCloseSettings">×</button>
             </div>
-            <div class="ai-modal-body">
+
+            <!-- 设置选项卡导航 -->
+            <div class="ai-modal-nav-tabs" id="settingsNavTabs">
+              <button type="button" class="ai-modal-nav-tab active" data-tab="model" id="tabNavModel">⚙️ 模型与渠道</button>
+              <button type="button" class="ai-modal-nav-tab" data-tab="personas" id="tabNavPersonas">🎭 人设卡片管理</button>
+            </div>
+
+            <!-- 板块 1: 模型与渠道配置 -->
+            <div class="ai-modal-body ai-tab-pane active" id="paneModelSettings">
               <div class="ai-form-group">
                 <label class="ai-form-label">对接渠道 (Channel Preset)</label>
                 <select class="ai-form-select" id="cfgChannel"></select>
@@ -363,7 +371,68 @@
                 <input type="number" class="ai-form-input" id="cfgMaxContext" min="2" max="64" value="16">
               </div>
             </div>
-            <div class="ai-modal-footer">
+
+            <!-- 板块 2: 人设卡片管理 -->
+            <div class="ai-modal-body ai-tab-pane hidden" id="panePersonasSettings">
+              <div class="ai-personas-header">
+                <div class="ai-personas-subhead">
+                  <span class="ai-personas-hint">配置角色人设与 Prompt，随时用于会话指导模型回答</span>
+                </div>
+                <div class="ai-personas-actions">
+                  <button type="button" class="ai-btn-text-action" id="btnResetPersonas" title="恢复内置默认的人设">🔄 恢复默认</button>
+                  <button type="button" class="ai-edit-btn primary" id="btnCreatePersona">+ 新建人设</button>
+                </div>
+              </div>
+
+              <!-- 人设卡片列表 -->
+              <div class="ai-personas-list" id="personasCardList"></div>
+
+              <!-- 内联/模态人设编辑器 (新增或编辑时展开) -->
+              <div class="ai-persona-edit-panel hidden" id="personaEditPanel">
+                <div class="ai-persona-edit-header">
+                  <span class="ai-persona-edit-title" id="personaEditTitle">编辑人设</span>
+                  <button type="button" class="ai-modal-close" id="btnClosePersonaEdit">×</button>
+                </div>
+                <div class="ai-persona-edit-body">
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">人设标题 (Title)</label>
+                    <input type="text" class="ai-form-input" id="inputPersonaTitle" placeholder="例如：前端架构师、Python 调试助手…">
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">人设图标 Emoji (Icon)</label>
+                    <div class="ai-persona-icon-row">
+                      <input type="text" class="ai-form-input ai-input-icon" id="inputPersonaIcon" value="✨" maxlength="4">
+                      <div class="ai-quick-emojis" id="quickEmojiList">
+                        <span class="ai-emoji-pill" data-emoji="✨">✨</span>
+                        <span class="ai-emoji-pill" data-emoji="💻">💻</span>
+                        <span class="ai-emoji-pill" data-emoji="🌐">🌐</span>
+                        <span class="ai-emoji-pill" data-emoji="✍️">✍️</span>
+                        <span class="ai-emoji-pill" data-emoji="⚡">⚡</span>
+                        <span class="ai-emoji-pill" data-emoji="🎨">🎨</span>
+                        <span class="ai-emoji-pill" data-emoji="🔍">🔍</span>
+                        <span class="ai-emoji-pill" data-emoji="📊">📊</span>
+                        <span class="ai-emoji-pill" data-emoji="🤖">🤖</span>
+                        <span class="ai-emoji-pill" data-emoji="🧪">🧪</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">专属温度 (Temperature): <span id="personaTempVal">0.7</span></label>
+                    <input type="range" min="0" max="2" step="0.1" value="0.7" id="personaTempRange">
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">系统提示词 (System Prompt)</label>
+                    <textarea class="ai-persona-prompt-textarea" id="inputPersonaPrompt" placeholder="详细设定该角色的背景、性格、专业技能、约束条件等…" rows="5"></textarea>
+                  </div>
+                </div>
+                <div class="ai-persona-edit-footer">
+                  <button type="button" class="ai-edit-btn" id="btnCancelPersonaEdit">取消</button>
+                  <button type="button" class="ai-edit-btn primary" id="btnSavePersona">保存人设</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="ai-modal-footer" id="settingsModalFooter">
               <button class="ai-edit-btn" id="btnCancelSettings">取消</button>
               <button class="ai-edit-btn primary" id="btnSaveSettings">保存配置</button>
             </div>
@@ -418,6 +487,27 @@
     const cfgTempVal = el.querySelector('#cfgTempVal');
     const cfgMaxContext = el.querySelector('#cfgMaxContext');
 
+    // Settings Tabs & Personas Management DOM
+    const tabNavModel = el.querySelector('#tabNavModel');
+    const tabNavPersonas = el.querySelector('#tabNavPersonas');
+    const paneModelSettings = el.querySelector('#paneModelSettings');
+    const panePersonasSettings = el.querySelector('#panePersonasSettings');
+    const settingsModalFooter = el.querySelector('#settingsModalFooter');
+    const btnResetPersonas = el.querySelector('#btnResetPersonas');
+    const btnCreatePersona = el.querySelector('#btnCreatePersona');
+    const personasCardList = el.querySelector('#personasCardList');
+    const personaEditPanel = el.querySelector('#personaEditPanel');
+    const personaEditTitle = el.querySelector('#personaEditTitle');
+    const btnClosePersonaEdit = el.querySelector('#btnClosePersonaEdit');
+    const inputPersonaTitle = el.querySelector('#inputPersonaTitle');
+    const inputPersonaIcon = el.querySelector('#inputPersonaIcon');
+    const quickEmojiList = el.querySelector('#quickEmojiList');
+    const personaTempVal = el.querySelector('#personaTempVal');
+    const personaTempRange = el.querySelector('#personaTempRange');
+    const inputPersonaPrompt = el.querySelector('#inputPersonaPrompt');
+    const btnCancelPersonaEdit = el.querySelector('#btnCancelPersonaEdit');
+    const btnSavePersona = el.querySelector('#btnSavePersona');
+
     // State
     let config = {};
     let personas = [];
@@ -428,6 +518,7 @@
     let searchKeyword = '';
     let remoteModels = [];
     let activeModelTab = 'channel';
+    let editingPersonaId = null;
 
     /* --- Auto Resize Textarea --------------------------------------------- */
     function autoResizeInput() {
@@ -997,6 +1088,157 @@
       cfgChannel.appendChild(opt);
     });
 
+    /* --- Settings Tabs (Model & Personas) --- */
+    function switchSettingsTab(tabName) {
+      tabNavModel.classList.toggle('active', tabName === 'model');
+      tabNavPersonas.classList.toggle('active', tabName === 'personas');
+      paneModelSettings.classList.toggle('hidden', tabName !== 'model');
+      panePersonasSettings.classList.toggle('hidden', tabName !== 'personas');
+      settingsModalFooter.style.display = tabName === 'model' ? 'flex' : 'none';
+      if (tabName === 'personas') {
+        closePersonaEditor();
+        renderPersonasSettingsList();
+      }
+    }
+
+    tabNavModel.addEventListener('click', () => switchSettingsTab('model'));
+    tabNavPersonas.addEventListener('click', () => switchSettingsTab('personas'));
+
+    /* --- Personas Management Controller --- */
+    function renderPersonasSettingsList() {
+      personasCardList.innerHTML = '';
+      if (!personas || personas.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'ai-model-empty-tip';
+        empty.textContent = '暂无人设卡片，点击右上角新建';
+        personasCardList.appendChild(empty);
+        return;
+      }
+
+      personas.forEach(p => {
+        const card = document.createElement('div');
+        card.className = 'ai-persona-card';
+        card.innerHTML = `
+          <div class="ai-persona-card-header">
+            <div class="ai-persona-card-info">
+              <span class="ai-persona-card-icon">${escapeHtml(p.icon || '✨')}</span>
+              <span class="ai-persona-card-title">${escapeHtml(p.title || '未命名')}</span>
+              <span class="ai-persona-card-temp">T: ${p.temperature ?? 0.7}</span>
+            </div>
+            <div class="ai-persona-card-btns">
+              <button type="button" class="ai-persona-card-btn edit" data-id="${p.id}" title="编辑人设">✏️ 编辑</button>
+              <button type="button" class="ai-persona-card-btn del" data-id="${p.id}" title="删除人设">🗑️ 删除</button>
+            </div>
+          </div>
+          <div class="ai-persona-card-prompt">${escapeHtml(p.prompt || '(未设置提示词)')}</div>
+        `;
+
+        card.querySelector('.ai-persona-card-btn.edit').addEventListener('click', () => {
+          openPersonaEditor(p);
+        });
+
+        card.querySelector('.ai-persona-card-btn.del').addEventListener('click', async () => {
+          if (personas.length <= 1) {
+            alert('必须保留至少一个人设角色，无法删除');
+            return;
+          }
+          if (!confirm(`确定要删除人设「${p.title}」吗？`)) return;
+          const res = await ctx.call('deletePersona', { id: p.id });
+          if (res && res.ok) {
+            personas = res.personas;
+            renderPersonas();
+            renderPersonasSettingsList();
+          } else {
+            alert(`删除失败: ${(res && res.error) || '未知错误'}`);
+          }
+        });
+
+        personasCardList.appendChild(card);
+      });
+    }
+
+    function openPersonaEditor(p) {
+      if (p) {
+        editingPersonaId = p.id;
+        personaEditTitle.textContent = `编辑人设: ${p.title}`;
+        inputPersonaTitle.value = p.title || '';
+        inputPersonaIcon.value = p.icon || '✨';
+        personaTempRange.value = p.temperature ?? 0.7;
+        personaTempVal.textContent = p.temperature ?? 0.7;
+        inputPersonaPrompt.value = p.prompt || '';
+      } else {
+        editingPersonaId = null;
+        personaEditTitle.textContent = '新建人设卡片';
+        inputPersonaTitle.value = '';
+        inputPersonaIcon.value = '✨';
+        personaTempRange.value = 0.7;
+        personaTempVal.textContent = '0.7';
+        inputPersonaPrompt.value = '';
+      }
+      personasCardList.classList.add('hidden');
+      personaEditPanel.classList.remove('hidden');
+      inputPersonaTitle.focus();
+    }
+
+    function closePersonaEditor() {
+      personaEditPanel.classList.add('hidden');
+      personasCardList.classList.remove('hidden');
+      editingPersonaId = null;
+    }
+
+    btnClosePersonaEdit.addEventListener('click', closePersonaEditor);
+    btnCancelPersonaEdit.addEventListener('click', closePersonaEditor);
+
+    personaTempRange.addEventListener('input', () => {
+      personaTempVal.textContent = personaTempRange.value;
+    });
+
+    quickEmojiList.querySelectorAll('.ai-emoji-pill').forEach(pill => {
+      pill.addEventListener('click', () => {
+        inputPersonaIcon.value = pill.dataset.emoji;
+      });
+    });
+
+    btnCreatePersona.addEventListener('click', () => {
+      openPersonaEditor(null);
+    });
+
+    btnResetPersonas.addEventListener('click', async () => {
+      if (!confirm('确定要恢复默认的人设卡片吗？自定义新增的人设将被重置。')) return;
+      const res = await ctx.call('resetPersonas');
+      if (res && res.ok) {
+        personas = res.personas;
+        closePersonaEditor();
+        renderPersonas();
+        renderPersonasSettingsList();
+      }
+    });
+
+    btnSavePersona.addEventListener('click', async () => {
+      const title = inputPersonaTitle.value.trim();
+      if (!title) {
+        alert('请输入人设标题');
+        inputPersonaTitle.focus();
+        return;
+      }
+      const patch = {
+        id: editingPersonaId,
+        title,
+        icon: inputPersonaIcon.value.trim() || '✨',
+        temperature: Number(personaTempRange.value),
+        prompt: inputPersonaPrompt.value.trim()
+      };
+      const res = await ctx.call('savePersona', patch);
+      if (res && res.ok) {
+        personas = res.personas;
+        closePersonaEditor();
+        renderPersonas();
+        renderPersonasSettingsList();
+      } else {
+        alert(`保存失败: ${(res && res.error) || '未知错误'}`);
+      }
+    });
+
     function getAllPresetModels() {
       const all = [];
       const seen = new Set();
@@ -1210,6 +1452,7 @@
     });
 
     btnOpenSettings.addEventListener('click', () => {
+      switchSettingsTab('model');
       const chId = config.channel || 'openai';
       cfgChannel.value = PRESET_CHANNELS.some(x => x.id === chId) ? chId : 'custom';
       cfgProtocol.value = config.protocol || 'openai-chat';

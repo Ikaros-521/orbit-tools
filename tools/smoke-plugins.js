@@ -109,6 +109,11 @@ app.whenReady().then(async () => {
   if (!aiInit || !aiInit.config || !Array.isArray(aiInit.personas)) throw new Error('ai-chat getInitData failed');
   const aiNewSess = await manager.call('ai-chat', 'createSession', { title: '冒烟测试会话' });
   if (!aiNewSess.ok || aiNewSess.session.title !== '冒烟测试会话') throw new Error('ai-chat createSession failed');
+  const pCreated = await manager.call('ai-chat', 'savePersona', { title: '测试人设', icon: '🧪', prompt: '你是一个测试者' });
+  if (!pCreated || !pCreated.ok) throw new Error(`ai-chat savePersona failed: ${JSON.stringify(pCreated)}`);
+  if (!pCreated.persona || pCreated.persona.title !== '测试人设') throw new Error(`ai-chat savePersona title mismatch: ${JSON.stringify(pCreated)}`);
+  const pDel = await manager.call('ai-chat', 'deletePersona', { id: pCreated.persona.id });
+  if (!pDel.ok) throw new Error('ai-chat deletePersona failed');
   console.log('ai-chat session & persona IPC OK');
 
   // kill guard through the router
