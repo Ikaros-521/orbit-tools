@@ -1152,17 +1152,31 @@ body {
 .wf-insp-field { display: flex; flex-direction: column; gap: 3px; }
 .wf-insp-label { font-size: 10.5px; font-weight: 600; color: light-dark(#374151, #cbd5e1); }
 .wf-insp-hint { font-size: 10px; color: light-dark(#9ca3af, #6b7280); }
+/* 与顶部工作流名称输入框 (.wf-meta-name input) 保持同一套观感 */
 .wf-insp-input {
-  background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line); border-radius: 6px;
-  padding: 5px 8px; font-size: 12px; color: var(--ink); outline: none; width: 100%;
+  background-color: light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--line-strong); border-radius: 7px;
+  padding: 5px 10px; font-size: 12.5px; color: var(--ink); outline: none; width: 100%;
   box-sizing: border-box; transition: border-color .15s;
 }
-.wf-insp-input:focus { border-color: var(--accent); }
+.wf-insp-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px light-dark(rgba(2, 132, 199, .12), rgba(56, 189, 248, .16));
+}
+.wf-insp-input::placeholder { color: var(--ink-faint); }
+select.wf-insp-input {
+  appearance: none; cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2384949a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  padding-right: 28px;
+}
+select.wf-insp-input option { background: light-dark(#fbfcfb, #161a1d); color: light-dark(#141d1a, #fff); }
 .wf-insp-textarea { resize: vertical; min-height: 48px; font-family: var(--font-mono); }
 .wf-insp-check { width: 15px; height: 15px; accent-color: #9b59b6; cursor: pointer; }
 .wf-insp-field:has(.wf-insp-check) { flex-direction: row; align-items: center; gap: 8px; }
 .wf-insp-info {
   font-size: 10.5px; color: light-dark(#4b5563, #94a3b8); line-height: 1.5;
-  padding: 6px 8px; border-radius: 6px; background: rgba(0, 0, 0, 0.12);
+  padding: 6px 8px; border-radius: 6px;
+  background: light-dark(rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.12));
   word-break: break-all;
 }
