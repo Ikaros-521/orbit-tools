@@ -6,6 +6,7 @@ const DEFAULTS = {
   actionPaletteHotkey: 'Ctrl+K',
   lang: 'zh',
   theme: 'auto',
+  deckSort: 'default',  // tool page order: default | frequent | recent | name
   enabled: {},          // pluginId -> bool; absent = manifest default
   pluginHotkeys: {},    // "pluginId:actionId" -> accelerator
   windowBounds: null,
