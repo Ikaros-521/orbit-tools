@@ -51,7 +51,15 @@
       </div>
       <!-- 智能自省直达胶囊 / Smart Peek -->
       <div class="smart-peek" id="smartPeek" hidden></div>
-      <p class="deck-meta" id="deckMeta"></p>
+      <div class="deck-bar">
+        <p class="deck-meta" id="deckMeta"></p>
+        <div class="filter-group" id="deckSort" role="group" aria-label="工具排序方式">
+          <button type="button" class="pill on" data-sort="default" data-i18n="sortDefault">默认</button>
+          <button type="button" class="pill" data-sort="frequent" data-i18n="sortFrequent">常用优先</button>
+          <button type="button" class="pill" data-sort="recent" data-i18n="sortRecent">最近使用</button>
+          <button type="button" class="pill" data-sort="name" data-i18n="sortName">名称</button>
+        </div>
+      </div>
       <div class="deck" id="deck"></div>
       <p class="empty" id="empty" hidden></p>
     </section>

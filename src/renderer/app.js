@@ -6,6 +6,7 @@ const els = {
   tabs: $('tabs'), langSeg: $('langSeg'), themeSeg: $('themeSeg'),
   langSeg2: $('langSeg2'), themeSeg2: $('themeSeg2'), winctl: $('winctl'),
   search: $('search'), hotHint: $('hotHint'), apHint: $('apHint'), deckMeta: $('deckMeta'), deck: $('deck'), empty: $('empty'),
+  deckSort: $('deckSort'),
   smartPeek: $('smartPeek'),
   actionPaletteHotkeyCtrl: $('actionPaletteHotkeyCtrl'),
   actionPaletteMask: $('actionPaletteMask'),
@@ -81,6 +82,7 @@ const state = {
   actionPaletteIndex: 0,
   usage: {},            // usageId -> {n, t} frecency (persisted main-side)
   deckIndex: 0,         // keyboard-selected card on the home deck
+  deckSort: 'default',  // home deck order: default | frequent | recent | name
   // Workflows canvas state
   workflows: [],
   currentWorkflowId: null,
@@ -146,9 +148,58 @@ function pluginText(p) {
   // 拼音全拼+首字母并入匹配域：jt / jietu 也能命中「截图悬浮」
   return window.PaletteSearch.enrich(base, `${p.name.zh || ''} ${p.name.en || ''}`);
 }
+const DECK_SORTS = ['default', 'frequent', 'recent', 'name'];
+
+/* Palette usage is recorded per entry ('action:<id>:<key>', 'ctx:<id>:…'), but
+   the deck ranks tools. Every key except 'workflow:<id>' carries the plugin id
+   as its second segment, so sum the counts and keep the newest stamp. */
+function pluginUsageIndex() {
+  const idx = Object.create(null);
+  for (const [key, u] of Object.entries(state.usage || {})) {
+    const bits = key.split(':');
+    if (!u || bits.length < 2 || bits[0] === 'workflow') continue;
+    const cur = idx[bits[1]] || (idx[bits[1]] = { n: 0, t: 0 });
+    cur.n += u.n || 0;
+    cur.t = Math.max(cur.t, u.t || 0);
+  }
+  return idx;
+}
+
+const deckToolName = p => (window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en)) || p.id;
+
+/* 'frequent' reuses the palette frecency curve (count damped by age). Unused
+   tools score 0 and fall back to id order, so the mode only ever moves tools
+   the user has actually opened. */
+function sortDeck(list) {
+  const mode = state.deckSort;
+  if (mode === 'default') return list;
+  const byId = (a, b) => a.id.localeCompare(b.id);
+  const arr = [...list];
+  if (mode === 'name') {
+    const loc = window.I18N.lang === 'en' ? 'en' : 'zh';
+    arr.sort((a, b) => deckToolName(a).localeCompare(deckToolName(b), loc) || byId(a, b));
+    return arr;
+  }
+  const idx = pluginUsageIndex();
+  if (mode === 'recent') {
+    arr.sort((a, b) => ((idx[b.id] || {}).t || 0) - ((idx[a.id] || {}).t || 0) || byId(a, b));
+    return arr;
+  }
+  const ps = window.PaletteSearch;
+  arr.sort((a, b) => ps.usageScore(idx, b.id) - ps.usageScore(idx, a.id) || byId(a, b));
+  return arr;
+}
+
 function visibleDeckPlugins() {
   const q = state.query.trim().toLowerCase();
-  return state.plugins.filter(p => p.enabled && (!q || pluginText(p).includes(q)));
+  return sortDeck(state.plugins.filter(p => p.enabled && (!q || pluginText(p).includes(q))));
+}
+/* Deck clicks are the one usage channel the palettes don't already record —
+   without them a user who never opens Ctrl+K has nothing to rank by. */
+function useDeckTool(p) {
+  if (!p) return;
+  bumpUsageId(`plugin:${p.id}`);
+  openPlugin(p.id);
 }
 function updateDeckSelection(scroll = true) {
   const cards = els.deck.querySelectorAll('.card');
@@ -166,12 +217,13 @@ function renderDeck() {
     const card = document.createElement('button');
     card.type = 'button';
     card.className = `card${i === state.deckIndex ? ' selected' : ''}`;
+    card.dataset.id = p.id;
     card.innerHTML = `
       <span class="card-icon">${p.iconSvg || escapeHtml(p.iconText)}</span>
       <span class="card-name"></span>
       <span class="card-desc"></span>
       <span class="card-tags"></span>`;
-    card.querySelector('.card-name').textContent = window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en);
+    card.querySelector('.card-name').textContent = deckToolName(p);
     card.querySelector('.card-desc').textContent = window.I18N.lang === 'en' ? (p.desc.en || p.desc.zh) : (p.desc.zh || p.desc.en);
     const tags = card.querySelector('.card-tags');
     for (const a of p.actions) {
@@ -182,7 +234,7 @@ function renderDeck() {
         tags.appendChild(kbd);
       }
     }
-    card.addEventListener('click', () => openPlugin(p.id));
+    card.addEventListener('click', () => useDeckTool(p));
     card.addEventListener('contextmenu', e => {
       e.preventDefault();
       e.stopPropagation();
@@ -198,7 +250,15 @@ function renderDeck() {
     els.deck.appendChild(card);
   });
   const enabledCount = state.plugins.filter(p => p.enabled).length;
-  els.deckMeta.textContent = state.query.trim() ? t('deckMeta', { n: shown.length }) : t('deckMeta', { n: enabledCount });
+  let meta = state.query.trim() ? t('deckMeta', { n: shown.length }) : t('deckMeta', { n: enabledCount });
+  if ((state.deckSort === 'frequent' || state.deckSort === 'recent')
+    && Object.keys(pluginUsageIndex()).length === 0) {
+    meta += ` · ${t('noUsageYet')}`;
+  }
+  els.deckMeta.textContent = meta;
+  for (const b of els.deckSort.querySelectorAll('button')) {
+    b.classList.toggle('on', b.dataset.sort === state.deckSort);
+  }
   const emptyMsg = enabledCount === 0 ? t('noTools') : t('empty');
   els.empty.textContent = emptyMsg;
   els.empty.hidden = shown.length > 0;
@@ -436,6 +496,8 @@ function setView(view) {
     els.search.focus();
     els.search.select();
     checkClipboardSmartPeek();
+    // the tool just used came from this deck, so its rank has to be recomputed
+    if (state.deckSort === 'frequent' || state.deckSort === 'recent') renderDeck();
   } else {
     hideSmartPeek();
   }
@@ -866,6 +928,8 @@ async function init() {
   // empty until the user first opens the workflows view
   if (Array.isArray(boot.workflows)) state.workflows = boot.workflows;
   state.usage = boot.usage || {};
+  // a hand-edited config.json can hold anything — only the four real modes rank
+  state.deckSort = DECK_SORTS.includes(boot.config.deckSort) ? boot.config.deckSort : 'default';
   state.userPluginsDir = boot.userPluginsDir;
   state.defaultUserPluginsDir = boot.defaultUserPluginsDir;
   state.isCustomUserPluginsDir = boot.isCustomUserPluginsDir;
@@ -925,7 +989,7 @@ els.search.addEventListener('keydown', e => {
     }
     const shown = visibleDeckPlugins();
     const target = shown[Math.min(state.deckIndex, shown.length - 1)];
-    if (target) openPlugin(target.id);
+    if (target) useDeckTool(target);
   } else if (e.key === 'Tab' && state.smartPeekData) {
     e.preventDefault();
     openPlugin(state.smartPeekData.pluginId);
@@ -936,6 +1000,14 @@ els.search.addEventListener('keydown', e => {
     if (els.search.value) { els.search.value = ''; state.query = ''; renderDeck(); }
     else els.search.blur();
   }
+});
+els.deckSort.addEventListener('click', async e => {
+  const b = e.target.closest('button[data-sort]');
+  if (!b || b.dataset.sort === state.deckSort) return;
+  state.deckSort = b.dataset.sort;
+  state.deckIndex = 0;
+  await window.host.setPref('deckSort', state.deckSort);
+  renderDeck();
 });
 for (const seg of [els.langSeg, els.langSeg2]) {
   seg.addEventListener('click', async e => {
@@ -2882,15 +2954,19 @@ function closeActionPalette() {
   state.actionPaletteFiltered = [];
 }
 
-function trackActionRun(item) {
-  if (!item || !item.usageId || !window.host.bumpUsage) return;
-  const u = state.usage[item.usageId] || { n: 0, t: 0 };
+function bumpUsageId(id) {
+  if (!id || !window.host.bumpUsage) return;
+  const u = state.usage[id] || { n: 0, t: 0 };
   u.n += 1;
   u.t = Date.now();
-  state.usage[item.usageId] = u;
-  window.host.bumpUsage(item.usageId)
-    .then(us => { if (us && us[item.usageId]) state.usage = us; })
+  state.usage[id] = u;
+  window.host.bumpUsage(id)
+    .then(us => { if (us && us[id]) state.usage = us; })
     .catch(() => {});
+}
+
+function trackActionRun(item) {
+  bumpUsageId(item && item.usageId);
 }
 
 function executeActionPaletteItem(item) {

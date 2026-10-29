@@ -226,6 +226,8 @@ body {
 }
 
 .deck-meta { font-size: 12px; color: var(--ink-faint); letter-spacing: .12em; padding-left: 4px; }
+/* tool page: count on the left, sort pills on the right */
+.deck-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
 
 /* deck (cards) ------------------------------------------------------------------ */
 .deck {
