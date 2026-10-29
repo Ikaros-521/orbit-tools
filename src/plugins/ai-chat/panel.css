@@ -939,3 +939,238 @@
   border-top: 1px solid var(--line);
   background: var(--panel-lo);
 }
+
+/* Model Combobox & Search Dropdown */
+.ai-form-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ai-btn-text-action {
+  background: none;
+  border: none;
+  color: var(--amber);
+  font-size: 11.5px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  font-family: var(--font-display);
+  transition: all 0.15s;
+}
+
+.ai-btn-text-action:hover {
+  background: var(--amber-soft);
+}
+
+.ai-btn-text-action:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ai-fetch-icon.spinning {
+  display: inline-block;
+  animation: ai-spin 1s linear infinite;
+}
+
+@keyframes ai-spin {
+  100% { transform: rotate(360deg); }
+}
+
+.ai-model-combobox-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.ai-model-combobox-wrap .ai-form-input {
+  width: 100%;
+  padding-right: 36px;
+  font-family: var(--font-mono);
+}
+
+.ai-btn-open-model-search {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  color: var(--ink-dim);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 4px;
+  border-radius: var(--r-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.15s;
+}
+
+.ai-btn-open-model-search:hover {
+  color: var(--amber);
+  background: var(--panel-hi);
+}
+
+/* Expanded Search Panel */
+.ai-model-search-panel {
+  background: var(--panel-hi);
+  border: 1px solid var(--amber);
+  border-radius: var(--r-md);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow);
+  margin-top: 4px;
+  animation: ai-fade-in 0.15s ease-out;
+}
+
+.ai-model-search-panel.hidden {
+  display: none;
+}
+
+@keyframes ai-fade-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ai-model-search-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ai-search-ico {
+  position: absolute;
+  left: 8px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  pointer-events: none;
+}
+
+.ai-model-search-input {
+  width: 100%;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 26px 6px 26px;
+  font-size: 12px;
+  color: var(--ink);
+  outline: none;
+  box-sizing: border-box;
+}
+
+.ai-model-search-input:focus {
+  border-color: var(--amber);
+}
+
+.ai-model-search-clear {
+  position: absolute;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.ai-model-search-clear.hidden {
+  display: none;
+}
+
+.ai-model-filter-tabs {
+  display: flex;
+  gap: 6px;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 6px;
+}
+
+.ai-filter-tab {
+  background: none;
+  border: none;
+  font-size: 11px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  transition: all 0.15s;
+}
+
+.ai-filter-tab:hover {
+  color: var(--ink);
+  background: var(--inset);
+}
+
+.ai-filter-tab.active {
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.ai-filter-tab.hidden {
+  display: none;
+}
+
+.ai-model-results-list {
+  max-height: 170px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding-right: 2px;
+}
+
+.ai-model-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 8px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--ink);
+  transition: background 0.12s;
+  user-select: none;
+}
+
+.ai-model-item:hover, .ai-model-item.selected {
+  background: var(--amber-soft);
+}
+
+.ai-model-item .ai-model-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-item .ai-model-badge {
+  font-size: 10px;
+  font-family: var(--font-display);
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.ai-model-item.remote .ai-model-badge {
+  background: var(--green-soft);
+  color: var(--green);
+  border-color: var(--green);
+}
+
+.ai-model-empty-tip {
+  padding: 16px 8px;
+  text-align: center;
+  font-size: 11.5px;
+  color: var(--ink-faint);
+  font-family: var(--font-display);
+}

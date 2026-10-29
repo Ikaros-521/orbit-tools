@@ -2,7 +2,7 @@
    Run with: node tools/test-ai-protocols.js */
 
 const assert = require('assert');
-const { PROTOCOLS, SSEParser } = require('../src/plugins/ai-chat/protocols');
+const { PROTOCOLS, SSEParser, fetchRemoteModels } = require('../src/plugins/ai-chat/protocols');
 const { AGENT_TOOLS_DEFINITIONS, executeAgentTool } = require('../src/plugins/ai-chat/agent-tools');
 
 function testOpenAIChatProtocol() {
@@ -175,12 +175,51 @@ async function testAgentTools() {
   console.log('PASS: Agent Tools (run_javascript, get_current_time, create_workflow)');
 }
 
+async function testFetchRemoteModels() {
+  const http = require('http');
+  const server = http.createServer((req, res) => {
+    if (req.url === '/v1/models') {
+      assert(req.headers['authorization'] === 'Bearer sk-mock-key' || req.headers['x-api-key']);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({
+        data: [
+          { id: 'deepseek-chat', object: 'model' },
+          { id: 'deepseek-reasoner', object: 'model' },
+          { id: 'gpt-4o', object: 'model' }
+        ]
+      }));
+    } else {
+      res.writeHead(404);
+      res.end('Not found');
+    }
+  });
+
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}/v1`;
+
+  try {
+    const models = await fetchRemoteModels({
+      protocol: 'openai-chat',
+      baseUrl,
+      apiKey: 'sk-mock-key'
+    });
+    assert.strictEqual(models.length, 3);
+    assert(models.includes('deepseek-reasoner'));
+    assert(models.includes('gpt-4o'));
+    console.log('PASS: fetchRemoteModels from API endpoint');
+  } finally {
+    await new Promise(resolve => server.close(resolve));
+  }
+}
+
 async function main() {
   testOpenAIChatProtocol();
   testClaudeMessagesProtocol();
   testOpenAIResponsesProtocol();
   testSSEParser();
   await testAgentTools();
+  await testFetchRemoteModels();
   console.log('\nALL PROTOCOL & AGENT TESTS PASSED!');
 }
 

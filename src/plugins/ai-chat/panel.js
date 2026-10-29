@@ -13,7 +13,8 @@
       icon: '🟢',
       protocol: 'openai-chat',
       baseUrl: 'https://api.openai.com/v1',
-      models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o3-mini', 'gpt-3.5-turbo']
+      defaultModel: 'gpt-4o-mini',
+      models: ['gpt-4o', 'gpt-4o-mini', 'o1', 'o1-mini', 'o1-preview', 'o3-mini', 'gpt-4-turbo', 'gpt-4', 'gpt-3.5-turbo']
     },
     {
       id: 'deepseek',
@@ -21,6 +22,7 @@
       icon: '🐋',
       protocol: 'openai-chat',
       baseUrl: 'https://api.deepseek.com/v1',
+      defaultModel: 'deepseek-chat',
       models: ['deepseek-chat', 'deepseek-reasoner']
     },
     {
@@ -29,7 +31,8 @@
       icon: '🟣',
       protocol: 'claude-messages',
       baseUrl: 'https://api.anthropic.com/v1',
-      models: ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229']
+      defaultModel: 'claude-3-7-sonnet-20250219',
+      models: ['claude-3-7-sonnet-20250219', 'claude-3-5-sonnet-20241022', 'claude-3-5-haiku-20241022', 'claude-3-opus-20240229', 'claude-3-haiku-20240307']
     },
     {
       id: 'siliconflow',
@@ -37,7 +40,8 @@
       icon: '⚡',
       protocol: 'openai-chat',
       baseUrl: 'https://api.siliconflow.cn/v1',
-      models: ['deepseek-ai/DeepSeek-R1', 'deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct', 'THUDM/glm-4-9b-chat']
+      defaultModel: 'deepseek-ai/DeepSeek-V3',
+      models: ['deepseek-ai/DeepSeek-R1', 'deepseek-ai/DeepSeek-V3', 'Qwen/Qwen2.5-72B-Instruct', 'Qwen/Qwen2.5-Coder-32B-Instruct', 'meta-llama/Llama-3.3-70B-Instruct', 'THUDM/glm-4-9b-chat']
     },
     {
       id: 'moonshot',
@@ -45,7 +49,8 @@
       icon: '🌙',
       protocol: 'openai-chat',
       baseUrl: 'https://api.moonshot.cn/v1',
-      models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k']
+      defaultModel: 'moonshot-v1-8k',
+      models: ['moonshot-v1-8k', 'moonshot-v1-32k', 'moonshot-v1-128k', 'moonshot-v1-auto']
     },
     {
       id: 'dashscope',
@@ -53,7 +58,8 @@
       icon: '🟠',
       protocol: 'openai-chat',
       baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-      models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwq-32b', 'deepseek-r1', 'deepseek-v3']
+      defaultModel: 'qwen-plus',
+      models: ['qwen-max', 'qwen-plus', 'qwen-turbo', 'qwq-32b', 'deepseek-r1', 'deepseek-v3', 'qwen2.5-coder-32b-instruct']
     },
     {
       id: 'zhipu',
@@ -61,7 +67,8 @@
       icon: '🧠',
       protocol: 'openai-chat',
       baseUrl: 'https://open.bigmodel.cn/api/paas/v4',
-      models: ['glm-4-plus', 'glm-4-flash', 'glm-4-long', 'glm-4-air']
+      defaultModel: 'glm-4-plus',
+      models: ['glm-4-plus', 'glm-4-flash', 'glm-4-air', 'glm-4-long', 'glm-4v-plus', 'glm-zero-preview']
     },
     {
       id: 'ollama',
@@ -69,7 +76,8 @@
       icon: '🦙',
       protocol: 'openai-chat',
       baseUrl: 'http://localhost:11434/v1',
-      models: ['deepseek-r1:7b', 'deepseek-r1:8b', 'llama3.3', 'qwen2.5:7b', 'mistral']
+      defaultModel: 'deepseek-r1:latest',
+      models: ['deepseek-r1:latest', 'deepseek-r1:7b', 'deepseek-r1:8b', 'deepseek-r1:14b', 'deepseek-r1:32b', 'qwen2.5:latest', 'qwen2.5:7b', 'qwen2.5-coder:latest', 'llama3.3:latest', 'llama3.1:8b', 'mistral:latest', 'gemma2:latest']
     },
     {
       id: 'openrouter',
@@ -77,7 +85,8 @@
       icon: '🌐',
       protocol: 'openai-chat',
       baseUrl: 'https://openrouter.ai/api/v1',
-      models: ['deepseek/deepseek-r1', 'anthropic/claude-3.7-sonnet', 'openai/gpt-4o', 'meta-llama/llama-3.3-70b-instruct']
+      defaultModel: 'deepseek/deepseek-r1',
+      models: ['deepseek/deepseek-r1', 'anthropic/claude-3.7-sonnet', 'anthropic/claude-3.5-sonnet', 'openai/gpt-4o', 'openai/o1', 'meta-llama/llama-3.3-70b-instruct', 'google/gemini-2.0-flash-001', 'qwen/qwen-2.5-72b-instruct']
     },
     {
       id: 'groq',
@@ -85,7 +94,8 @@
       icon: '🚀',
       protocol: 'openai-chat',
       baseUrl: 'https://api.groq.com/openai/v1',
-      models: ['deepseek-r1-distill-llama-70b', 'llama-3.3-70b-versatile', 'mixtral-8x7b-32768']
+      defaultModel: 'deepseek-r1-distill-llama-70b',
+      models: ['deepseek-r1-distill-llama-70b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant', 'mixtral-8x7b-32768', 'gemma2-9b-it']
     },
     {
       id: 'custom',
@@ -93,6 +103,7 @@
       icon: '🛠️',
       protocol: 'openai-chat',
       baseUrl: '',
+      defaultModel: 'gpt-4o-mini',
       models: []
     }
   ];
@@ -312,8 +323,32 @@
               </div>
 
               <div class="ai-form-group">
-                <label class="ai-form-label">模型标识 (Model)</label>
-                <input type="text" class="ai-form-input" id="cfgModel" placeholder="gpt-4o-mini">
+                <div class="ai-form-label-row">
+                  <label class="ai-form-label">模型标识 (Model)</label>
+                  <button type="button" class="ai-btn-text-action" id="btnFetchModels" title="从 API 在线拉取该渠道可用模型 (GET /v1/models)">
+                    <span class="ai-fetch-icon" id="iconFetchSpin">🔄</span> 在线拉取模型
+                  </button>
+                </div>
+                <div class="ai-model-combobox-wrap">
+                  <input type="text" class="ai-form-input" id="cfgModel" placeholder="选择、搜索或输入模型标识…" autocomplete="off">
+                  <button type="button" class="ai-btn-open-model-search" id="btnToggleModelSearch" title="展开/收起模型搜索库">🔍</button>
+                </div>
+
+                <!-- 展开式模型搜索面板 -->
+                <div class="ai-model-search-panel hidden" id="modelSearchPanel">
+                  <div class="ai-model-search-header">
+                    <span class="ai-search-ico">🔍</span>
+                    <input type="text" class="ai-model-search-input" id="inputModelSearch" placeholder="搜索模型 (如 deepseek, r1, claude, 4o, qwen, llama…)" autocomplete="off">
+                    <button type="button" class="ai-model-search-clear hidden" id="btnClearModelSearch" title="清空搜索">×</button>
+                  </div>
+                  <div class="ai-model-filter-tabs" id="modelFilterTabs">
+                    <button type="button" class="ai-filter-tab active" data-tab="channel">当前渠道 (<span id="countChannelModels">0</span>)</button>
+                    <button type="button" class="ai-filter-tab" data-tab="all">全部预设 (<span id="countAllModels">0</span>)</button>
+                    <button type="button" class="ai-filter-tab hidden" data-tab="remote" id="tabRemoteModels">在线拉取 (<span id="countRemoteModels">0</span>)</button>
+                  </div>
+                  <div class="ai-model-results-list" id="modelSearchResults"></div>
+                </div>
+
                 <div class="ai-chips-list" id="channelModelChips"></div>
               </div>
 
@@ -366,6 +401,18 @@
     const cfgApiKey = el.querySelector('#cfgApiKey');
     const btnToggleApiKey = el.querySelector('#btnToggleApiKey');
     const cfgModel = el.querySelector('#cfgModel');
+    const btnFetchModels = el.querySelector('#btnFetchModels');
+    const iconFetchSpin = el.querySelector('#iconFetchSpin');
+    const btnToggleModelSearch = el.querySelector('#btnToggleModelSearch');
+    const modelSearchPanel = el.querySelector('#modelSearchPanel');
+    const inputModelSearch = el.querySelector('#inputModelSearch');
+    const btnClearModelSearch = el.querySelector('#btnClearModelSearch');
+    const modelFilterTabs = el.querySelector('#modelFilterTabs');
+    const tabRemoteModels = el.querySelector('#tabRemoteModels');
+    const countChannelModels = el.querySelector('#countChannelModels');
+    const countAllModels = el.querySelector('#countAllModels');
+    const countRemoteModels = el.querySelector('#countRemoteModels');
+    const modelSearchResults = el.querySelector('#modelSearchResults');
     const channelModelChips = el.querySelector('#channelModelChips');
     const cfgTempRange = el.querySelector('#cfgTempRange');
     const cfgTempVal = el.querySelector('#cfgTempVal');
@@ -379,6 +426,8 @@
     let currentStreamId = null;
     let isGenerating = false;
     let searchKeyword = '';
+    let remoteModels = [];
+    let activeModelTab = 'channel';
 
     /* --- Auto Resize Textarea --------------------------------------------- */
     function autoResizeInput() {
@@ -948,11 +997,184 @@
       cfgChannel.appendChild(opt);
     });
 
+    function getAllPresetModels() {
+      const all = [];
+      const seen = new Set();
+      const currCh = PRESET_CHANNELS.find(x => x.id === cfgChannel.value);
+      if (currCh && currCh.models) {
+        currCh.models.forEach(m => {
+          if (!seen.has(m)) {
+            seen.add(m);
+            all.push({ id: m, badge: currCh.name.split(' ')[0], channelId: currCh.id, isRemote: false });
+          }
+        });
+      }
+      PRESET_CHANNELS.forEach(ch => {
+        if (ch.id === cfgChannel.value) return;
+        (ch.models || []).forEach(m => {
+          if (!seen.has(m)) {
+            seen.add(m);
+            all.push({ id: m, badge: ch.name.split(' ')[0], channelId: ch.id, isRemote: false });
+          }
+        });
+      });
+      return all;
+    }
+
+    function renderModelSearchResults() {
+      const kw = (inputModelSearch.value || '').trim().toLowerCase();
+      btnClearModelSearch.classList.toggle('hidden', !kw);
+
+      const currCh = PRESET_CHANNELS.find(x => x.id === cfgChannel.value);
+      const currChModels = (currCh && currCh.models) || [];
+      const allPreset = getAllPresetModels();
+
+      countChannelModels.textContent = currChModels.length;
+      countAllModels.textContent = allPreset.length;
+      countRemoteModels.textContent = remoteModels.length;
+
+      let candidates = [];
+      if (kw) {
+        const pool = (activeModelTab === 'remote')
+          ? remoteModels.map(m => ({ id: m, badge: '在线', isRemote: true }))
+          : (activeModelTab === 'channel')
+            ? currChModels.map(m => ({ id: m, badge: currCh ? currCh.name.split(' ')[0] : '渠道', isRemote: false }))
+            : allPreset.concat(remoteModels.map(m => ({ id: m, badge: '在线', isRemote: true })));
+
+        candidates = pool.filter(item => item.id.toLowerCase().includes(kw));
+      } else {
+        if (activeModelTab === 'remote') {
+          candidates = remoteModels.map(m => ({ id: m, badge: '在线', isRemote: true }));
+        } else if (activeModelTab === 'channel') {
+          candidates = currChModels.map(m => ({ id: m, badge: currCh ? currCh.name.split(' ')[0] : '渠道', isRemote: false }));
+        } else {
+          candidates = allPreset;
+        }
+      }
+
+      modelSearchResults.innerHTML = '';
+      if (candidates.length === 0) {
+        const tip = document.createElement('div');
+        tip.className = 'ai-model-empty-tip';
+        if (activeModelTab === 'remote' && remoteModels.length === 0) {
+          tip.innerHTML = '尚未拉取在线模型，请点击上方「<b>🔄 在线拉取模型</b>」按钮';
+        } else if (kw) {
+          tip.innerHTML = `未搜到包含 "<b>${escapeHtml(kw)}</b>" 的模型<br><span style="opacity:0.7">可直接在输入框手动填入自定义模型名称</span>`;
+        } else {
+          tip.textContent = '暂无预设模型，可直接在上方输入';
+        }
+        modelSearchResults.appendChild(tip);
+        return;
+      }
+
+      candidates.forEach(item => {
+        const div = document.createElement('div');
+        div.className = `ai-model-item ${item.isRemote ? 'remote' : ''} ${cfgModel.value.trim() === item.id ? 'selected' : ''}`;
+        div.dataset.model = item.id;
+        div.title = `点击选用: ${item.id}`;
+
+        let nameHtml = escapeHtml(item.id);
+        if (kw) {
+          const idx = item.id.toLowerCase().indexOf(kw);
+          if (idx !== -1) {
+            const before = escapeHtml(item.id.slice(0, idx));
+            const match = escapeHtml(item.id.slice(idx, idx + kw.length));
+            const after = escapeHtml(item.id.slice(idx + kw.length));
+            nameHtml = `${before}<span style="color:var(--amber);text-decoration:underline;font-weight:600">${match}</span>${after}`;
+          }
+        }
+
+        div.innerHTML = `
+          <span class="ai-model-name">${nameHtml}</span>
+          <span class="ai-model-badge">${escapeHtml(item.badge || '')}</span>
+        `;
+
+        div.addEventListener('click', () => {
+          cfgModel.value = item.id;
+          modelSearchPanel.classList.add('hidden');
+        });
+        modelSearchResults.appendChild(div);
+      });
+    }
+
+    // Model Filter Tab switcher
+    modelFilterTabs.querySelectorAll('.ai-filter-tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        modelFilterTabs.querySelectorAll('.ai-filter-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        activeModelTab = tab.dataset.tab;
+        renderModelSearchResults();
+      });
+    });
+
+    inputModelSearch.addEventListener('input', () => {
+      renderModelSearchResults();
+    });
+
+    btnClearModelSearch.addEventListener('click', () => {
+      inputModelSearch.value = '';
+      inputModelSearch.focus();
+      renderModelSearchResults();
+    });
+
+    btnToggleModelSearch.addEventListener('click', () => {
+      const isHidden = modelSearchPanel.classList.toggle('hidden');
+      if (!isHidden) {
+        inputModelSearch.value = '';
+        renderModelSearchResults();
+        inputModelSearch.focus();
+      }
+    });
+
+    cfgModel.addEventListener('focus', () => {
+      if (modelSearchPanel.classList.contains('hidden')) {
+        modelSearchPanel.classList.remove('hidden');
+        inputModelSearch.value = cfgModel.value.trim();
+        renderModelSearchResults();
+      }
+    });
+
+    btnFetchModels.addEventListener('click', async () => {
+      const baseUrl = cfgBaseUrl.value.trim();
+      if (!baseUrl) {
+        alert('请先填写 API 基础路径 (Base URL)');
+        cfgBaseUrl.focus();
+        return;
+      }
+      btnFetchModels.disabled = true;
+      iconFetchSpin.classList.add('spinning');
+      try {
+        const res = await ctx.call('fetchModels', {
+          protocol: cfgProtocol.value,
+          baseUrl,
+          apiKey: cfgApiKey.value.trim()
+        });
+        if (res && res.ok && Array.isArray(res.models)) {
+          remoteModels = res.models;
+          tabRemoteModels.classList.remove('hidden');
+          countRemoteModels.textContent = remoteModels.length;
+          modelFilterTabs.querySelectorAll('.ai-filter-tab').forEach(t => t.classList.remove('active'));
+          tabRemoteModels.classList.add('active');
+          activeModelTab = 'remote';
+          modelSearchPanel.classList.remove('hidden');
+          inputModelSearch.value = '';
+          renderModelSearchResults();
+        } else {
+          alert(`拉取模型失败: ${(res && res.error) || '未知错误'}`);
+        }
+      } catch (err) {
+        alert(`拉取模型异常: ${err.message || err}`);
+      } finally {
+        btnFetchModels.disabled = false;
+        iconFetchSpin.classList.remove('spinning');
+      }
+    });
+
     function renderChannelChips(channelId) {
       channelModelChips.innerHTML = '';
       const ch = PRESET_CHANNELS.find(x => x.id === channelId);
       if (!ch || !ch.models || ch.models.length === 0) return;
-      ch.models.forEach(m => {
+      ch.models.slice(0, 5).forEach(m => {
         const chip = document.createElement('span');
         chip.className = 'ai-chip';
         chip.textContent = m;
@@ -971,6 +1193,7 @@
         if (ch.protocol) cfgProtocol.value = ch.protocol;
         if (ch.defaultModel) cfgModel.value = ch.defaultModel;
         renderChannelChips(ch.id);
+        renderModelSearchResults();
       }
     });
 
@@ -999,7 +1222,10 @@
       cfgTempRange.value = config.temperature ?? 0.7;
       cfgTempVal.textContent = config.temperature ?? 0.7;
       cfgMaxContext.value = config.maxContextMessages ?? 16;
+      modelSearchPanel.classList.add('hidden');
+      inputModelSearch.value = '';
       renderChannelChips(cfgChannel.value);
+      renderModelSearchResults();
       settingsModal.classList.remove('hidden');
     });
 

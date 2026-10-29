@@ -3,7 +3,7 @@
    streaming SSE via IPC events, reasoning CoT, Agent tool execution,
    and capability exposure for workflows. */
 
-const { streamCompletion, syncCompletion } = require('./protocols');
+const { streamCompletion, syncCompletion, fetchRemoteModels } = require('./protocols');
 const { AGENT_TOOLS_DEFINITIONS, executeAgentTool } = require('./agent-tools');
 
 const DEFAULT_CONFIG = {
@@ -121,6 +121,20 @@ module.exports = {
       config = { ...config, ...(args || {}) };
       save();
       return { ok: true, config };
+    });
+
+    ctx.ipc.handle('fetchModels', async args => {
+      try {
+        const p = args || {};
+        const models = await fetchRemoteModels({
+          protocol: p.protocol || config.protocol,
+          baseUrl: p.baseUrl || config.baseUrl,
+          apiKey: p.apiKey !== undefined ? p.apiKey : config.apiKey
+        });
+        return { ok: true, models };
+      } catch (err) {
+        return { ok: false, error: err.message || String(err) };
+      }
     });
 
     ctx.ipc.handle('createSession', args => {

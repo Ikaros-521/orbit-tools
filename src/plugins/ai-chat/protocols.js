@@ -454,10 +454,82 @@ async function syncCompletion(opts, signal) {
   return adapter.parseSyncResponse(json);
 }
 
+/**
+ * Fetches available models from provider's endpoint (GET /models or /api/tags for Ollama).
+ */
+async function fetchRemoteModels({ protocol, baseUrl, apiKey }, externalSignal) {
+  let u = String(baseUrl || '').trim().replace(/\/+$/, '');
+  if (!u) u = 'https://api.openai.com/v1';
+  u = u.replace(/\/(chat\/completions|responses|messages)$/, '');
+
+  const headers = { 'User-Agent': 'Orbit-Toolbox-AI/1.0' };
+  if (apiKey) {
+    if (protocol === 'claude-messages') {
+      headers['x-api-key'] = apiKey;
+      headers['anthropic-version'] = '2023-06-01';
+    } else {
+      headers['Authorization'] = `Bearer ${apiKey}`;
+    }
+  }
+
+  const timeoutCtrl = new AbortController();
+  const timer = setTimeout(() => timeoutCtrl.abort(), 8000);
+  if (externalSignal) {
+    externalSignal.addEventListener('abort', () => timeoutCtrl.abort(), { once: true });
+  }
+
+  let res;
+  try {
+    let url = `${u}/models`;
+    try {
+      res = await fetch(url, { headers, signal: timeoutCtrl.signal });
+    } catch (err) {
+      if (u.includes('11434')) {
+        const ollamaBase = u.replace(/\/v1$/, '');
+        res = await fetch(`${ollamaBase}/api/tags`, { signal: timeoutCtrl.signal });
+      } else {
+        throw err;
+      }
+    }
+
+    if (!res.ok) {
+      if (res.status === 404 && u.includes('11434')) {
+        const ollamaBase = u.replace(/\/v1$/, '');
+        const r2 = await fetch(`${ollamaBase}/api/tags`, { signal: timeoutCtrl.signal });
+        if (r2.ok) {
+          const json2 = await r2.json();
+          const list = Array.isArray(json2.models) ? json2.models.map(m => m.name || m.model).filter(Boolean) : [];
+          return Array.from(new Set(list));
+        }
+      }
+      let errText = '';
+      try { errText = await res.text(); } catch {}
+      throw new Error(`获取模型失败 [${res.status}]: ${errText || res.statusText}`);
+    }
+
+    const json = await res.json();
+    const list = [];
+    if (Array.isArray(json.data)) {
+      for (const item of json.data) {
+        if (item && item.id) list.push(String(item.id));
+      }
+    } else if (Array.isArray(json.models)) {
+      for (const item of json.models) {
+        const id = item && (item.name || item.model || item.id);
+        if (id) list.push(String(id));
+      }
+    }
+    return Array.from(new Set(list)).sort();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 module.exports = {
   PROTOCOLS,
   getAdapter,
   streamCompletion,
   syncCompletion,
+  fetchRemoteModels,
   SSEParser
 };
