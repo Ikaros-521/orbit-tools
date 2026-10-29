@@ -652,6 +652,12 @@
       }
       // clicking outside toolbar & selection with no tool → re-select
       if (!e.target.closest('#toolbar')) {
+        // 点击落在选区内部且未激活工具：不重置，留给双击复制等选区内交互
+        // （否则双击的第一击就会清空选区，双击复制永远不触发）
+        if (selRect) {
+          const ix = e.clientX - selRect.x, iy = e.clientY - selRect.y;
+          if (ix >= 0 && iy >= 0 && ix <= selRect.width && iy <= selRect.height) return;
+        }
         // reset and start new selection
         phase = 'idle';
         document.body.classList.remove('selected', 'annotating');
@@ -866,6 +872,7 @@
       return;
     }
     if (e.key === 'z' && (e.ctrlKey || e.metaKey) && phase === 'selected') {
+      if (e.target.closest('input, textarea, select')) return; // 文字编辑中交给 textarea 原生撤销
       e.preventDefault();
       commitTextEditor();
       if (strokes.length > 0) {

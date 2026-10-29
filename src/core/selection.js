@@ -78,12 +78,12 @@ async function captureActiveSelection({ restoreClipboard = true, timeoutMs = 90 
     clipboard.writeText(sentinel);
   } catch { /* ignore */ }
 
-  await simulateCopy();
+  const copied = await simulateCopy();
 
-  // 轮询检查目标应用是否写入了新内容
+  // 轮询检查目标应用是否写入了新内容（模拟复制失败时跳过——剪贴板不会变化）
   const start = Date.now();
   let captured = null;
-  while (Date.now() - start < timeoutMs) {
+  while (copied && Date.now() - start < timeoutMs) {
     await sleep(20);
     try {
       const cur = clipboard.readText() || '';

@@ -61,7 +61,7 @@ function parseLsof(text) {
     if (tag === 'p') { push(); cur.pid = val; }
     else if (tag === 'c') cur.process = val;
     else if (tag === 'P') cur.proto = val.toUpperCase();
-    else if (tag === 'T') { if (val === 'LISTEN') cur.state = 'LISTEN'; }
+    else if (tag === 'T') { cur.state = val.replace(/^TST=/, '') || cur.state || ''; }
     else if (tag === 'n') {
       const sides = val.split('->');
       const l = addr(sides[0].trim());

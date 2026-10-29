@@ -28,9 +28,27 @@ protocol.registerSchemesAsPrivileged([
 
 /* --- host window ----------------------------------------------------------- */
 
+/* Saved bounds can point off-screen once a monitor is unplugged — clamp the
+   window back into the nearest display's work area instead of vanishing. */
+function sanitizeWindowBounds(saved) {
+  const fallback = { width: 980, height: 680 };
+  if (!saved || typeof saved !== 'object') return fallback;
+  try {
+    const display = screen.getDisplayMatching(saved);
+    const wa = display.workArea;
+    const width = Math.min(Math.max(Number(saved.width) || 980, 760), wa.width);
+    const height = Math.min(Math.max(Number(saved.height) || 680, 520), wa.height);
+    const x = Math.min(Math.max(Number.isFinite(saved.x) ? saved.x : wa.x, wa.x), wa.x + wa.width - 200);
+    const y = Math.min(Math.max(Number.isFinite(saved.y) ? saved.y : wa.y, wa.y), wa.y + wa.height - 60);
+    return { width, height, x, y };
+  } catch {
+    return fallback;
+  }
+}
+
 function createWindow() {
   const isMac = process.platform === 'darwin';
-  const bounds = cfg.data.windowBounds || { width: 980, height: 680 };
+  const bounds = sanitizeWindowBounds(cfg.data.windowBounds);
   win = new BrowserWindow({
     ...bounds,
     minWidth: 760, minHeight: 520,
@@ -88,7 +106,7 @@ function toggleWindow() {
     win.hide();
   } else {
     bringToForeground(win);
-    win.webContents.send('palette-focus');
+    sendWhenReady(win, 'palette-focus');
   }
 }
 
@@ -124,13 +142,24 @@ function createPaletteWindow() {
   });
 }
 
+/* Send once the page's listeners are guaranteed alive — right after creating
+   a window its loadFile hasn't finished, so an immediate send is lost. */
+function sendWhenReady(targetWin, channel, payload) {
+  if (!targetWin || targetWin.isDestroyed()) return;
+  const send = () => {
+    if (!targetWin.isDestroyed()) targetWin.webContents.send(channel, payload);
+  };
+  if (targetWin.webContents.isLoading()) targetWin.webContents.once('did-finish-load', send);
+  else send();
+}
+
 function openWorkbench(opts = {}) {
   if (paletteWin && !paletteWin.isDestroyed() && paletteWin.isVisible()) {
     paletteWin.hide();
   }
   if (!win || win.isDestroyed()) createWindow();
   bringToForeground(win);
-  win.webContents.send('navigate-to', opts);
+  sendWhenReady(win, 'navigate-to', opts);
 }
 
 async function toggleActionPalette() {
@@ -163,7 +192,7 @@ async function toggleActionPalette() {
   }
 
   bringToForeground(paletteWin);
-  paletteWin.webContents.send('palette-focus', { selectedText });
+  sendWhenReady(paletteWin, 'palette-focus', { selectedText });
 }
 
 /* --- tray --------------------------------------------------------------------- */

@@ -94,7 +94,7 @@ module.exports = {
       const res = await launch.launch(best, target.path, msg => log('sys', 'log.raised', { msg }));
       if (res.spawnError) {
         log('err', 'log.spawnFail', { msg: res.spawnError.message });
-        return { ok: false, errKey: 'err.noProxy' };
+        return { ok: false, errKey: 'err.spawnFail' };
       }
       log('ok', 'log.launched', { pid: res.pid, ep: launch.redact(best) });
       return { ok: true, pid: res.pid, endpoint: launch.redact(best), kind: best.kind };

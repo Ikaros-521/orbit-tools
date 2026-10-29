@@ -87,6 +87,7 @@
 
       'err.noTarget': '未定位到 Antigravity 可执行文件',
       'err.noProxy': '没有可用的本地代理端点',
+      'err.spawnFail': '进程启动失败：可执行文件可能被移动或拦截',
       'err.stale': '必须先完全退出旧实例，环境变量无法注入已运行的进程',
       'err.blockedStale': 'CH03 阻塞：检测到残留实例，请先「终止残留实例」或手动完全退出',
     },
@@ -174,6 +175,7 @@
 
       'err.noTarget': 'Antigravity binary not found',
       'err.noProxy': 'No usable local proxy endpoint',
+      'err.spawnFail': 'Failed to spawn: binary may have moved or been blocked',
       'err.stale': 'Must completely exit old instances first',
       'err.blockedStale': 'CH03 Blocked: detected stale instances, please kill them first',
     },

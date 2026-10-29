@@ -257,7 +257,7 @@
         mirrors: [
           { name: '中国科技大学 (USTC)', url: 'ustc' },
           { name: '清华大学 (TUNA)', url: 'tuna' },
-          { name: '字节跳动 (Bytedance)', url: 'sjtu' },
+          { name: '字节跳动 (Bytedance)', url: 'rsproxy' },
         ],
         cards: [
           {
@@ -270,6 +270,7 @@
                 ustc: 'https://mirrors.ustc.edu.cn/crates.io-index',
                 tuna: 'https://mirrors.tuna.tsinghua.edu.cn/git/crates.io-index.git',
                 sjtu: 'https://mirrors.sjtug.sjtu.edu.cn/git/crates.io-index/',
+                rsproxy: 'https://rsproxy.cn/crates.io-index',
               };
               const target = urlMap[mirror] || urlMap.ustc;
               return `[source.crates-io]\nreplace-with = 'mirror'\n\n[source.mirror]\nregistry = "sparse+${target}"`;
@@ -503,7 +504,14 @@
         if (dlInput) {
           dlInput.addEventListener('input', () => {
             currentDownloadInput = dlInput.value;
+            const caret = dlInput.selectionStart;
             renderCards();
+            // renderCards 整卡重绘会销毁输入框——恢复焦点与光标，否则每敲一键丢一次焦点
+            const revived = bodyEl.querySelector('.mhub-download-input');
+            if (revived) {
+              revived.focus();
+              try { revived.setSelectionRange(caret, caret); } catch { /* ignore */ }
+            }
           });
         }
 

@@ -419,9 +419,9 @@ module.exports = {
     on(`${P}pin-closed`, () => { ctx.send('pins-changed', { count: pins.size }); });
 
     handle(`${P}save`, async (e, { dataUrl }) => {
+      if (!dataUrl || typeof dataUrl !== 'string') return { ok: false, error: 'no image data' };
       const filePath = await chooseSavePngPath();
       if (!filePath) return { ok: false, canceled: true };
-      nativeImage.createFromDataURL(dataUrl).toPNG();
       require('fs').writeFileSync(filePath, nativeImage.createFromDataURL(dataUrl).toPNG());
       return { ok: true, filePath };
     });

@@ -730,6 +730,7 @@
       }
     }
     if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+      if (e.target.closest('input, textarea, select')) return; // 文字编辑中交给 textarea 原生撤销
       commitTextEditor();
       e.preventDefault();
       if (strokes.length > 0) {
@@ -739,7 +740,8 @@
       }
       return;
     }
-    if (!e.ctrlKey && !e.metaKey && !e.altKey) {
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.target.closest('input, textarea, select')) {
+      // 文字标注输入中敲 v/t 不应切换工具并强制提交编辑器
       if (e.key.toLowerCase() === 'v') {
         if (toolbar.hidden) toggleToolbar(true);
         setTool('select');

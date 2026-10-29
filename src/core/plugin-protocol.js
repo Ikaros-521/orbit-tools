@@ -19,7 +19,12 @@ function registerPluginProtocol(manager) {
     const id = url.hostname;
     const p = manager && manager.plugins.get(id);
     if (!p) return new Response(`unknown plugin "${id}"`, { status: 404 });
-    const rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    let rel;
+    try {
+      rel = decodeURIComponent(url.pathname).replace(/^\/+/, '');
+    } catch {
+      return new Response('bad percent-encoding', { status: 400 });
+    }
     const file = path.resolve(p.root, rel);
     if (file !== p.root && !file.startsWith(p.root + path.sep)) {
       return new Response('forbidden', { status: 403 });

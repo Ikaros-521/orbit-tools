@@ -12,6 +12,11 @@
   --ink-faint: light-dark(#93a09d, #4f5a59);
   --line: light-dark(rgba(20, 40, 34, .12), rgba(255, 255, 255, .085));
   --line-strong: light-dark(rgba(20, 40, 34, .22), rgba(255, 255, 255, .18));
+  /* aliases used by guide cards / plugin-center bars — map onto the tokens
+     above so those backgrounds never silently resolve to transparent */
+  --line-subtle: var(--line);
+  --bg-card: var(--inset);
+  --bg: var(--void);
   --amber: light-dark(#b96a00, #ffab2e);
   --amber-soft: light-dark(rgba(185, 106, 0, .13), rgba(255, 171, 46, .15));
   --green: light-dark(#0d8a56, #5fe3a1);
@@ -1111,9 +1116,11 @@ body {
   border-bottom: 1px solid light-dark(rgba(0, 0, 0, 0.1), rgba(255, 255, 255, 0.1));
   letter-spacing: .03em;
 }
+.wf-console-actions { display: flex; gap: 6px; }
 .wf-console-body {
   flex: 1 1 auto; overflow-y: auto; padding: 8px 12px; font-family: var(--font-mono);
   font-size: 12px; color: light-dark(#065f46, #6ee7b7); line-height: 1.6; white-space: pre-wrap;
+  user-select: text; cursor: text;
 }
 
 /* 节点属性检查器：选中节点后浮动于画布右上角 */

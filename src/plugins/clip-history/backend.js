@@ -252,36 +252,41 @@ module.exports = {
           const img = clipboard.readImage();
           if (!img.isEmpty()) {
             const size = img.getSize();
-            const bmp = img.getBitmap();
-            const sample = bmp.slice(0, Math.min(32, bmp.length)).toString('hex');
-            const hash = `${size.width}x${size.height}_${sample}`;
+
+            // 轻量缩略图，供渲染层高速滚动
+            const maxThumb = 180;
+            let thumb = img;
+            if (size.width > maxThumb || size.height > maxThumb) {
+              const ratio = Math.min(maxThumb / size.width, maxThumb / size.height);
+              thumb = img.resize({
+                width: Math.max(1, Math.round(size.width * ratio)),
+                height: Math.max(1, Math.round(size.height * ratio)),
+                quality: 'good',
+              });
+            }
+
+            // 约束全图存储，避免多百万像素内存爆涨
+            let full = img;
+            const maxFull = 1920;
+            if (size.width > maxFull || size.height > maxFull) {
+              const r = Math.min(maxFull / size.width, maxFull / size.height);
+              full = img.resize({
+                width: Math.max(1, Math.round(size.width * r)),
+                height: Math.max(1, Math.round(size.height * r)),
+                quality: 'better',
+              });
+            }
+
+            // hash 按实际存储的 full 版本计算：copyItem 会把 full 写回剪贴板，
+            // 若按原始尺寸记 hash，复制大图后下一轮轮询会因尺寸不一致把
+            // 同一张图当成新条目重复入库
+            const fullSize = full.getSize();
+            const fullBmp = full.getBitmap();
+            const fullSample = fullBmp.slice(0, Math.min(32, fullBmp.length)).toString('hex');
+            const hash = `${fullSize.width}x${fullSize.height}_${fullSample}`;
 
             if (hash !== lastImageHash) {
               lastImageHash = hash;
-
-              // Generate lightweight thumbnail for high-FPS scrolling in renderer
-              const maxThumb = 180;
-              let thumb = img;
-              if (size.width > maxThumb || size.height > maxThumb) {
-                const ratio = Math.min(maxThumb / size.width, maxThumb / size.height);
-                thumb = img.resize({
-                  width: Math.max(1, Math.round(size.width * ratio)),
-                  height: Math.max(1, Math.round(size.height * ratio)),
-                  quality: 'good',
-                });
-              }
-
-              // Constrain full image storage to avoid multi-megapixel memory blowouts
-              let full = img;
-              const maxFull = 1920;
-              if (size.width > maxFull || size.height > maxFull) {
-                const r = Math.min(maxFull / size.width, maxFull / size.height);
-                full = img.resize({
-                  width: Math.max(1, Math.round(size.width * r)),
-                  height: Math.max(1, Math.round(size.height * r)),
-                  quality: 'better',
-                });
-              }
 
               addItem({
                 id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -320,9 +325,13 @@ module.exports = {
         lastFilePath = item.path;
         lastText = item.path;
         if (process.platform === 'win32') {
+          // 每个 clipboard.write* 都整体替换剪贴板：FileNameW 必须最后写，
+          // 否则会被随后的 writeText 清掉，资源管理器将无文件可贴
+          clipboard.writeText(item.path);
           clipboard.writeBuffer('FileNameW', Buffer.from(item.path + '\0', 'utf16le'));
+        } else {
+          clipboard.writeText(item.path);
         }
-        clipboard.writeText(item.path);
       } else if (item.type === 'image') {
         lastImageHash = item.hash; // Prevent self-echo loop
         const img = nativeImage.createFromDataURL(item.fullImage || item.thumbnail);
@@ -354,7 +363,7 @@ module.exports = {
 
     ctx.ipc.handle('openExternal', (args) => {
       const { url } = args || {};
-      if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ftp://') || url.startsWith('file://'))) {
+      if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('ftp://'))) {
         shell.openExternal(url);
         return { ok: true };
       }

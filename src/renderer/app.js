@@ -26,7 +26,7 @@ const els = {
   btnWfZoomIn: $('btnWfZoomIn'), wfZoomScale: $('wfZoomScale'), btnWfZoomOut: $('btnWfZoomOut'),
   btnWfFitView: $('btnWfFitView'), btnWfResetView: $('btnWfResetView'),
   btnWfUndo: $('btnWfUndo'), btnWfRedo: $('btnWfRedo'),
-  wfConsole: $('wfConsole'), wfConsoleBody: $('wfConsoleBody'), btnWfClearConsole: $('btnWfClearConsole'),
+  wfConsole: $('wfConsole'), wfConsoleBody: $('wfConsoleBody'), btnWfCopyConsole: $('btnWfCopyConsole'), btnWfClearConsole: $('btnWfClearConsole'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
   panelHost: $('panelHost'),
   hotkeyCtrl: $('hotkeyCtrl'),
@@ -344,6 +344,8 @@ async function openPlugin(id, opts = {}) {
 
   const mount = async () => {
     const def = await loadPanelScript(p);
+    // the user may have navigated away while the script was loading
+    if (state.openId !== id) return;
     const el = document.createElement('div');
     el.className = 'panel-view';
     els.panelHost.appendChild(el);
@@ -374,9 +376,14 @@ async function openPlugin(id, opts = {}) {
   });
 }
 
+/* Panel scripts register via Toolbox.panel() against the single pendingPlugin
+   slot, so loads are serialized (one in flight at a time) — concurrent loads
+   would let the second script's registration steal the first one's id.
+   A failed load is evicted from the cache so opening the panel can retry. */
+let panelLoadChain = Promise.resolve();
 function loadPanelScript(p) {
   if (!scriptLoads.has(p.id)) {
-    scriptLoads.set(p.id, new Promise((resolve, reject) => {
+    const load = panelLoadChain.then(() => new Promise((resolve, reject) => {
       if (p.panel.style) {
         const link = document.createElement('link');
         link.rel = 'stylesheet';
@@ -393,6 +400,9 @@ function loadPanelScript(p) {
       s.onerror = () => reject(new Error(`cannot load plugin://${p.id}/${p.panel.script}`));
       document.head.appendChild(s);
     }));
+    panelLoadChain = load.catch(() => { /* keep the chain alive after failures */ });
+    scriptLoads.set(p.id, load);
+    load.catch(() => scriptLoads.delete(p.id)); // allow retrying a failed panel
   }
   return scriptLoads.get(p.id);
 }
@@ -852,6 +862,9 @@ async function init() {
   state.plugins = [...boot.plugins].sort((a, b) => a.id.localeCompare(b.id));
   state.config = { ...state.config, ...boot.config };
   state.hotkeys = boot.hotkeys || [];
+  // the action palette lists workflows from state — without this they stay
+  // empty until the user first opens the workflows view
+  if (Array.isArray(boot.workflows)) state.workflows = boot.workflows;
   state.usage = boot.usage || {};
   state.userPluginsDir = boot.userPluginsDir;
   state.defaultUserPluginsDir = boot.defaultUserPluginsDir;
@@ -1567,7 +1580,8 @@ function renderWorkflowLib() {
         }));
       });
       el.addEventListener('click', () => addNodeToCanvas(item.type, item.title, {
-        ...(item.config || {}), ...(item.extra || {})
+        ...(item.extra || {}),
+        config: item.config || undefined
       }));
       box.appendChild(el);
     });
@@ -1601,13 +1615,15 @@ function addNodeToCanvas(type, title, extra = {}) {
   const pos = extra.x !== undefined ? { x: extra.x, y: extra.y } : defaultNodePosition();
   pushWfHistory();
   const newNode = {
-    id,
-    type,
-    title,
     x: pos.x,
     y: pos.y,
     ...(config && Object.keys(config).length ? { config: { ...config } } : {}),
-    ...rest
+    ...rest,
+    // id/type/title always win — a stray config key (e.g. trigger 的 type:'any')
+    // must never overwrite the node's own identity fields
+    id,
+    type,
+    title
   };
   currentWorkflow.nodes.push(newNode);
   wfCanvas.selectedNodeId = id;
@@ -1694,13 +1710,20 @@ function syncWfInspector() {
     ? currentWorkflow.nodes.find(n => n.id === wfCanvas.selectedNodeId)
     : null;
   if (!node) {
+    wfCanvas.inspectorNodeId = null;
     els.wfInspector.hidden = true;
     return;
   }
+  // While the user is typing into the inspector for THIS node, don't rebuild
+  // it under them (rebuilding destroys the focused input after every
+  // keystroke) — the canvas refresh that triggered this already updated the
+  // node card summary. A selection change (different node) still rebuilds.
+  if (els.wfInspBody && wfCanvas.inspectorNodeId === node.id && els.wfInspBody.contains(document.activeElement)) return;
   renderWfInspector(node);
 }
 
 function renderWfInspector(node) {
+  wfCanvas.inspectorNodeId = node.id;
   els.wfInspector.hidden = false;
   els.wfInspType.textContent = node.type;
   els.wfInspBody.innerHTML = '';
@@ -1941,6 +1964,13 @@ function renderWorkflowCanvas() {
       outPort.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         e.preventDefault();
+        // 点击-点击连线：已有从其它节点输入端口拉出的草稿时，点本输出端口直接成线
+        const conn = wfCanvas.connecting;
+        if (conn && conn.fromType === 'in' && conn.fromNodeId !== node.id) {
+          completeConnection(node.id, 'out', conn.fromNodeId, 'in');
+          cancelDraftConnection();
+          return;
+        }
         startDraftConnection(node, outPort, 'out');
       });
       // 右键输出端口：直接断开从此端口引出的所有连线
@@ -1969,6 +1999,13 @@ function renderWorkflowCanvas() {
       inPort.addEventListener('mousedown', (e) => {
         e.stopPropagation();
         e.preventDefault();
+        // 点击-点击连线：已有从其它节点输出端口拉出的草稿时，点本输入端口直接成线
+        const conn = wfCanvas.connecting;
+        if (conn && conn.fromType === 'out' && conn.fromNodeId !== node.id) {
+          completeConnection(conn.fromNodeId, 'out', node.id, 'in');
+          cancelDraftConnection();
+          return;
+        }
         // 主流脱线交互（拔线/拔插头）：若已有上游连线接入，直接将连线拔出并跟随鼠标，松开空白处即断开，拖至新端口即重连
         const existingInEdge = currentWorkflow.edges.find(ed => ed.to === node.id);
         if (existingInEdge) {
@@ -2145,8 +2182,8 @@ async function runCurrentWorkflow() {
     }
   }
 
-  const paths = els.wfSvgLayer.querySelectorAll('path');
-  paths.forEach(p => p.classList.add('active'));
+  const edgeGroups = els.wfSvgLayer.querySelectorAll('.wf-edge-group');
+  edgeGroups.forEach(g => g.classList.add('active'));
 
   try {
     // Run Test executes against the main-process copy — sync unsaved canvas
@@ -2154,7 +2191,7 @@ async function runCurrentWorkflow() {
     state.workflows = await window.host.saveWorkflow(currentWorkflow);
     renderWorkflowSelector();
     const res = await window.host.runWorkflow(currentWorkflow.id, initialPayload);
-    paths.forEach(p => p.classList.remove('active'));
+    els.wfSvgLayer.querySelectorAll('.wf-edge-group.active').forEach(g => g.classList.remove('active'));
 
     if (res.ok) {
       const totalMs = (res.logs || []).reduce((acc, l) => acc + (l.duration || 0), 0);
@@ -2173,7 +2210,7 @@ async function runCurrentWorkflow() {
       });
     }
   } catch (err) {
-    paths.forEach(p => p.classList.remove('active'));
+    els.wfSvgLayer.querySelectorAll('.wf-edge-group.active').forEach(g => g.classList.remove('active'));
     logToWfConsole(`❌ 系统调用失败: ${err.message}`);
   }
 }
@@ -2245,7 +2282,8 @@ if (els.wfCanvasArea) {
       addNodeToCanvas(data.type, data.title, {
         x: Math.round(pos.x - 110),
         y: Math.round(pos.y - 30),
-        ...(data.extra || {})
+        ...(data.extra || {}),
+        config: data.config || undefined
       });
     } catch {}
   });
@@ -2386,13 +2424,15 @@ window.addEventListener('keydown', (e) => {
         return;
       }
     }
-    const removedEdge = currentWorkflow.edges.find(ed => (ed.id || `edge-${ed.from}-${ed.to}`) === wfCanvas.selectedEdgeId);
-    if (removedEdge) {
-      pushWfHistory();
-      currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed !== removedEdge);
-      wfCanvas.selectedEdgeId = null;
-      renderWorkflowCanvas();
-      logToWfConsole(`✓ 已删除选中的连线`);
+    if (wfCanvas.selectedEdgeId) {
+      const removedEdge = currentWorkflow.edges.find(ed => (ed.id || `edge-${ed.from}-${ed.to}`) === wfCanvas.selectedEdgeId);
+      if (removedEdge) {
+        pushWfHistory();
+        currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed !== removedEdge);
+        wfCanvas.selectedEdgeId = null;
+        renderWorkflowCanvas();
+        logToWfConsole(`✓ 已删除选中的连线`);
+      }
     }
   }
 });
@@ -2504,6 +2544,25 @@ if (els.btnWfRun) {
 if (els.btnWfClearConsole) {
   els.btnWfClearConsole.addEventListener('click', () => {
     if (els.wfConsoleBody) els.wfConsoleBody.textContent = '日志已清空';
+  });
+}
+if (els.btnWfCopyConsole) {
+  els.btnWfCopyConsole.addEventListener('click', async () => {
+    if (!els.wfConsoleBody) return;
+    const text = els.wfConsoleBody.textContent || '';
+    let ok = false;
+    try { await navigator.clipboard.writeText(text); ok = true; } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        ok = document.execCommand('copy');
+        ta.remove();
+      } catch {}
+    }
+    const btn = els.btnWfCopyConsole;
+    btn.textContent = ok ? '已复制 ✓' : '复制失败';
+    setTimeout(() => { btn.textContent = '复制'; }, 1200);
   });
 }
 

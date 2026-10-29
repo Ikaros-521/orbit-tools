@@ -131,13 +131,21 @@
       if (busy) return;
       busy = true;
       statEl.textContent = '…';
+      let failed = null;
       try {
         const { rows: r } = await ctx.call('refresh');
         rows = r;
       } catch (err) {
-        statEl.textContent = err.message;
+        failed = err;
       }
       busy = false;
+      // 失败时不能走 resetAndRender——它会把 statEl 覆盖成条数统计，
+      // 用户永远看不到错误原因，表格静默展示旧数据
+      if (failed) {
+        statEl.textContent = failed.message;
+        statEl.title = failed.message;
+        return;
+      }
       resetAndRender();
     }
 

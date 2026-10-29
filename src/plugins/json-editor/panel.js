@@ -65,7 +65,7 @@
     let s = raw;
 
     // 1. Remove python byte prefixes: b'...' or b"..."
-    s = s.replace(/\bb(['"])/g, () => { fixes++; return '$1'; });
+    s = s.replace(/\bb(['"])/g, (m, g1) => { fixes++; return g1; });
 
     // 2. Character-by-character scan for string literals & keyword transformations
     let out = '';
@@ -180,17 +180,28 @@
       i++;
     }
 
-    // 3. Replace Python constants outside strings with JSON equivalents
-    // Using token replacement with boundary checks
-    out = out.replace(/\bTrue\b/g, () => { fixes++; return 'true'; });
-    out = out.replace(/\bFalse\b/g, () => { fixes++; return 'false'; });
-    out = out.replace(/\bNone\b/g, () => { fixes++; return 'null'; });
-    out = out.replace(/\bNaN\b|\bnan\b/g, () => { fixes++; return 'null'; });
-    out = out.replace(/\bInfinity\b|\binf\b/g, () => { fixes++; return 'null'; });
-    out = out.replace(/-Infinity\b|-inf\b/g, () => { fixes++; return 'null'; });
+    // 3. Replace Python constants with JSON equivalents — only OUTSIDE string
+    // literals (by step 2 all strings are double-quoted), so values like
+    // "True story" / "x, y: z" survive untouched. The string alternative is
+    // matched first and passed through as-is.
+    const replaceOutsideStrings = (pattern, to) => {
+      out = out.replace(new RegExp(`"(?:[^"\\\\]|\\\\.)*"|(${pattern.source})`, 'g'), (m, g1) => {
+        if (g1 === undefined) return m; // a string literal
+        fixes++;
+        return to;
+      });
+    };
+    replaceOutsideStrings(/\bTrue\b/, 'true');
+    replaceOutsideStrings(/\bFalse\b/, 'false');
+    replaceOutsideStrings(/\bNone\b/, 'null');
+    replaceOutsideStrings(/\bNaN\b|\bnan\b/, 'null');
+    replaceOutsideStrings(/\bInfinity\b|\binf\b/, 'null');
+    replaceOutsideStrings(/-Infinity\b|-inf\b/, 'null');
 
     // 4. Wrap unquoted object keys: { name: 123 } -> { "name": 123 }
-    out = out.replace(/([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:/g, (match, p1, p2) => {
+    //    (string-aware for the same reason as step 3)
+    out = out.replace(/"(?:[^"\\]|\\.)*"|(([{,]\s*)([a-zA-Z_$][a-zA-Z0-9_$-]*)\s*:)/g, (m, keyMatch, p1, p2) => {
+      if (keyMatch === undefined) return m; // a string literal — already quoted
       fixes++;
       return `${p1}"${p2}":`;
     });
@@ -285,14 +296,24 @@
         // Fallback
       }
     }
-    // Manual unescape
-    return trimmed
-      .replace(/\\"/g, '"')
-      .replace(/\\'/g, "'")
-      .replace(/\\\\/g, '\\')
-      .replace(/\\n/g, '\n')
-      .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t');
+    // Manual unescape — single pass, so an escaped backslash followed by n
+    // (\\n) correctly yields the two chars "\n" instead of being re-processed
+    // into a real newline by a later rule
+    let unescaped = '';
+    for (let k = 0; k < trimmed.length; k++) {
+      const c = trimmed[k];
+      if (c === '\\' && k + 1 < trimmed.length) {
+        const n = trimmed[k + 1];
+        if (n === '"' || n === "'" || n === '\\') { unescaped += n; k++; }
+        else if (n === 'n') { unescaped += '\n'; k++; }
+        else if (n === 'r') { unescaped += '\r'; k++; }
+        else if (n === 't') { unescaped += '\t'; k++; }
+        else unescaped += c;
+      } else {
+        unescaped += c;
+      }
+    }
+    return unescaped;
   }
 
   /* --- Minify ------------------------------------------------------------ */
@@ -340,6 +361,15 @@
     return String(s).replace(/[&<>"']/g, c => ({
       '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
     }[c]));
+  }
+
+  /* Escape FIRST, then wrap filter hits with the highlight span — inserting
+     the span into raw text would let pasted content inject arbitrary HTML. */
+  function hlFiltered(text, filter) {
+    const safe = escapeHtml(text);
+    if (!filter || !text.toLowerCase().includes(filter)) return safe;
+    const escFilter = escapeHtml(filter).replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&');
+    return safe.replace(new RegExp(`(${escFilter})`, 'gi'), '<span class="je-highlight">$1</span>');
   }
 
   /* --- Metadata stats calculator ----------------------------------------- */
@@ -546,10 +576,7 @@
       // Key name
       if (!isRoot) {
         const keyDisplay = String(key);
-        const highlightedKey = (filter && keyDisplay.toLowerCase().includes(filter))
-          ? keyDisplay.replace(new RegExp(`(${filter.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'), '<span class="je-highlight">$1</span>')
-          : escapeHtml(keyDisplay);
-        rowHtml += `<span class="je-key">"${highlightedKey}"</span><span class="je-colon">:</span>`;
+        rowHtml += `<span class="je-key">"${hlFiltered(keyDisplay, filter)}"</span><span class="je-colon">:</span>`;
       }
 
       // Value
@@ -558,11 +585,7 @@
       } else if (isArr) {
         rowHtml += `<span class="je-val-badge" data-action="toggle">[ ${count} ]</span>`;
       } else if (typeof value === 'string') {
-        const strVal = String(value);
-        const highlightedVal = (filter && strVal.toLowerCase().includes(filter))
-          ? strVal.replace(new RegExp(`(${filter.replace(/[-/\\^$*+?.()|[\]{}]/g, '\\$&')})`, 'gi'), '<span class="je-highlight">$1</span>')
-          : escapeHtml(strVal);
-        rowHtml += `<span class="je-val-string">"${highlightedVal}"</span>`;
+        rowHtml += `<span class="je-val-string">"${hlFiltered(String(value), filter)}"</span>`;
       } else if (typeof value === 'number') {
         rowHtml += `<span class="je-val-number">${value}</span>`;
       } else if (typeof value === 'boolean') {
@@ -958,7 +981,7 @@
     if (ctx && ctx.payload && (typeof ctx.payload.value === 'string' || typeof ctx.payload === 'string')) {
       const incoming = typeof ctx.payload === 'string' ? ctx.payload : ctx.payload.value;
       ta.value = incoming;
-      try { formatJson(2); } catch { /* keep raw */ }
+      try { ta.value = formatJson(incoming, 2); } catch { /* keep raw */ }
       showToast(isZh ? '✓ 已载入管道传输数据' : 'Pipeline data loaded');
     } else {
       ta.value = SAMPLES.standard;

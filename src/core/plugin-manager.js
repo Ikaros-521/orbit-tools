@@ -98,6 +98,8 @@ class PluginManager {
       try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { /* no dir yet */ }
       for (const ent of entries) {
         if (!ent.isDirectory()) continue;
+        // dot-folders / node_modules aren't plugin attempts — don't report them
+        if (ent.name.startsWith('.') || ent.name === 'node_modules') continue;
         let manifest;
         try {
           manifest = JSON.parse(fs.readFileSync(path.join(root, ent.name, 'plugin.json'), 'utf8'));
@@ -176,6 +178,30 @@ class PluginManager {
         loadError: this.loadErrors.get(p.id) || null,
       });
     }
+    // Discovery failures (missing/invalid plugin.json, bad id…) never enter
+    // this.plugins, so surface them as disabled stubs — otherwise a broken
+    // user plugin is silently invisible in the UI.
+    for (const [folder, reason] of this.loadErrors) {
+      if (this.plugins.has(folder)) continue; // a real plugin owns this id already
+      out.push({
+        id: folder,
+        name: { zh: folder, en: folder },
+        desc: { zh: '插件加载失败：未通过清单校验', en: 'Plugin failed manifest validation' },
+        version: '0.0.0',
+        author: '',
+        keywords: [],
+        category: 'other',
+        iconSvg: null,
+        iconText: '⚠️',
+        source: 'user',
+        enabled: false,
+        hasBackend: false,
+        panel: null,
+        actions: [],
+        capabilities: [],
+        loadError: reason,
+      });
+    }
     return out;
   }
 
@@ -185,10 +211,18 @@ class PluginManager {
     const p = this.plugins.get(id);
     if (!p || this.active.has(id)) return false;
     const state = { mod: null, handlers: new Map(), windows: new Set(), data: null };
+    if (p.manifest.backend) {
+      const file = path.join(p.root, p.manifest.backend);
+      if (!fs.existsSync(file)) {
+        // Registering the state below would leave a ghost entry that blocks
+        // re-activation forever; surface the reason in the UI instead.
+        this.loadErrors.set(id, 'backend file missing');
+        return false;
+      }
+    }
     this.active.set(id, state);
     if (p.manifest.backend) {
       const file = path.join(p.root, p.manifest.backend);
-      if (!fs.existsSync(file)) return false;
       delete require.cache[require.resolve(file)];
       try {
         state.mod = require(file);

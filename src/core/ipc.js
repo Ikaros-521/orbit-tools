@@ -18,7 +18,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     platform: process.platform,
     appVersion: app.getVersion(),
     name: { en: 'Orbit Toolbox', zh: '轨道工具箱' },
-    config: { hotkey: cfg.data.hotkey, actionPaletteHotkey: cfg.data.actionPaletteHotkey || 'Ctrl+K', lang: cfg.data.lang, theme: cfg.data.theme },
+    config: { hotkey: cfg.data.hotkey, actionPaletteHotkey: cfg.data.actionPaletteHotkey || null, lang: cfg.data.lang, theme: cfg.data.theme },
     plugins: manager.serialize(),
     hotkeys: hotkeys.status,
     workflows: workflowManager.list(),

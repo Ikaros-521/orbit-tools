@@ -356,7 +356,10 @@
       <div class="wf-console" id="wfConsole">
         <div class="wf-console-header">
           <span>执行追踪日志 (Execution Trace)</span>
-          <button type="button" class="btn ghost small" id="btnWfClearConsole">清空</button>
+          <span class="wf-console-actions">
+            <button type="button" class="btn ghost small" id="btnWfCopyConsole" title="复制全部日志">复制</button>
+            <button type="button" class="btn ghost small" id="btnWfClearConsole">清空</button>
+          </span>
         </div>
         <div class="wf-console-body" id="wfConsoleBody">就绪，点击右上角【▶ 运行测试】执行当前工作流…</div>
       </div>

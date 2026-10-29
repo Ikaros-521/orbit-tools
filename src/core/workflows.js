@@ -2,8 +2,9 @@
    Zero external dependencies. Powers the node-based visual workflow canvas.
    Ensures complete decoupling from plugins with dynamic self-healing & state guards.
 
-   Execution model: nodes run in topological order sharing one envelope
-   { type, value }. A `util/condition` node whose check fails HALTS its branch:
+   Execution model: nodes run in topological order; each node receives its
+   own predecessor's output envelope { type, value } (initial envelope for
+   entry nodes). A `util/condition` node whose check fails HALTS its branch:
    downstream nodes whose every predecessor halted are skipped, other branches
    keep running.
 
@@ -359,7 +360,10 @@ class WorkflowRunner {
       queue.push(workflow.nodes[0].id);
     }
 
-    let currentPayload = initialEnvelope || { type: 'text/plain', value: '' };
+    // Each node's output is tracked per-node so branched workflows feed every
+    // successor its OWN predecessor's output, not "whatever node ran last".
+    const outputs = new Map(); // nodeId -> output envelope (non-halted nodes only)
+    let finalOutput = initialEnvelope || { type: 'text/plain', value: '' };
     const executed = new Set();
     const halted = new Set(); // condition-failed (or fully-blocked) node ids
 
@@ -383,16 +387,25 @@ class WorkflowRunner {
         continue;
       }
 
+      // Input = the output of this node's most recent non-halted predecessor;
+      // entry nodes with no predecessors take the initial envelope.
+      let nodeInput = initialEnvelope || { type: 'text/plain', value: '' };
+      for (let i = preds.length - 1; i >= 0; i--) {
+        const out = outputs.get(preds[i]);
+        if (out !== undefined) { nodeInput = out; break; }
+      }
+
       try {
-        const step = await this.runNode(node, currentPayload);
-        currentPayload = step.output;
+        const step = await this.runNode(node, nodeInput);
+        finalOutput = step.output !== undefined ? step.output : nodeInput;
         if (step.halt) halted.add(nodeId);
+        else outputs.set(nodeId, step.output);
         logs.push({
           nodeId: node.id,
           title: node.title,
           type: node.type,
           duration: step.duration,
-          summary: step.summary || (currentPayload ? String(currentPayload.value ?? '').slice(0, 40) : ''),
+          summary: step.summary || (finalOutput ? String(finalOutput.value ?? '').slice(0, 40) : ''),
           ok: true,
           skipped: !!step.halt
         });
@@ -404,7 +417,7 @@ class WorkflowRunner {
           error: err.message,
           ok: false
         });
-        return { ok: false, error: `节点 [${node.title}] 执行失败: ${err.message}`, logs, lastPayload: currentPayload };
+        return { ok: false, error: `节点 [${node.title}] 执行失败: ${err.message}`, logs, lastPayload: finalOutput };
       }
 
       for (const nextId of (nextMap.get(nodeId) || [])) {
@@ -413,7 +426,21 @@ class WorkflowRunner {
       }
     }
 
-    return { ok: true, logs, finalOutput: currentPayload };
+    // Nodes stuck behind a cycle never enqueue; report instead of pretending
+    // the run succeeded with half the graph silently missing.
+    if (executed.size < workflow.nodes.length) {
+      const stuck = workflow.nodes
+        .filter(n => !executed.has(n.id))
+        .map(n => n.title || n.id);
+      return {
+        ok: false,
+        error: `工作流存在循环依赖，节点未执行: ${stuck.join('、')}`,
+        logs,
+        finalOutput
+      };
+    }
+
+    return { ok: true, logs, finalOutput };
   }
 }
 
@@ -435,9 +462,15 @@ class WorkflowManager {
   }
 
   init() {
-    const cur = this.config.data.workflows;
-    if (this.seedDefaults && (!Array.isArray(cur) || cur.length === 0)) {
-      this.config.set({ workflows: JSON.parse(JSON.stringify(DEFAULT_WORKFLOWS)) });
+    // Seed defaults only on the FIRST run ever. Keying off "array is empty"
+    // would resurrect the demos after the user deliberately deleted them all.
+    if (this.seedDefaults && !this.config.data.workflowsSeeded) {
+      const patch = { workflowsSeeded: true };
+      const cur = this.config.data.workflows;
+      if (!Array.isArray(cur) || cur.length === 0) {
+        patch.workflows = JSON.parse(JSON.stringify(DEFAULT_WORKFLOWS));
+      }
+      this.config.set(patch);
     }
   }
 
@@ -524,6 +557,10 @@ class WorkflowManager {
       text = clipboard.readText();
     } catch { return; }
     if (text === this._lastClipboardText) return;
+    // Selection-capture sentinels must never look like a user copy: skip them
+    // WITHOUT touching the baseline, so the follow-up restore of the user's
+    // real clipboard content doesn't register as a change either.
+    if (typeof text === 'string' && text.startsWith('__ORBIT_SEL_')) return;
     this._lastClipboardText = text;
     const suppressed = this._suppressedTexts.has(text);
     this._suppressedTexts.clear();

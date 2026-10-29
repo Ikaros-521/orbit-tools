@@ -949,6 +949,9 @@
       return;
     }
     const mod = e.ctrlKey || e.metaKey;
+    // 文字编辑器内的 Ctrl+C/Z/Y/S 交给输入框原生行为（复制选中文字、撤销文字等），
+    // 不再误操作画板笔迹/整图
+    const inEditor = e.target.closest('input, textarea, select');
     if (e.key === 'F3' || (mod && e.key.toLowerCase() === 'p')) {
       e.preventDefault();
       if (e.shiftKey) {
@@ -956,20 +959,20 @@
       } else {
         pin({ withBg: true });
       }
-    } else if (mod && e.key.toLowerCase() === 'c') {
+    } else if (mod && e.key.toLowerCase() === 'c' && !inEditor) {
       e.preventDefault();
       copy();
-    } else if (mod && e.key.toLowerCase() === 'z') {
+    } else if (mod && e.key.toLowerCase() === 'z' && !inEditor) {
       e.preventDefault();
       const s = e.shiftKey ? state.redo.pop() : state.strokes.pop();
       if (s) (e.shiftKey ? state.strokes : state.redo).push(s);
       repaint();
-    } else if (mod && e.key.toLowerCase() === 'y') {
+    } else if (mod && e.key.toLowerCase() === 'y' && !inEditor) {
       e.preventDefault();
       const s = state.redo.pop();
       if (s) state.strokes.push(s);
       repaint();
-    } else if (mod && e.key.toLowerCase() === 's') {
+    } else if (mod && e.key.toLowerCase() === 's' && !inEditor) {
       e.preventDefault();
       save();
     }

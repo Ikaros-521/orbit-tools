@@ -34,7 +34,10 @@ function killInstances(pids) {
   const targets = (pids || []).map(Number).filter(p => p && p !== process.pid);
   if (!targets.length) return;
   if (process.platform === 'win32') {
-    spawnSync('taskkill', ['/F', '/T', '/PID', String(targets[0])], { encoding: 'utf8' });
+    // taskkill takes one /PID per invocation — kill every残留实例, not just the first
+    for (const pid of targets) {
+      spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { encoding: 'utf8' });
+    }
   } else {
     for (const pid of targets) { try { process.kill(pid, 'SIGTERM'); } catch { /* already gone */ } }
   }
