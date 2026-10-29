@@ -294,6 +294,14 @@ body {
 .btn.ghost { background: transparent; border-color: var(--line); color: var(--ink-dim); }
 .btn.ghost:hover { color: var(--ink); }
 .btn.danger { border-color: var(--red); color: var(--red); background: var(--red-soft); }
+.btn.small { padding: 5px 12px; font-size: 12.5px; border-radius: 7px; letter-spacing: .04em; }
+.btn.primary {
+  border-color: transparent; background: var(--accent);
+  color: light-dark(#fff, #04202e); font-weight: 600;
+}
+.btn.primary:hover { filter: brightness(1.1); }
+.btn.warn { border-color: light-dark(rgba(201, 58, 43, .45), rgba(255, 95, 82, .45)); color: var(--red); }
+.btn.warn:hover { color: var(--red); background: var(--red-soft); }
 .input {
   font-family: var(--font-mono); font-size: 13px; color: var(--ink);
   background: var(--inset); border: 1px solid var(--line-strong);
@@ -743,29 +751,45 @@ body {
 }
 .wf-toolbar {
   display: flex; align-items: center; justify-content: space-between; gap: 12px;
-  padding: 8px 12px; border-radius: 10px; background: rgba(255, 255, 255, 0.03);
+  padding: 8px 12px; border-radius: 10px;
+  background: light-dark(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.03));
   border: 1px solid var(--line); flex: 0 0 auto;
 }
 .wf-toolbar-left, .wf-toolbar-right {
   display: flex; align-items: center; gap: 8px;
 }
 .wf-select {
-  appearance: none; background: rgba(0, 0, 0, 0.3); border: 1px solid var(--line-strong);
-  border-radius: 6px; padding: 5px 12px; font-size: 13px; font-weight: 500;
+  appearance: none;
+  background-color: var(--inset);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%2384949a' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 10px center;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px; padding: 5px 28px 5px 12px; font-size: 12.5px; font-weight: 500;
   color: var(--ink); outline: none; cursor: pointer; min-width: 180px;
+  transition: border-color .15s;
 }
-.wf-select option { background: #161a1d; color: #fff; }
+.wf-select:hover { border-color: light-dark(rgba(20, 40, 34, .35), rgba(255, 255, 255, .32)); }
+.wf-select:focus-visible { border-color: var(--accent); }
+.wf-select option { background: light-dark(#fbfcfb, #161a1d); color: light-dark(#141d1a, #fff); }
 .wf-test-input {
-  width: 260px; background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line);
-  border-radius: 6px; padding: 5px 10px; font-size: 12.5px; color: var(--ink); outline: none;
+  width: 260px;
+  background: light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--line-strong);
+  border-radius: 7px; padding: 5px 10px; font-size: 12.5px; color: var(--ink); outline: none;
+  transition: border-color .15s;
 }
-.wf-test-input:focus { border-color: var(--accent); }
+.wf-test-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px light-dark(rgba(2, 132, 199, .12), rgba(56, 189, 248, .16));
+}
+.wf-test-input::placeholder { color: var(--ink-faint); }
 
 /* 工作流元信息编辑栏：名称 / 描述 / 启用自动触发 */
 .wf-meta-bar {
   display: flex; align-items: center; gap: 10px; flex: 0 0 auto;
   padding: 6px 12px; border-radius: 10px;
-  background: rgba(255, 255, 255, 0.02); border: 1px solid var(--line);
+  background: light-dark(rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.02));
+  border: 1px solid var(--line);
 }
 .wf-meta-field {
   display: flex; align-items: center; gap: 6px; min-width: 0;
@@ -775,20 +799,25 @@ body {
   text-transform: uppercase; letter-spacing: .05em; flex-shrink: 0;
 }
 .wf-meta-name input, .wf-meta-desc input {
-  background: rgba(0, 0, 0, 0.25); border: 1px solid var(--line); border-radius: 6px;
+  background: light-dark(rgba(0, 0, 0, 0.04), rgba(0, 0, 0, 0.25));
+  border: 1px solid var(--line-strong); border-radius: 7px;
   padding: 5px 10px; font-size: 12.5px; color: var(--ink); outline: none;
   transition: border-color .15s;
 }
+.wf-meta-name input::placeholder, .wf-meta-desc input::placeholder { color: var(--ink-faint); }
 .wf-meta-name input { width: 200px; font-weight: 600; }
 .wf-meta-desc { flex: 1 1 auto; }
 .wf-meta-desc input { width: 100%; }
-.wf-meta-name input:focus, .wf-meta-desc input:focus { border-color: var(--accent); }
+.wf-meta-name input:focus, .wf-meta-desc input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px light-dark(rgba(2, 132, 199, .12), rgba(56, 189, 248, .16));
+}
 .wf-meta-name input:disabled, .wf-meta-desc input:disabled, .wf-meta-switch input:disabled + span { opacity: .45; }
 .wf-meta-switch {
   display: flex; align-items: center; gap: 6px; cursor: pointer; flex-shrink: 0;
   font-size: 11.5px; color: light-dark(#374151, #e2e8f0); user-select: none;
 }
-.wf-meta-switch input { accent-color: #2ecc71; width: 14px; height: 14px; cursor: pointer; }
+.wf-meta-switch input { accent-color: var(--green); width: 14px; height: 14px; cursor: pointer; }
 
 .wf-workbench {
   flex: 1 1 auto; min-height: 0; display: flex; gap: 8px; position: relative;
