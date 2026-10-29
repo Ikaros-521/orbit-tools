@@ -93,8 +93,12 @@ function bringToForeground(targetWin) {
   if (targetWin.isMinimized()) targetWin.restore();
   targetWin.show();
   if (process.platform === 'win32') {
-    targetWin.setAlwaysOnTop(true);
-    targetWin.setAlwaysOnTop(false);
+    if (paletteWin && targetWin === paletteWin) {
+      targetWin.setAlwaysOnTop(true);
+    } else {
+      targetWin.setAlwaysOnTop(true);
+      targetWin.setAlwaysOnTop(false);
+    }
     targetWin.moveTop();
   }
   targetWin.focus();
@@ -105,6 +109,10 @@ function toggleWindow() {
   if (win.isVisible() && win.isFocused()) {
     win.hide();
   } else {
+    // 呼出主工具箱工作台时，隐藏动作抽屉
+    if (paletteWin && !paletteWin.isDestroyed() && paletteWin.isVisible()) {
+      paletteWin.hide();
+    }
     bringToForeground(win);
     sendWhenReady(win, 'palette-focus');
   }
@@ -171,6 +179,11 @@ async function toggleActionPalette() {
     return;
   }
 
+  // 动作抽屉呼出时，只弹出抽屉，绝不打开或保留主工具箱窗口
+  if (win && !win.isDestroyed() && win.isVisible()) {
+    win.hide();
+  }
+
   // 外部呼出瞬间，在窗口抢焦前尝试捕获当前活动软件中划选的文本
   let selectedText = null;
   try {
@@ -222,7 +235,7 @@ if (!app.requestSingleInstanceLock()) {
     hotkeys = createHotkeys({
       cfg,
       manager,
-      onSummon: toggleWindow,
+      onSummon: toggleActionPalette,
       onSummonActionPalette: toggleActionPalette,
     });
 
