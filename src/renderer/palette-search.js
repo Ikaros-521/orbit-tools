@@ -40,9 +40,16 @@
   }
 
   /* empty query -> Recently Used group first (deduped); otherwise rank by
-     match quality, then frecency, then original order */
+     match quality, then frecency, then original order.
+     Pinned rows (payload recommendations) always stay above the recency
+     reshuffle — a fresh selection must not be buried by usage history. */
   function filterAndRank(items, q, usage, isEn) {
-    if (!q) return recentFirst(items, usage, isEn);
+    if (!q) {
+      const pinned = items.filter(it => it.pinned);
+      if (pinned.length === 0) return recentFirst(items, usage, isEn);
+      const rest = items.filter(it => !it.pinned);
+      return [...pinned, ...recentFirst(rest, usage, isEn)];
+    }
     const scored = [];
     for (let i = 0; i < items.length; i++) {
       const m = matchQuality(items[i], q);

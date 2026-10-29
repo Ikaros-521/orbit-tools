@@ -81,41 +81,79 @@
 
   /* --- item builders ----------------------------------------------------- */
 
+  /* Payload-derived recommendations. Rows are capability-level when the plugin
+     declares one for the detected type ("JSON 校验与格式化", "时间戳转换") —
+     that is the quick action the user is after; plugins without a matching
+     capability keep the generic "send to <plugin>" row. Every row is pinned so
+     the recency reshuffle cannot bury a fresh selection. */
   function buildPipelineItems(payload) {
     const isZh = state.lang !== 'en';
-    const items = [];
-    if (!payload || !payload.pipeActions || payload.pipeActions.length === 0) return items;
+    const specific = []; // capability-level rows: the actual quick action
+    const generic = [];  // plugin-level fallback ("send to <plugin>")
+    if (!payload || !payload.pipeActions || payload.pipeActions.length === 0) return [];
 
-    const groupLabel = isZh
-      ? (payload.source === 'selection' ? '⚡ 划选内容管道流转 (Selection Transit)' : '⚡ 剪贴板管道流转 (Pipeline Transit)')
-      : (payload.source === 'selection' ? '⚡ Selection Transit' : '⚡ Clipboard Transit');
+    const groupLabel = payload.source === 'selection'
+      ? (isZh ? '⚡ 划选直达 (Selection)' : '⚡ Selection Transit')
+      : payload.source === 'input'
+        ? (isZh ? '⌨️ 输入直达 (Input)' : '⌨️ Input Transit')
+        : (isZh ? '📋 剪贴板直达 (Clipboard)' : '📋 Clipboard Transit');
 
     const badgeLabel = payload.source === 'selection'
       ? (isZh ? '划选直达' : 'Selection')
-      : (isZh ? '剪贴板' : 'Clipboard');
+      : payload.source === 'input'
+        ? (isZh ? '输入内容' : 'Input')
+        : (isZh ? '剪贴板' : 'Clipboard');
 
     const previewText = payload.text.length > 40
       ? `${payload.text.slice(0, 40).replace(/[\r\n]+/g, ' ')}…`
       : payload.text.replace(/[\r\n]+/g, ' ');
+    const typeLabel = isZh ? payload.detected.labelZh : payload.detected.labelEn;
+
+    const openPanel = pluginId => {
+      window.host.win('hide');
+      window.host.openWorkbench({ view: 'panel', pluginId, payload: payload.envelope });
+    };
 
     for (const pa of payload.pipeActions) {
       const pName = isZh ? (pa.pluginName.zh || pa.pluginId) : (pa.pluginName.en || pa.pluginId);
+      const pluginRec = (state.plugins || []).find(p => p.id === pa.pluginId);
+      const caps = (pluginRec && Array.isArray(pluginRec.capabilities) ? pluginRec.capabilities : [])
+        .filter(c => c && c.type === payload.envelope.type);
+
+      if (caps.length > 0) {
+        for (const cap of caps) {
+          const capTitle = isZh
+            ? ((cap.title && (cap.title.zh || cap.title.en)) || cap.id)
+            : ((cap.title && (cap.title.en || cap.title.zh)) || cap.id);
+          specific.push({
+            group: groupLabel,
+            icon: '⚡',
+            title: capTitle,
+            sub: `[${typeLabel}] "${previewText}" · ${pName}`,
+            badge: badgeLabel,
+            usageId: `pipeline:${pa.pluginId}:${payload.envelope.type}:${cap.id}`,
+            searchKey: PS().enrich(`pipeline 流转 管道 划选 选中 投递 ${capTitle} ${pName} ${pa.pluginId} ${payload.detected.labelZh} ${payload.detected.labelEn} ${payload.envelope.type}`, capTitle),
+            pinned: true,
+            run: () => openPanel(pa.pluginId),
+          });
+        }
+        continue;
+      }
+
       const pTitle = isZh ? `投递处理 ➔ ${pName}` : `Send to ➔ ${pName}`;
-      items.push({
+      generic.push({
         group: groupLabel,
         icon: '⚡',
         title: pTitle,
-        sub: `[${isZh ? payload.detected.labelZh : payload.detected.labelEn}] "${previewText}"`,
+        sub: `[${typeLabel}] "${previewText}"`,
         badge: badgeLabel,
         usageId: `pipeline:${pa.pluginId}:${payload.envelope.type}`,
         searchKey: PS().enrich(`pipeline 流转 管道 划选 选中 投递 ${pName} ${pa.pluginId} ${payload.detected.labelZh} ${payload.detected.labelEn} ${payload.envelope.type}`, pTitle),
-        run: () => {
-          window.host.win('hide');
-          window.host.openWorkbench({ view: 'panel', pluginId: pa.pluginId, payload: payload.envelope });
-        },
+        pinned: true,
+        run: () => openPanel(pa.pluginId),
       });
     }
-    return items;
+    return [...specific, ...generic];
   }
 
   function buildStaticItems(envelope) {
@@ -265,8 +303,11 @@
   }
 
   /* Two-phase refresh: static items render synchronously (zero IPC → instant
-     first paint on summon); the pipeline-transit group needs clipboard reads
-     + capability IPC, so it re-renders in a second pass a few ms later. */
+     first paint on summon); payload-derived recommendations re-render in a
+     second pass a few ms later.
+     Recommendation tiers, highest first: selection > typed payload > clipboard.
+     When a selection exists the clipboard is still consulted as a second tier
+     (structured content only) — the selection stays the primary payload. */
   async function refreshItems() {
     state.payload = null;
     state.items = buildStaticItems(null);
@@ -285,14 +326,14 @@
         source = 'input';
       }
     }
-    if (!text) {
-      const clipText = await window.host.readClipboardText().catch(() => '');
-      if (clipText && clipText.trim()) {
-        text = clipText.trim();
-        source = 'clipboard';
-      }
+    const clipRaw = await window.host.readClipboardText().catch(() => '');
+    const clipText = clipRaw && clipRaw.trim() ? clipRaw.trim() : '';
+    if (!text && clipText) {
+      text = clipText;
+      source = 'clipboard';
     }
 
+    const recs = [];
     if (text) {
       const detected = window.PayloadType.detect(text) || { type: 'text/plain', labelZh: '文本内容', labelEn: 'Text' };
       const envelope = { type: detected.type, value: text };
@@ -301,7 +342,28 @@
       const pipeActions = (await window.host.getPipelineActions(envelope).catch(() => []))
         .sort((a, b) => String(a.pluginId).localeCompare(String(b.pluginId)));
       state.payload = { text, source, detected, envelope, pipeActions };
-      state.items = [...buildPipelineItems(state.payload), ...buildStaticItems(envelope)];
+      recs.push(...buildPipelineItems(state.payload));
+    }
+
+    // 第二梯队：剪贴板与主载荷不同、且是结构化内容时也给出直达推荐
+    if (clipText && clipText !== text) {
+      const clipDetected = window.PayloadType.detect(clipText);
+      if (clipDetected && clipDetected.type !== 'text/plain') {
+        const clipEnvelope = { type: clipDetected.type, value: clipText };
+        const clipPipe = (await window.host.getPipelineActions(clipEnvelope).catch(() => []))
+          .sort((a, b) => String(a.pluginId).localeCompare(String(b.pluginId)));
+        recs.push(...buildPipelineItems({
+          text: clipText,
+          source: 'clipboard',
+          detected: clipDetected,
+          envelope: clipEnvelope,
+          pipeActions: clipPipe,
+        }));
+      }
+    }
+
+    if (recs.length > 0) {
+      state.items = [...recs, ...buildStaticItems(state.payload ? state.payload.envelope : null)];
       updatePlaceholder();
       computeFiltered();
       renderList();
