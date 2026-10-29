@@ -6,6 +6,7 @@
 const { streamCompletion, syncCompletion, fetchRemoteModels } = require('./protocols');
 const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = require('./agent-tools');
 const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
+const { parseSkillMarkdown, resolveSkillSourceUrl } = require('./skills-util');
 
 const DEFAULT_CONFIG = {
   channel: 'openai',
@@ -472,6 +473,95 @@ module.exports = {
       skills = [...DEFAULT_SKILLS];
       save();
       return { ok: true, skills };
+    });
+
+    /* --- Skills import: local files & GitHub download ----------------------- */
+
+    const upsertImportedSkills = items => {
+      let imported = 0;
+      let skipped = 0;
+      for (const it of items) {
+        const parsed = parseSkillMarkdown((it && it.filename) || (it && it.name) || '', (it && it.content) || '');
+        if (!parsed.content) continue;
+        if (skills.some(s => s.name === parsed.name)) { skipped++; continue; } // don't clobber user edits
+        skills.push({ id: genId('skill'), name: parsed.name, desc: parsed.desc, content: parsed.content });
+        imported++;
+      }
+      if (imported > 0) save();
+      return { imported, skipped };
+    };
+
+    ctx.ipc.handle('importSkills', args => {
+      const items = Array.isArray(args && args.items) ? args.items : [];
+      if (!items.length) return { ok: false, error: '没有可导入的技能内容' };
+      const { imported, skipped } = upsertImportedSkills(items);
+      return { ok: true, imported, skipped, skills };
+    });
+
+    ctx.ipc.handle('importSkillFromUrl', async args => {
+      const src = resolveSkillSourceUrl(args && args.url);
+      if (src.kind === 'invalid') return { ok: false, error: src.error };
+
+      const fetchText = async url => {
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        try {
+          const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Orbit-Toolbox-AI/1.0' } });
+          if (!res.ok) throw new Error(`下载失败 [${res.status}] ${res.statusText}`);
+          const text = await res.text();
+          if (text.length > 512 * 1024) throw new Error('文件过大 (>512KB)，已取消导入');
+          return text;
+        } finally {
+          clearTimeout(timer);
+        }
+      };
+
+      try {
+        if (src.kind === 'file') {
+          if (!/\.(md|markdown|txt)$/i.test(src.filename || '')) {
+            return { ok: false, error: '仅支持导入 Markdown / 文本文件' };
+          }
+          const content = await fetchText(src.rawUrl);
+          const { imported, skipped } = upsertImportedSkills([{ filename: src.filename, content }]);
+          return { ok: true, imported, skipped, total: 1, skills };
+        }
+
+        // folder: list .md entries via the GitHub contents API, then import each
+        const api = `https://api.github.com/repos/${src.owner}/${src.repo}/contents/${src.path}${src.branch ? `?ref=${encodeURIComponent(src.branch)}` : ''}`;
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 15000);
+        let entries;
+        try {
+          const res = await fetch(api, {
+            signal: ctrl.signal,
+            headers: { 'User-Agent': 'Orbit-Toolbox-AI/1.0', 'Accept': 'application/vnd.github+json' }
+          });
+          if (!res.ok) {
+            let t = '';
+            try { t = await res.text(); } catch {}
+            throw new Error(`GitHub API ${res.status}: ${t.slice(0, 200) || res.statusText}`);
+          }
+          entries = await res.json();
+        } finally {
+          clearTimeout(timer);
+        }
+        if (!Array.isArray(entries)) {
+          return { ok: false, error: '该链接指向单个文件而非目录 (请使用目录或仓库主页链接批量导入)' };
+        }
+        const mdFiles = entries.filter(e => e && e.type === 'file' && /\.(md|markdown|txt)$/i.test(e.name || ''));
+        if (!mdFiles.length) return { ok: false, error: '目录中没有可导入的 .md / .txt 文件' };
+
+        const items = [];
+        for (const f of mdFiles) {
+          try {
+            items.push({ filename: f.name, content: await fetchText(f.download_url) });
+          } catch { /* skip unreachable file */ }
+        }
+        const { imported, skipped } = upsertImportedSkills(items);
+        return { ok: true, imported, skipped, total: mdFiles.length, skills };
+      } catch (err) {
+        return { ok: false, error: err.name === 'AbortError' ? '下载超时，请检查网络后重试' : (err.message || String(err)) };
+      }
     });
 
     /* --- Chat Message Dispatch & Stream ----------------------------------- */

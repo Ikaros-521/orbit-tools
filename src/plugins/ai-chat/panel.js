@@ -589,7 +589,24 @@
                     <button type="button" class="ai-edit-btn primary" id="btnCreateSkill">+ 新建技能</button>
                   </div>
                 </div>
+                <!-- 技能导入工具栏：GitHub 下载 / 本地文件 -->
+                <div class="ai-skill-import-row">
+                  <input type="text" class="ai-form-input ai-skill-url-input" id="inputSkillUrl" placeholder="⬇ 粘贴 GitHub 技能链接 (blob 文件 / tree 目录 / 仓库主页) 或任意 .md 地址…" autocomplete="off">
+                  <button type="button" class="ai-edit-btn" id="btnImportSkillUrl" title="从 GitHub 或任意 URL 下载技能">⬇ 下载导入</button>
+                  <button type="button" class="ai-edit-btn" id="btnImportSkillFile" title="选择本地 .md 文件导入">📂 本地导入</button>
+                  <input type="file" id="inputSkillFile" class="hidden" accept=".md,.markdown,.txt" multiple>
+                </div>
+                <div class="ai-ext-import-result hidden" id="skillImportResult"></div>
+                <div class="ai-personas-search-row">
+                  <input type="text" class="ai-form-input ai-persona-search-input" id="inputSearchSkills" placeholder="🔍 搜索技能名称或简介…" autocomplete="off">
+                </div>
                 <div class="ai-ext-list" id="skillsCardList"></div>
+                <!-- 技能分页栏 -->
+                <div class="ai-pagination" id="skillsPagination">
+                  <button type="button" class="ai-page-btn" id="btnPrevSkillPage">◀ 上一页</button>
+                  <span class="ai-page-info" id="skillPageInfo">第 1 / 1 页 (共 0 项)</span>
+                  <button type="button" class="ai-page-btn" id="btnNextSkillPage">下一页 ▶</button>
+                </div>
 
                 <!-- 内联技能编辑器 -->
                 <div class="ai-ext-editor hidden" id="skillEditPanel">
@@ -757,6 +774,15 @@
     const inputSkillContent = el.querySelector('#inputSkillContent');
     const btnCancelSkillEdit = el.querySelector('#btnCancelSkillEdit');
     const btnSaveSkill = el.querySelector('#btnSaveSkill');
+    const inputSkillUrl = el.querySelector('#inputSkillUrl');
+    const btnImportSkillUrl = el.querySelector('#btnImportSkillUrl');
+    const btnImportSkillFile = el.querySelector('#btnImportSkillFile');
+    const inputSkillFile = el.querySelector('#inputSkillFile');
+    const skillImportResult = el.querySelector('#skillImportResult');
+    const inputSearchSkills = el.querySelector('#inputSearchSkills');
+    const btnPrevSkillPage = el.querySelector('#btnPrevSkillPage');
+    const skillPageInfo = el.querySelector('#skillPageInfo');
+    const btnNextSkillPage = el.querySelector('#btnNextSkillPage');
 
     // State
     let config = {};
@@ -775,6 +801,9 @@
     let mcpServers = [];
     let editingMcpId = null;
     let editingSkillId = null;
+    let skillSearchKeyword = '';
+    let skillCurrentPage = 1;
+    const skillPageSize = 5;
 
     // Personas Search & Pagination State
     let personaSearchKeyword = '';
@@ -1976,17 +2005,33 @@
       }
     });
 
-    /* --- Skills Controller ------------------------------------------------- */
+    /* --- Skills Controller (search + pagination + import) ------------------- */
     function renderSkillsList() {
       skillsCardList.innerHTML = '';
-      if (!skills.length) {
+      const q = skillSearchKeyword.trim().toLowerCase();
+      const filtered = q
+        ? skills.filter(sk => (sk.name || '').toLowerCase().includes(q) || (sk.desc || '').toLowerCase().includes(q))
+        : skills;
+
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / skillPageSize));
+      if (skillCurrentPage > totalPages) skillCurrentPage = totalPages;
+      if (skillCurrentPage < 1) skillCurrentPage = 1;
+
+      skillPageInfo.textContent = `第 ${skillCurrentPage} / ${totalPages} 页 (共 ${total} 项)`;
+      btnPrevSkillPage.disabled = skillCurrentPage <= 1;
+      btnNextSkillPage.disabled = skillCurrentPage >= totalPages;
+
+      if (filtered.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'ai-model-empty-tip';
-        empty.textContent = '暂无技能，点击右上角新建或恢复默认';
+        empty.textContent = q ? `未找到匹配 "${q}" 的技能` : '暂无技能，点击右上角新建、下载导入或恢复默认';
         skillsCardList.appendChild(empty);
         return;
       }
-      skills.forEach(sk => {
+
+      const start = (skillCurrentPage - 1) * skillPageSize;
+      filtered.slice(start, start + skillPageSize).forEach(sk => {
         const card = document.createElement('div');
         card.className = 'ai-skill-card';
         card.innerHTML = `
@@ -2023,6 +2068,84 @@
         skillsCardList.appendChild(card);
       });
     }
+
+    let skillImportResultTimer = null;
+    function showSkillImportResult(text, cls) {
+      clearTimeout(skillImportResultTimer);
+      skillImportResult.textContent = text;
+      skillImportResult.className = `ai-ext-import-result ${cls || ''}`;
+      if (cls === 'ok') {
+        skillImportResultTimer = setTimeout(() => skillImportResult.classList.add('hidden'), 6000);
+      }
+    }
+
+    inputSearchSkills.addEventListener('input', () => {
+      skillSearchKeyword = inputSearchSkills.value;
+      skillCurrentPage = 1;
+      renderSkillsList();
+    });
+
+    btnPrevSkillPage.addEventListener('click', () => {
+      if (skillCurrentPage > 1) {
+        skillCurrentPage--;
+        renderSkillsList();
+      }
+    });
+
+    btnNextSkillPage.addEventListener('click', () => {
+      skillCurrentPage++;
+      renderSkillsList();
+    });
+
+    btnImportSkillUrl.addEventListener('click', async () => {
+      const url = inputSkillUrl.value.trim();
+      if (!url) {
+        showSkillImportResult('请先粘贴技能链接 (GitHub 文件 / 目录 / 仓库主页，或任意 .md 地址)', 'err');
+        inputSkillUrl.focus();
+        return;
+      }
+      btnImportSkillUrl.disabled = true;
+      showSkillImportResult('⬇ 下载中，请稍候…', '');
+      try {
+        const res = await ctx.call('importSkillFromUrl', { url });
+        if (res && res.ok) {
+          skills = res.skills;
+          skillCurrentPage = 1;
+          renderSkillsList();
+          showSkillImportResult(`✓ 导入完成：新增 ${res.imported} 个${res.skipped ? `，跳过同名 ${res.skipped} 个` : ''}`, 'ok');
+          if (res.imported > 0) inputSkillUrl.value = '';
+        } else {
+          showSkillImportResult(`✗ ${(res && res.error) || '导入失败'}`, 'err');
+        }
+      } finally {
+        btnImportSkillUrl.disabled = false;
+      }
+    });
+
+    btnImportSkillFile.addEventListener('click', () => inputSkillFile.click());
+    inputSkillFile.addEventListener('change', async () => {
+      const files = [...(inputSkillFile.files || [])];
+      inputSkillFile.value = '';
+      if (!files.length) return;
+      showSkillImportResult(`📂 读取 ${files.length} 个文件中…`, '');
+      try {
+        const items = [];
+        for (const f of files) {
+          items.push({ filename: f.name, content: await f.text() });
+        }
+        const res = await ctx.call('importSkills', { items });
+        if (res && res.ok) {
+          skills = res.skills;
+          skillCurrentPage = 1;
+          renderSkillsList();
+          showSkillImportResult(`✓ 本地导入完成：新增 ${res.imported} 个${res.skipped ? `，跳过同名 ${res.skipped} 个` : ''}`, 'ok');
+        } else {
+          showSkillImportResult(`✗ ${(res && res.error) || '导入失败'}`, 'err');
+        }
+      } catch (err) {
+        showSkillImportResult(`✗ 读取文件失败: ${err.message || err}`, 'err');
+      }
+    });
 
     function closeSkillEditor() {
       skillEditPanel.classList.add('hidden');

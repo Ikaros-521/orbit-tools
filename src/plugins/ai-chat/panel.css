@@ -1920,7 +1920,9 @@
 .ai-ext-editor.hidden,
 .ai-ext-list.hidden,
 .ai-form-group.hidden,
-.ai-personas-list.hidden {
+.ai-personas-list.hidden,
+.ai-ext-import-result.hidden,
+input.hidden {
   display: none;
 }
 
@@ -2107,5 +2109,41 @@
 
 .ai-ext-test-result.err {
   color: var(--red);
+}
+
+/* Skill import toolbar (GitHub download / local files) */
+.ai-skill-import-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-skill-url-input {
+  flex: 1;
+  min-width: 260px;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.ai-ext-import-result {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  margin: 2px 0 8px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.ai-ext-import-result.ok {
+  color: var(--green);
+}
+
+.ai-ext-import-result.err {
+  color: var(--red);
+}
+
+.ai-personas-search-row {
+  margin-bottom: 8px;
 }
 
