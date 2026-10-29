@@ -1583,8 +1583,14 @@ const WF_LIB_CATALOG = [
       { type: 'util/regex-extract', title: '正则提取', icon: '🔎', desc: '按正则提取命中的内容/捕获组', config: { pattern: '', flags: '', group: 0 } },
       { type: 'util/replace', title: '查找替换', icon: '🔁', desc: '普通文本或正则模式替换', config: { find: '', replace: '', regex: false } },
       { type: 'util/json-field', title: 'JSON 字段提取', icon: '🗂️', desc: '按 a.b[0].c 路径取出字段值', config: { path: '' } },
+      { type: 'util/code-run', title: 'JS 代码执行', icon: '💻', desc: '执行自定义 JS 脚本，可读写变量与数据转换', config: { code: 'return input;', outputVariable: '' } },
       { type: 'util/condition', title: '条件判断', icon: '🚦', desc: '不满足时终止该分支下游节点', config: { mode: 'contains', value: '' } },
       { type: 'util/delay', title: '延时等待', icon: '⏱️', desc: '延迟指定毫秒后继续 (0-15000)', config: { ms: 300 } },
+    ]
+  },
+  {
+    id: 'ai', title: '🤖 人工智能 · AI Actions', items: [
+      { type: 'ai/chat', title: 'AI 对话与推理', icon: '🧠', desc: '支持 Prompt 变量插值、人设选择与 AI 推理生成', config: { promptTemplate: '{{value}}', personaId: 'general', outputVariable: '' } },
     ]
   },
   { id: 'plugins', title: '🧩 插件能力 · Plugin Actions', dynamic: true },
@@ -1721,6 +1727,8 @@ function wfNodeConfigSummary(node) {
     case 'util/regex-extract': return `/${cfg.pattern || '?'}/${cfg.flags || ''}`;
     case 'util/replace': return `${cfg.find || '?'} → ${String(cfg.replace ?? '').slice(0, 12)}`;
     case 'util/json-field': return `路径: ${cfg.path || '?'}`;
+    case 'util/code-run': return `脚本: ${String(cfg.code || '').replace(/\s+/g, ' ').slice(0, 24)}…`;
+    case 'ai/chat': return `AI: ${String(cfg.promptTemplate || '{{value}}').slice(0, 22)}`;
     case 'util/condition': {
       const labels = { contains: '包含', equals: '等于', startsWith: '开头为', regex: '匹配正则', notEmpty: '非空', empty: '为空' };
       const m = labels[cfg.mode || 'contains'] || cfg.mode;
@@ -1761,6 +1769,25 @@ const WF_NODE_FIELDS = {
   ],
   'util/json-field': [
     { key: 'path', label: '字段路径 (a.b[0].c)', kind: 'text', def: '' }
+  ],
+  'util/code-run': [
+    { key: 'code', label: 'JS 脚本 (支持 return / context.get / set / 变量)', kind: 'textarea', def: 'return input;' },
+    { key: 'outputVariable', label: '输出存入变量名 (可选，如 myVar)', kind: 'text', def: '' }
+  ],
+  'ai/chat': [
+    { key: 'promptTemplate', label: '提示词模板 (支持 {{value}} 与 {{variables.xxx}})', kind: 'textarea', def: '{{value}}' },
+    {
+      key: 'personaId', label: '助手人设预设', kind: 'select', def: 'general',
+      options: [
+        ['general', '通用助手'],
+        ['developer', '架构与全栈工程师'],
+        ['translator', '科技与学术翻译'],
+        ['writer', '文案与文字润色'],
+        ['workflow-architect', '工作流架构师']
+      ]
+    },
+    { key: 'systemPrompt', label: '自定义 System 提示词 (覆盖人设)', kind: 'textarea', def: '' },
+    { key: 'outputVariable', label: '输出存入变量名 (可选)', kind: 'text', def: '' }
   ],
   'util/condition': [
     {

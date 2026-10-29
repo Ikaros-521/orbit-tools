@@ -143,11 +143,93 @@ class WorkflowRunner {
 
     if (type === 'util/text-template') {
       const tpl = String(cfg.template ?? '{{value}}');
-      const value = tpl
+      let value = tpl
         .replaceAll('{{value}}', inputText)
         .replaceAll('{{type}}', (inputEnvelope && inputEnvelope.type) || 'text/plain')
         .replaceAll('{{date}}', localDateTime());
+      if (this.context) {
+        if (this.context.variables) {
+          value = value.replace(/\{\{variables\.([a-zA-Z0-9_-]+)\}\}/g, (_, k) => (this.context.variables[k] !== undefined ? this.context.variables[k] : ''));
+        }
+        if (this.context.nodes) {
+          value = value.replace(/\{\{nodes\.([a-zA-Z0-9_-]+)\.value\}\}/g, (_, id) => (this.context.nodes[id] ? this.context.nodes[id].value : ''));
+        }
+      }
       return done({ output: { type: 'text/plain', value } });
+    }
+
+    if (type === 'util/code-run') {
+      const vm = require('vm');
+      const code = String(cfg.code || '').trim();
+      if (!code) throw new Error('未配置 JavaScript 执行脚本');
+      const contextVars = (this.context && this.context.variables) || {};
+      const contextNodes = (this.context && this.context.nodes) || {};
+      const sandbox = {
+        input: inputText,
+        value: inputText,
+        type: (inputEnvelope && inputEnvelope.type) || 'text/plain',
+        variables: contextVars,
+        nodes: contextNodes,
+        context: {
+          get: k => contextVars[k],
+          set: (k, v) => { contextVars[k] = v; }
+        },
+        console: { log: () => {} },
+        JSON, Math, Date, RegExp, Array, Object, String, Number, Boolean
+      };
+      let res;
+      try {
+        const script = new vm.Script(`(() => {\n${code}\n})()`);
+        res = script.runInNewContext(sandbox, { timeout: 5000 });
+      } catch (err) {
+        throw new Error(`代码执行错误: ${err.message}`);
+      }
+      if (cfg.outputVariable) {
+        contextVars[cfg.outputVariable] = res;
+      }
+      let outEnvelope;
+      if (res && typeof res === 'object' && !Array.isArray(res) && res.type && typeof res.value !== 'undefined') {
+        outEnvelope = { type: res.type, value: String(res.value) };
+      } else if (res && typeof res === 'object') {
+        outEnvelope = { type: 'application/json', value: JSON.stringify(res, null, 2) };
+      } else {
+        outEnvelope = { type: 'text/plain', value: String(res ?? '') };
+      }
+      return done({ output: outEnvelope, summary: `脚本执行完成 (${outEnvelope.value.slice(0, 30)})` });
+    }
+
+    if (type === 'ai/chat') {
+      const aiPlugin = this.manager.plugins.get('ai-chat');
+      if (!aiPlugin) throw new Error('AI 对话插件 (ai-chat) 未安装');
+      if (!aiPlugin.enabled) throw new Error('AI 对话插件 (ai-chat) 当前处于禁用状态');
+
+      let prompt = inputText;
+      if (cfg.promptTemplate) {
+        prompt = String(cfg.promptTemplate).replaceAll('{{value}}', inputText);
+        if (this.context && this.context.variables) {
+          prompt = prompt.replace(/\{\{variables\.([a-zA-Z0-9_-]+)\}\}/g, (_, k) => (this.context.variables[k] !== undefined ? this.context.variables[k] : ''));
+        }
+      }
+
+      const callArgs = {
+        value: prompt,
+        config: {
+          personaId: cfg.personaId,
+          systemPrompt: cfg.systemPrompt,
+          model: cfg.model,
+          temperature: cfg.temperature
+        }
+      };
+
+      const res = await this.manager.call('ai-chat', 'chatComplete', callArgs);
+      const outText = (res && typeof res.value !== 'undefined') ? String(res.value) : (typeof res === 'string' ? res : JSON.stringify(res));
+      if (cfg.outputVariable && this.context && this.context.variables) {
+        this.context.variables[cfg.outputVariable] = outText;
+      }
+      return done({
+        output: { type: 'text/plain', value: outText },
+        summary: `AI 回复 (${outText.slice(0, 30)})`
+      });
     }
 
     if (type === 'util/regex-extract') {
@@ -363,6 +445,7 @@ class WorkflowRunner {
     // Each node's output is tracked per-node so branched workflows feed every
     // successor its OWN predecessor's output, not "whatever node ran last".
     const outputs = new Map(); // nodeId -> output envelope (non-halted nodes only)
+    this.context = { variables: {}, nodes: {} };
     let finalOutput = initialEnvelope || { type: 'text/plain', value: '' };
     const executed = new Set();
     const halted = new Set(); // condition-failed (or fully-blocked) node ids
@@ -399,7 +482,15 @@ class WorkflowRunner {
         const step = await this.runNode(node, nodeInput);
         finalOutput = step.output !== undefined ? step.output : nodeInput;
         if (step.halt) halted.add(nodeId);
-        else outputs.set(nodeId, step.output);
+        else {
+          outputs.set(nodeId, step.output);
+          if (this.context) {
+            this.context.nodes[nodeId] = step.output;
+            if (node.config && node.config.outputVariable) {
+              this.context.variables[node.config.outputVariable] = step.output ? step.output.value : null;
+            }
+          }
+        }
         logs.push({
           nodeId: node.id,
           title: node.title,

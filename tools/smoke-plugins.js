@@ -22,9 +22,10 @@ app.whenReady().then(async () => {
   const info = manager.serialize();
   console.log('discovered:', found.map(p => `${p.id}(${p.source})`).join(', '));
 
-  const expect = ['antigravity-launcher', 'calculator', 'clip-history', 'codec-lab', 'color-lab', 'draw-board', 'json-editor', 'memo', 'mirror-hub', 'port-scope', 'screenshot-pin'];
+  const expect = ['ai-chat', 'antigravity-launcher', 'calculator', 'clip-history', 'codec-lab', 'color-lab', 'draw-board', 'json-editor', 'memo', 'mirror-hub', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
+  if (!info.find(p => p.id === 'ai-chat').hasBackend) throw new Error('ai-chat should have a backend');
   if (!info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have a backend');
   if (!info.find(p => p.id === 'color-lab').hasBackend) throw new Error('color-lab should have a backend');
   if (info.find(p => p.id === 'json-editor').hasBackend) throw new Error('json-editor should have no backend');
@@ -44,6 +45,9 @@ app.whenReady().then(async () => {
   registerPluginProtocol(manager);
   const { net } = require('electron');
   const fetchStatus = async url => (await net.fetch(url)).status;
+  if (await fetchStatus('plugin://ai-chat/panel.js') !== 200) throw new Error('plugin:// ai-chat panel.js not served');
+  if (await fetchStatus('plugin://ai-chat/panel.css') !== 200) throw new Error('plugin:// ai-chat panel.css not served');
+  if (await fetchStatus('plugin://ai-chat/icon.svg') !== 200) throw new Error('plugin:// ai-chat icon.svg not served');
   if (await fetchStatus('plugin://codec-lab/panel.js') !== 200) throw new Error('plugin:// panel.js not served');
   if (await fetchStatus('plugin://codec-lab/icon.svg') !== 200) throw new Error('plugin:// icon.svg not served');
   if (await fetchStatus('plugin://json-editor/panel.js') !== 200) throw new Error('plugin:// json-editor panel.js not served');
@@ -99,6 +103,13 @@ app.whenReady().then(async () => {
   const removed = await manager.call('memo', 'remove', { id: created.note.id });
   if (!removed.ok || removed.notes.some(n => n.id === created.note.id)) throw new Error('memo remove failed');
   console.log(`memo round-trip OK (${memoSeeded} seeded note${memoSeeded === 1 ? '' : 's'})`);
+
+  // ai-chat: session & persona initialization
+  const aiInit = await manager.call('ai-chat', 'getInitData');
+  if (!aiInit || !aiInit.config || !Array.isArray(aiInit.personas)) throw new Error('ai-chat getInitData failed');
+  const aiNewSess = await manager.call('ai-chat', 'createSession', { title: '冒烟测试会话' });
+  if (!aiNewSess.ok || aiNewSess.session.title !== '冒烟测试会话') throw new Error('ai-chat createSession failed');
+  console.log('ai-chat session & persona IPC OK');
 
   // kill guard through the router
   try {

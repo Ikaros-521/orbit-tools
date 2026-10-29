@@ -13,6 +13,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
       if (host && !host.isDestroyed()) host.webContents.send('workflow-event', payload);
     }
   });
+  manager.workflowManager = workflowManager;
 
   ipcMain.handle('boot', () => ({
     platform: process.platform,

@@ -341,6 +341,7 @@ class PluginManager {
       getHostWindow: () => this.getHostWindow(),
       url: rel => `plugin://${p.id}/${String(rel).replace(/^\/+/, '')}`,
       send: (channel, payload) => this.broadcast(p.id, channel, payload),
+      workflows: this.workflowManager || null,
       ipc: {
         handle: (method, fn) => state.handlers.set(method, fn),
       },
