@@ -1,8 +1,92 @@
-const { clipboard } = require('electron');
-const { execFile } = require('child_process');
+const { clipboard, app } = require('electron');
+const { execFile, spawnSync } = require('child_process');
+const fs = require('fs');
 const path = require('path');
 
 const VBS_PATH = path.join(__dirname, 'send_copy.vbs');
+const READER_SRC = path.join(__dirname, 'selection-reader.cs');
+
+/* --- UI Automation reader (Windows) ----------------------------------------
+   Synthetic Ctrl+C is unreliable across apps: VS Code/Cursor ignore it, and a
+   modifier the user still holds folds into Ctrl+Shift+C. UIA reads the focused
+   control's TextPattern selection directly — no keys, no clipboard churn.
+   A tiny .NET helper is compiled once with the csc that ships with the .NET
+   Framework; anything going wrong here degrades to the clipboard path. */
+let readerExe = null;
+let readerBuildFailed = false;
+
+function windowsDir() {
+  return process.env.WINDIR || process.env.SystemRoot || 'C:\\Windows';
+}
+
+function findCsc() {
+  const base = path.join(windowsDir(), 'Microsoft.NET');
+  for (const flavour of ['Framework64', 'Framework']) {
+    const p = path.join(base, flavour, 'v4.0.30319', 'csc.exe');
+    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
+  }
+  return null;
+}
+
+function gacRef(name) {
+  const base = path.join(windowsDir(), 'Microsoft.NET', 'assembly', 'GAC_MSIL', name);
+  try {
+    for (const dir of fs.readdirSync(base)) {
+      const p = path.join(base, dir, `${name}.dll`);
+      if (fs.existsSync(p)) return p;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+function ensureReader() {
+  if (readerExe) return readerExe;
+  if (readerBuildFailed || process.platform !== 'win32') return null;
+  try {
+    const outDir = path.join(app.getPath('userData'), 'native');
+    fs.mkdirSync(outDir, { recursive: true });
+    const exe = path.join(outDir, 'OrbitSelectionReader.exe');
+    let needBuild = !fs.existsSync(exe);
+    if (!needBuild) {
+      try { needBuild = fs.statSync(READER_SRC).mtimeMs > fs.statSync(exe).mtimeMs; } catch { /* ignore */ }
+    }
+    if (needBuild) {
+      const csc = findCsc();
+      const uia = gacRef('UIAutomationClient');
+      const uiaTypes = gacRef('UIAutomationTypes');
+      if (!csc || !uia || !uiaTypes) { readerBuildFailed = true; return null; }
+      const res = spawnSync(csc, [
+        '-nologo', '-target:exe', `-out:"${exe}"`,
+        `-r:"${uia}"`, `-r:"${uiaTypes}"`, READER_SRC,
+      ], { windowsHide: true, timeout: 20000 });
+      if (res.status !== 0 || !fs.existsSync(exe)) { readerBuildFailed = true; return null; }
+    }
+    readerExe = exe;
+    return exe;
+  } catch {
+    readerBuildFailed = true;
+    return null;
+  }
+}
+
+function readSelectionViaUia(timeoutMs = 800) {
+  if (process.platform !== 'win32') return Promise.resolve({ supported: false, text: null });
+  const exe = ensureReader();
+  if (!exe) return Promise.resolve({ supported: false, text: null });
+  return new Promise(resolve => {
+    execFile(exe, [], { windowsHide: true, timeout: timeoutMs, maxBuffer: 8 * 1024 * 1024 }, (err, stdout) => {
+      const code = err ? err.code : 0;
+      // 3 = the focused control exposes text but has no selection: the clipboard
+      // fallback would find nothing either, so skip it and keep the summon fast
+      if (code === 3) return resolve({ supported: true, text: null });
+      if (code !== 0 || !stdout) return resolve({ supported: false, text: null });
+      try {
+        const text = Buffer.from(String(stdout).trim(), 'base64').toString('utf8');
+        resolve({ supported: true, text: text && text.trim() ? text.trim() : null });
+      } catch { resolve({ supported: false, text: null }); }
+    });
+  });
+}
 
 function simulateCopy() {
   return new Promise(resolve => {
@@ -73,6 +157,13 @@ function restoreClipboardSnapshot(snap) {
  * @returns {Promise<{ ok: boolean, text: string|null }>}
  */
 async function captureActiveSelection({ restoreClipboard = true, timeoutMs = 90 } = {}) {
+  // 首选 UI Automation：直接读焦点控件的选区，不注入按键、不动剪贴板，
+  // 在 VS Code / Cursor 这类忽略合成 Ctrl+C 的编辑器里也能拿到
+  try {
+    const uia = await readSelectionViaUia();
+    if (uia.supported) return { ok: !!uia.text, text: uia.text || null };
+  } catch { /* fall through to the clipboard path */ }
+
   const snap = snapshotClipboard();
 
   const sentinel = `__ORBIT_SEL_${Date.now()}_${Math.random().toString(36).slice(2)}`;
@@ -109,5 +200,6 @@ async function captureActiveSelection({ restoreClipboard = true, timeoutMs = 90 
 
 module.exports = {
   captureActiveSelection,
+  readSelectionViaUia,
   simulateCopy,
 };
