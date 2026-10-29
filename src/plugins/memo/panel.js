@@ -194,19 +194,19 @@
             </div>
           </div>
           <div class="memo-tools">
-            <button type="button" class="memo-fmt" data-fmt="bold" title="Ctrl+B"><b>B</b></button>
-            <button type="button" class="memo-fmt" data-fmt="italic" title="Ctrl+I"><i>I</i></button>
-            <button type="button" class="memo-fmt" data-fmt="strike" title=""><s>S</s></button>
-            <button type="button" class="memo-fmt mono" data-fmt="code" title="">&lt;&gt;</button>
-            <button type="button" class="memo-fmt" data-fmt="link" title="">🔗</button>
+            <button type="button" class="memo-fmt" data-fmt="bold" title="${L('加粗', 'Bold')} (Ctrl+B)"><b>B</b></button>
+            <button type="button" class="memo-fmt" data-fmt="italic" title="${L('斜体', 'Italic')} (Ctrl+I)"><i>I</i></button>
+            <button type="button" class="memo-fmt" data-fmt="strike" title="${L('删除线', 'Strikethrough')}"><s>S</s></button>
+            <button type="button" class="memo-fmt mono" data-fmt="code" title="${L('行内代码', 'Inline code')}">&lt;&gt;</button>
+            <button type="button" class="memo-fmt" data-fmt="link" title="${L('插入链接', 'Insert link')}">🔗</button>
             <span class="memo-tools-sep"></span>
-            <button type="button" class="memo-fmt" data-fmt="h" title="">H</button>
-            <button type="button" class="memo-fmt" data-fmt="quote" title="">❝</button>
-            <button type="button" class="memo-fmt" data-fmt="ul" title="">• ≡</button>
-            <button type="button" class="memo-fmt" data-fmt="ol" title="">1. ≡</button>
-            <button type="button" class="memo-fmt" data-fmt="table" title="">⊞</button>
+            <button type="button" class="memo-fmt" data-fmt="h" title="${L('标题层级（逐级加深）', 'Heading level (deepen)')}">H</button>
+            <button type="button" class="memo-fmt" data-fmt="quote" title="${L('引用块', 'Blockquote')}">❝</button>
+            <button type="button" class="memo-fmt" data-fmt="ul" title="${L('无序列表', 'Bullet list')}">• ≡</button>
+            <button type="button" class="memo-fmt" data-fmt="ol" title="${L('有序列表', 'Numbered list')}">1. ≡</button>
+            <button type="button" class="memo-fmt" data-fmt="table" title="${L('插入表格', 'Insert table')}">⊞</button>
             <span class="memo-tools-sep"></span>
-            <button type="button" class="memo-fmt" data-fmt="date" title="">🕐</button>
+            <button type="button" class="memo-fmt" data-fmt="date" title="${L('插入当前日期时间', 'Insert current date & time')}">🕐</button>
             <span class="memo-save-state"></span>
           </div>
           <div class="memo-editor-area">
