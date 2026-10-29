@@ -10,7 +10,11 @@ const AGENT_TOOL_META = {
   run_javascript: { risk: 'high', label: '执行 JavaScript 脚本' },
   get_current_time: { risk: 'low', label: '读取当前时间' },
   list_workflows: { risk: 'low', label: '读取工作流列表' },
-  create_workflow: { risk: 'high', label: '创建并保存工作流' }
+  create_workflow: { risk: 'high', label: '创建并保存工作流' },
+  list_skills: { risk: 'low', label: '列出可用技能' },
+  read_skill: { risk: 'low', label: '读取技能内容' }
+  // MCP tools (mcp__server__tool) are dynamic and default to high-risk
+  // in resolveToolPermission — they ask in 'ask' and 'auto' tiers.
 };
 
 /**
@@ -120,6 +124,34 @@ const AGENT_TOOLS_DEFINITIONS = [
           }
         },
         required: ['name', 'nodes', 'edges']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_skills',
+      description: '列出当前可用的技能 (Skills)。技能是针对特定任务的详细指令包/方法论，调用 read_skill 获取内容后严格遵循执行。',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'read_skill',
+      description: '读取指定技能的完整内容 (Markdown 指令集)。获得内容后，在本次任务中遵循该技能的方法与约束执行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          skill_id: {
+            type: 'string',
+            description: '技能 ID，来自 list_skills 返回的列表'
+          }
+        },
+        required: ['skill_id']
       }
     }
   }

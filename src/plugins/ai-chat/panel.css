@@ -1915,3 +1915,197 @@
   font-family: var(--font-display);
 }
 
+/* panel.css has no generic `.hidden` rule (host only styles the [hidden]
+   attribute), so every class toggled via classList needs an explicit rule. */
+.ai-ext-editor.hidden,
+.ai-ext-list.hidden,
+.ai-form-group.hidden,
+.ai-personas-list.hidden {
+  display: none;
+}
+
+/* ================================================================
+   MCP Servers & Skills settings tab
+   ================================================================ */
+
+.ai-ext-section {
+  margin-bottom: 18px;
+}
+
+.ai-ext-section:last-child {
+  margin-bottom: 0;
+}
+
+.ai-ext-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.ai-ext-head-txt {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.ai-ext-title {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--ink);
+  font-family: var(--font-display);
+  letter-spacing: .04em;
+}
+
+.ai-ext-hint {
+  font-size: 11px;
+  color: var(--ink-faint);
+  line-height: 1.5;
+  max-width: 480px;
+}
+
+.ai-ext-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-mcp-card,
+.ai-skill-card {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+}
+
+.ai-mcp-card-head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.ai-mcp-ico {
+  font-size: 16px;
+}
+
+.ai-mcp-card-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-mcp-name {
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-mcp-target {
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 380px;
+}
+
+.ai-mcp-badge {
+  flex-shrink: 0;
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-display);
+  background: var(--green-soft);
+  color: var(--green);
+  border: 1px solid var(--green);
+}
+
+.ai-mcp-badge.off {
+  background: var(--inset);
+  color: var(--ink-faint);
+  border-color: var(--line);
+}
+
+.ai-ext-editor {
+  background: var(--panel-lo);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+}
+
+.ai-ext-editor-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 10px;
+  font-family: var(--font-display);
+}
+
+.ai-form-textarea {
+  width: 100%;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  padding: 7px 9px;
+  outline: none;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.ai-form-textarea:focus {
+  border-color: var(--accent);
+}
+
+.ai-skill-content {
+  min-height: 140px;
+  font-size: 12px;
+}
+
+.ai-ext-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink-dim);
+  cursor: pointer;
+  margin: 4px 0 8px;
+  user-select: none;
+}
+
+.ai-ext-check input {
+  accent-color: var(--accent);
+}
+
+.ai-ext-test-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
+
+.ai-ext-test-result {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.ai-ext-test-result.ok {
+  color: var(--green);
+}
+
+.ai-ext-test-result.err {
+  color: var(--red);
+}
+

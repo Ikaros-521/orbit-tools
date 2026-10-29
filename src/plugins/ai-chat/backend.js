@@ -5,6 +5,7 @@
 
 const { streamCompletion, syncCompletion, fetchRemoteModels } = require('./protocols');
 const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = require('./agent-tools');
+const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
 
 const DEFAULT_CONFIG = {
   channel: 'openai',
@@ -65,6 +66,23 @@ const DEFAULT_PERSONAS = [
 
 const genId = (prefix = 'id') => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
+const DEFAULT_SKILLS = [
+  {
+    id: 'skill-workflow-design',
+    name: '工作流设计规范',
+    desc: '设计 Orbit 工作流时的节点编排、命名与连线约束',
+    content: `# 工作流设计规范\n\n为 Orbit Toolbox 设计工作流时遵循：\n\n1. **入口用触发器**：clipboard 监听或 manual 手动触发，二选一；不要用触发器连触发器。\n2. **节点命名**：title 使用「动词+对象」中文短语，如「正则提取 SKU」「格式化 JSON」。\n3. **布局**：x 每列间隔 280，y 同层对齐 120，避免交叉连线。\n4. **数据处理**：优先使用 util/regex-extract、util/replace、util/text-template 等专用节点；仅当无法表达时才用 util/code-run 写 JS。\n5. **出口**：结果用 output/clipboard 写回剪贴板，必要时加 output/notification 提示。\n6. **条件分支**：util/condition 只连真/假两条边，不要留悬空出口。\n\n创建完成后，用一句话告诉用户节点数量与执行路径。`
+  },
+  {
+    id: 'skill-code-review',
+    name: '代码评审清单',
+    desc: '逐维度审查代码的结构、边界与可维护性',
+    content: `# 代码评审清单\n\n按以下维度逐项检查并给出结论（通过/风险/建议）：\n\n- **正确性**：边界条件、空值、类型、并发/时序问题。\n- **安全性**：注入、越权、敏感信息泄漏、不可信输入。\n- **可读性**：命名达意、函数单一职责、注释只写约束不写流水账。\n- **性能**：明显冗余计算、O(n²) 可优化点、不必要的同步 IO。\n- **一致性**：与周边代码的风格、错误处理、日志约定是否一致。\n\n输出格式：每维度一行结论，最后给「阻塞项 / 建议项」两个列表。`
+  }
+];
+
+let disposeAll = null;
+
 module.exports = {
   activate(ctx) {
     const rawData = ctx.data.get() || {};
@@ -72,12 +90,15 @@ module.exports = {
     let personas = Array.isArray(rawData.personas) && rawData.personas.length > 0 ? rawData.personas : [...DEFAULT_PERSONAS];
     let sessions = Array.isArray(rawData.sessions) ? rawData.sessions : [];
     let activeSessionId = rawData.activeSessionId || null;
+    let skills = Array.isArray(rawData.skills) && rawData.skills.length > 0 ? rawData.skills : [...DEFAULT_SKILLS];
+    let mcpServers = Array.isArray(rawData.mcpServers) ? rawData.mcpServers : [];
 
     const activeStreams = new Map(); // streamId -> AbortController
     const pendingApprovals = new Map(); // `${streamId}::${toolCallId}` -> { resolve, toolName }
+    const mcpConns = new Map(); // serverId -> { conn, tools, error }
 
     const save = () => {
-      ctx.data.set({ config, personas, sessions, activeSessionId });
+      ctx.data.set({ config, personas, sessions, activeSessionId, skills, mcpServers });
     };
 
     // Ensure at least one session exists
@@ -109,6 +130,8 @@ module.exports = {
       return {
         config,
         personas,
+        skills,
+        mcpServers,
         sessions: sessions.map(s => ({
           id: s.id,
           title: s.title,
@@ -304,6 +327,153 @@ module.exports = {
       return { ok: true, alwaysAllowTools: [] };
     });
 
+    /* --- MCP runtime: pooled connections + merged tool table ---------------- */
+
+    const getMcpRuntime = async () => {
+      const defs = [];
+      const routes = new Map(); // openai tool name -> { conn, origName, serverName }
+      const statuses = [];
+      for (const srv of mcpServers) {
+        if (!srv || srv.enabled === false) continue;
+        let entry = mcpConns.get(srv.id);
+        if (!entry) {
+          entry = { conn: new McpServerConnection(srv), tools: [], error: null };
+          mcpConns.set(srv.id, entry);
+          try {
+            await entry.conn.start();
+            entry.tools = await entry.conn.listTools();
+          } catch (err) {
+            entry.error = err.message || String(err);
+            try { entry.conn.dispose(); } catch {}
+          }
+        }
+        if (entry.error) {
+          statuses.push({ id: srv.id, name: srv.name, error: entry.error });
+          continue;
+        }
+        for (const t of entry.tools) {
+          const def = toOpenAiTool(srv.name, t);
+          if (defs.some(d => d.function.name === def.function.name)) continue; // collision guard
+          defs.push(def);
+          routes.set(def.function.name, { conn: entry.conn, origName: t.name, serverName: srv.name });
+        }
+      }
+      return { defs, routes, statuses };
+    };
+
+    const disposeMcpConn = id => {
+      const entry = mcpConns.get(id);
+      if (entry) {
+        try { entry.conn.dispose(); } catch {}
+        mcpConns.delete(id);
+      }
+    };
+
+    // Unified agent tool dispatcher: skills tools + MCP routing + legacy built-ins
+    const dispatchAgentTool = async (name, rawArgs, mcpRoutes) => {
+      const parseArgs = () => {
+        try { return typeof rawArgs === 'string' ? JSON.parse(rawArgs) : (rawArgs || {}); } catch { return {}; }
+      };
+      if (name === 'list_skills') {
+        return { ok: true, skills: skills.map(s => ({ id: s.id, name: s.name, desc: s.desc })) };
+      }
+      if (name === 'read_skill') {
+        const skill = skills.find(s => s.id === parseArgs().skill_id || s.name === parseArgs().skill_id);
+        if (!skill) return { ok: false, error: `技能不存在，请先调用 list_skills 获取可用列表` };
+        return { ok: true, skill_id: skill.id, content: skill.content };
+      }
+      const route = mcpRoutes && mcpRoutes.get(name);
+      if (route) {
+        try {
+          const res = await route.conn.callTool(route.origName, parseArgs());
+          return formatToolResult(res);
+        } catch (err) {
+          return { ok: false, error: `MCP 调用失败 (${route.serverName}): ${err.message}` };
+        }
+      }
+      return executeAgentTool(name, rawArgs, ctx);
+    };
+
+    /* --- MCP Servers & Skills management ------------------------------------ */
+
+    ctx.ipc.handle('saveMcpServer', args => {
+      const s = (args && args.server) || args || {};
+      if (!String(s.name || '').trim()) return { ok: false, error: '服务器名称不能为空' };
+      const id = s.id ? String(s.id) : genId('mcp');
+      const idx = mcpServers.findIndex(x => x.id === id);
+      const rec = {
+        id,
+        name: String(s.name).trim(),
+        transport: s.transport === 'http' ? 'http' : 'stdio',
+        command: String(s.command || '').trim(),
+        args: Array.isArray(s.args) ? s.args.map(String) : [],
+        env: s.env && typeof s.env === 'object' && !Array.isArray(s.env) ? s.env : {},
+        url: String(s.url || '').trim(),
+        apiKey: String(s.apiKey || ''),
+        enabled: s.enabled !== false
+      };
+      if (rec.transport === 'stdio' && !rec.command) return { ok: false, error: 'stdio 服务器需要填写启动命令' };
+      if (rec.transport === 'http' && !rec.url) return { ok: false, error: 'HTTP 服务器需要填写 URL' };
+      if (idx >= 0) mcpServers[idx] = rec; else mcpServers.push(rec);
+      disposeMcpConn(id); // reconnect with the new config on next use
+      save();
+      return { ok: true, server: rec, mcpServers };
+    });
+
+    ctx.ipc.handle('deleteMcpServer', args => {
+      const id = args && (args.id || args.serverId);
+      if (!id) return { ok: false, error: '缺少服务器 ID' };
+      mcpServers = mcpServers.filter(s => s.id !== id);
+      disposeMcpConn(id);
+      save();
+      return { ok: true, mcpServers };
+    });
+
+    ctx.ipc.handle('testMcpServer', async args => {
+      const s = (args && args.server) || args || {};
+      const conn = new McpServerConnection(s);
+      try {
+        await conn.start();
+        const tools = await conn.listTools();
+        if (s.id) { // keep the verified connection for lazy reuse
+          disposeMcpConn(s.id);
+          mcpConns.set(s.id, { conn, tools, error: null });
+        } else {
+          conn.dispose();
+        }
+        return { ok: true, toolCount: tools.length, tools: tools.map(t => t.name) };
+      } catch (err) {
+        conn.dispose();
+        return { ok: false, error: err.message || String(err) };
+      }
+    });
+
+    ctx.ipc.handle('saveSkill', args => {
+      const s = (args && args.skill) || args || {};
+      if (!String(s.name || '').trim()) return { ok: false, error: '技能名称不能为空' };
+      if (!String(s.content || '').trim()) return { ok: false, error: '技能内容不能为空' };
+      const id = s.id ? String(s.id) : genId('skill');
+      const idx = skills.findIndex(x => x.id === id);
+      const rec = { id, name: String(s.name).trim(), desc: String(s.desc || '').trim(), content: String(s.content) };
+      if (idx >= 0) skills[idx] = rec; else skills.push(rec);
+      save();
+      return { ok: true, skill: rec, skills };
+    });
+
+    ctx.ipc.handle('deleteSkill', args => {
+      const id = args && (args.id || args.skillId);
+      if (!id) return { ok: false, error: '缺少技能 ID' };
+      skills = skills.filter(s => s.id !== id);
+      save();
+      return { ok: true, skills };
+    });
+
+    ctx.ipc.handle('resetSkills', () => {
+      skills = [...DEFAULT_SKILLS];
+      save();
+      return { ok: true, skills };
+    });
+
     /* --- Chat Message Dispatch & Stream ----------------------------------- */
 
     ctx.ipc.handle('sendMessage', async args => {
@@ -397,6 +567,20 @@ module.exports = {
         const primaryModel = modelOverride || config.model || 'gpt-4o-mini';
         const fallbackModel = (config.fallbackModel && config.fallbackModel.trim()) || '';
 
+        // Agent tool table: built-ins + live MCP tools (chat must never block on MCP failure)
+        let mcpRoutes = new Map();
+        let agentToolDefs = AGENT_TOOLS_DEFINITIONS;
+        if (enableAgent) {
+          try {
+            const rt = await getMcpRuntime();
+            mcpRoutes = rt.routes;
+            agentToolDefs = rt.defs.length > 0 ? [...AGENT_TOOLS_DEFINITIONS, ...rt.defs] : AGENT_TOOLS_DEFINITIONS;
+            for (const st of rt.statuses) {
+              emitChunk({ type: 'mcp_error', server: st.name, error: st.error });
+            }
+          } catch { /* MCP unavailable — continue with built-in tools only */ }
+        }
+
         const runStream = async (targetModel, isFallback = false) => {
           accumulatedContent = '';
           accumulatedReasoning = '';
@@ -413,7 +597,7 @@ module.exports = {
             thinkingBudget: config.thinkingBudget || 2048,
             thinkingLevel: enableReasoning ? (thinkingLevel || 'auto') : 'auto',
             messages: requestMessages,
-            tools: enableAgent ? AGENT_TOOLS_DEFINITIONS : null
+            tools: enableAgent ? agentToolDefs : null
           };
 
           await streamCompletion(reqOpts, async event => {
@@ -485,7 +669,7 @@ module.exports = {
               assistantMsg.toolStatus[tc.id] = approved ? (permission === 'ask' ? 'approved' : 'auto') : 'denied';
 
               const result = approved
-                ? await executeAgentTool(toolName, toolArgs, ctx)
+                ? await dispatchAgentTool(toolName, toolArgs, mcpRoutes)
                 : { ok: false, denied: true, error: '用户拒绝执行该工具调用，请改用纯文本回答或调整方案' };
 
               emitChunk({ type: 'tool_approval_result', toolId: tc.id, approved, asked: permission === 'ask' });
@@ -639,7 +823,16 @@ module.exports = {
         fallbackFrom: res.fallbackFrom || null
       };
     });
+
+    disposeAll = () => {
+      for (const id of [...mcpConns.keys()]) disposeMcpConn(id);
+    };
   },
 
-  deactivate() {}
+  deactivate() {
+    if (disposeAll) {
+      disposeAll();
+      disposeAll = null;
+    }
+  }
 };

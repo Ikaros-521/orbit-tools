@@ -364,6 +364,7 @@
             <div class="ai-modal-nav-tabs" id="settingsNavTabs">
               <button type="button" class="ai-modal-nav-tab active" data-tab="model" id="tabNavModel">⚙️ 模型与渠道</button>
               <button type="button" class="ai-modal-nav-tab" data-tab="personas" id="tabNavPersonas">🎭 人设卡片管理</button>
+              <button type="button" class="ai-modal-nav-tab" data-tab="ext" id="tabNavExt">🧩 MCP 与技能</button>
             </div>
 
             <!-- 板块 1: 模型与渠道配置 -->
@@ -512,6 +513,110 @@
               </div>
             </div>
 
+            <!-- 板块 3: MCP 服务器与技能 -->
+            <div class="ai-modal-body ai-tab-pane hidden" id="paneExtSettings">
+
+              <!-- MCP 服务器 -->
+              <div class="ai-ext-section">
+                <div class="ai-ext-head">
+                  <div class="ai-ext-head-txt">
+                    <span class="ai-ext-title">🔌 MCP 服务器</span>
+                    <span class="ai-ext-hint">接入 Model Context Protocol 工具生态；已启用服务器的工具会自动注入 Agent，并受审批档位管控 (MCP 工具视为高危)</span>
+                  </div>
+                  <button type="button" class="ai-edit-btn primary" id="btnCreateMcp">+ 添加服务器</button>
+                </div>
+                <div class="ai-ext-list" id="mcpServerList"></div>
+
+                <!-- 内联 MCP 编辑器 -->
+                <div class="ai-ext-editor hidden" id="mcpEditPanel">
+                  <div class="ai-ext-editor-head">
+                    <span id="mcpEditTitle">添加 MCP 服务器</span>
+                    <button type="button" class="ai-modal-close" id="btnCloseMcpEdit">×</button>
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">名称</label>
+                    <input type="text" class="ai-form-input" id="inputMcpName" placeholder="例如：filesystem、github、puppeteer">
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">传输方式</label>
+                    <select class="ai-form-select" id="selectMcpTransport">
+                      <option value="stdio">stdio (本地子进程)</option>
+                      <option value="http">HTTP (Streamable HTTP)</option>
+                    </select>
+                  </div>
+                  <div class="ai-form-group" id="grpMcpCommand">
+                    <label class="ai-form-label">启动命令</label>
+                    <input type="text" class="ai-form-input" id="inputMcpCommand" placeholder="例如：npx 或 node D:\mcp-server\server.js">
+                    <span class="ai-form-hint">Windows 下 npx / npm / *.cmd 会自动经 cmd.exe 包装执行</span>
+                  </div>
+                  <div class="ai-form-group" id="grpMcpArgs">
+                    <label class="ai-form-label">启动参数 (每行一个)</label>
+                    <textarea class="ai-form-textarea" id="inputMcpArgs" rows="2" placeholder="-y&#10;@modelcontextprotocol/server-filesystem&#10;E:\workspace"></textarea>
+                  </div>
+                  <div class="ai-form-group" id="grpMcpEnv">
+                    <label class="ai-form-label">环境变量 (每行 KEY=VALUE，可选)</label>
+                    <textarea class="ai-form-textarea" id="inputMcpEnv" rows="2" placeholder="GITHUB_TOKEN=ghp_xxx"></textarea>
+                  </div>
+                  <div class="ai-form-group hidden" id="grpMcpUrl">
+                    <label class="ai-form-label">服务器 URL</label>
+                    <input type="text" class="ai-form-input" id="inputMcpUrl" placeholder="https://example.com/mcp">
+                  </div>
+                  <div class="ai-form-group hidden" id="grpMcpApiKey">
+                    <label class="ai-form-label">Bearer Token (可选)</label>
+                    <input type="password" class="ai-form-input" id="inputMcpApiKey" placeholder="留空表示无需鉴权">
+                  </div>
+                  <label class="ai-ext-check"><input type="checkbox" id="chkMcpEnabled" checked> 启用该服务器 (Agent 发消息时自动连接)</label>
+                  <div class="ai-ext-test-row">
+                    <button type="button" class="ai-edit-btn" id="btnTestMcp">⚡ 测试连接</button>
+                    <span class="ai-ext-test-result" id="mcpTestResult"></span>
+                  </div>
+                  <div class="ai-persona-edit-footer">
+                    <button type="button" class="ai-edit-btn" id="btnCancelMcpEdit">取消</button>
+                    <button type="button" class="ai-edit-btn primary" id="btnSaveMcp">保存服务器</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- 技能 -->
+              <div class="ai-ext-section">
+                <div class="ai-ext-head">
+                  <div class="ai-ext-head-txt">
+                    <span class="ai-ext-title">🧠 技能 (Skills)</span>
+                    <span class="ai-ext-hint">任务级指令包：Agent 通过 list_skills / read_skill 工具按需加载并遵循执行</span>
+                  </div>
+                  <div class="ai-personas-actions">
+                    <button type="button" class="ai-btn-text-action" id="btnResetSkills" title="恢复内置默认技能">🔄 恢复默认</button>
+                    <button type="button" class="ai-edit-btn primary" id="btnCreateSkill">+ 新建技能</button>
+                  </div>
+                </div>
+                <div class="ai-ext-list" id="skillsCardList"></div>
+
+                <!-- 内联技能编辑器 -->
+                <div class="ai-ext-editor hidden" id="skillEditPanel">
+                  <div class="ai-ext-editor-head">
+                    <span id="skillEditTitle">新建技能</span>
+                    <button type="button" class="ai-modal-close" id="btnCloseSkillEdit">×</button>
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">技能名称</label>
+                    <input type="text" class="ai-form-input" id="inputSkillName" placeholder="例如：API 文档撰写规范、SQL 优化指南">
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">技能简介 (供模型判断何时使用)</label>
+                    <input type="text" class="ai-form-input" id="inputSkillDesc" placeholder="一句话说明该技能适用的任务场景">
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">技能内容 (Markdown 指令集)</label>
+                    <textarea class="ai-form-textarea ai-skill-content" id="inputSkillContent" rows="8" placeholder="用 Markdown 写清楚该技能的方法论、步骤、约束与输出格式，模型读取后会严格遵循执行…"></textarea>
+                  </div>
+                  <div class="ai-persona-edit-footer">
+                    <button type="button" class="ai-edit-btn" id="btnCancelSkillEdit">取消</button>
+                    <button type="button" class="ai-edit-btn primary" id="btnSaveSkill">保存技能</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div class="ai-modal-footer" id="settingsModalFooter">
               <button class="ai-edit-btn" id="btnCancelSettings">取消</button>
               <button class="ai-edit-btn primary" id="btnSaveSettings">保存配置</button>
@@ -616,6 +721,43 @@
     const btnCancelPersonaEdit = el.querySelector('#btnCancelPersonaEdit');
     const btnSavePersona = el.querySelector('#btnSavePersona');
 
+    // MCP & Skills Tab DOM
+    const tabNavExt = el.querySelector('#tabNavExt');
+    const paneExtSettings = el.querySelector('#paneExtSettings');
+    const btnCreateMcp = el.querySelector('#btnCreateMcp');
+    const mcpServerList = el.querySelector('#mcpServerList');
+    const mcpEditPanel = el.querySelector('#mcpEditPanel');
+    const mcpEditTitle = el.querySelector('#mcpEditTitle');
+    const btnCloseMcpEdit = el.querySelector('#btnCloseMcpEdit');
+    const inputMcpName = el.querySelector('#inputMcpName');
+    const selectMcpTransport = el.querySelector('#selectMcpTransport');
+    const grpMcpCommand = el.querySelector('#grpMcpCommand');
+    const inputMcpCommand = el.querySelector('#inputMcpCommand');
+    const grpMcpArgs = el.querySelector('#grpMcpArgs');
+    const inputMcpArgs = el.querySelector('#inputMcpArgs');
+    const grpMcpEnv = el.querySelector('#grpMcpEnv');
+    const inputMcpEnv = el.querySelector('#inputMcpEnv');
+    const grpMcpUrl = el.querySelector('#grpMcpUrl');
+    const inputMcpUrl = el.querySelector('#inputMcpUrl');
+    const grpMcpApiKey = el.querySelector('#grpMcpApiKey');
+    const inputMcpApiKey = el.querySelector('#inputMcpApiKey');
+    const chkMcpEnabled = el.querySelector('#chkMcpEnabled');
+    const btnTestMcp = el.querySelector('#btnTestMcp');
+    const mcpTestResult = el.querySelector('#mcpTestResult');
+    const btnCancelMcpEdit = el.querySelector('#btnCancelMcpEdit');
+    const btnSaveMcp = el.querySelector('#btnSaveMcp');
+    const btnResetSkills = el.querySelector('#btnResetSkills');
+    const btnCreateSkill = el.querySelector('#btnCreateSkill');
+    const skillsCardList = el.querySelector('#skillsCardList');
+    const skillEditPanel = el.querySelector('#skillEditPanel');
+    const skillEditTitle = el.querySelector('#skillEditTitle');
+    const btnCloseSkillEdit = el.querySelector('#btnCloseSkillEdit');
+    const inputSkillName = el.querySelector('#inputSkillName');
+    const inputSkillDesc = el.querySelector('#inputSkillDesc');
+    const inputSkillContent = el.querySelector('#inputSkillContent');
+    const btnCancelSkillEdit = el.querySelector('#btnCancelSkillEdit');
+    const btnSaveSkill = el.querySelector('#btnSaveSkill');
+
     // State
     let config = {};
     let personas = [];
@@ -629,6 +771,10 @@
     let editingPersonaId = null;
     let agentMode = 'ask'; // 'ask' | 'auto' | 'full'
     let thinkLevel = 'auto'; // 'auto' | 'low' | 'medium' | 'high'
+    let skills = [];
+    let mcpServers = [];
+    let editingMcpId = null;
+    let editingSkillId = null;
 
     // Personas Search & Pagination State
     let personaSearchKeyword = '';
@@ -1494,17 +1640,26 @@
     function switchSettingsTab(tabName) {
       tabNavModel.classList.toggle('active', tabName === 'model');
       tabNavPersonas.classList.toggle('active', tabName === 'personas');
+      tabNavExt.classList.toggle('active', tabName === 'ext');
       paneModelSettings.classList.toggle('hidden', tabName !== 'model');
       panePersonasSettings.classList.toggle('hidden', tabName !== 'personas');
+      paneExtSettings.classList.toggle('hidden', tabName !== 'ext');
       settingsModalFooter.style.display = tabName === 'model' ? 'flex' : 'none';
       if (tabName === 'personas') {
         closePersonaEditor();
         renderPersonasSettingsList();
       }
+      if (tabName === 'ext') {
+        closeMcpEditor();
+        closeSkillEditor();
+        renderMcpList();
+        renderSkillsList();
+      }
     }
 
     tabNavModel.addEventListener('click', () => switchSettingsTab('model'));
     tabNavPersonas.addEventListener('click', () => switchSettingsTab('personas'));
+    tabNavExt.addEventListener('click', () => switchSettingsTab('ext'));
 
     /* --- Personas Management Controller --- */
     function renderPersonasSettingsList() {
@@ -1673,6 +1828,246 @@
         closePersonaEditor();
         renderPersonas();
         renderPersonasSettingsList();
+      } else {
+        alert(`保存失败: ${(res && res.error) || '未知错误'}`);
+      }
+    });
+
+    /* --- MCP Servers Controller ------------------------------------------- */
+    function mcpTargetText(s) {
+      if (s.transport === 'http') return s.url || '';
+      return [s.command, ...(s.args || [])].filter(Boolean).join(' ');
+    }
+
+    function renderMcpList() {
+      mcpServerList.innerHTML = '';
+      if (!mcpServers.length) {
+        const empty = document.createElement('div');
+        empty.className = 'ai-model-empty-tip';
+        empty.textContent = '尚未配置 MCP 服务器，点击右上角添加（如 npx -y @modelcontextprotocol/server-filesystem）';
+        mcpServerList.appendChild(empty);
+        return;
+      }
+      mcpServers.forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'ai-mcp-card';
+        card.innerHTML = `
+          <div class="ai-mcp-card-head">
+            <span class="ai-mcp-ico">${s.transport === 'http' ? '🌐' : '🖥️'}</span>
+            <div class="ai-mcp-card-info">
+              <span class="ai-mcp-name">${escapeHtml(s.name)}</span>
+              <span class="ai-mcp-target" title="${escapeHtml(mcpTargetText(s))}">${escapeHtml(mcpTargetText(s))}</span>
+            </div>
+            <span class="ai-mcp-badge ${s.enabled === false ? 'off' : ''}">${s.enabled === false ? '已停用' : '已启用'}</span>
+            <div class="ai-persona-card-btns">
+              <button type="button" class="ai-persona-card-btn edit">✏️ 编辑</button>
+              <button type="button" class="ai-persona-card-btn del">🗑️ 删除</button>
+            </div>
+          </div>
+        `;
+        card.querySelector('.edit').addEventListener('click', () => openMcpEditor(s));
+        card.querySelector('.del').addEventListener('click', async () => {
+          if (!confirm(`确定删除 MCP 服务器「${s.name}」吗？`)) return;
+          const res = await ctx.call('deleteMcpServer', { id: s.id });
+          if (res && res.ok) {
+            mcpServers = res.mcpServers;
+            renderMcpList();
+          }
+        });
+        mcpServerList.appendChild(card);
+      });
+    }
+
+    function syncMcpTransportGroups() {
+      const isHttp = selectMcpTransport.value === 'http';
+      grpMcpCommand.classList.toggle('hidden', isHttp);
+      grpMcpArgs.classList.toggle('hidden', isHttp);
+      grpMcpEnv.classList.toggle('hidden', isHttp);
+      grpMcpUrl.classList.toggle('hidden', !isHttp);
+      grpMcpApiKey.classList.toggle('hidden', !isHttp);
+    }
+
+    function parseKeyValueLines(text) {
+      const env = {};
+      String(text || '').split(/\r?\n/).forEach(line => {
+        const t = line.trim();
+        if (!t || t.startsWith('#')) return;
+        const eq = t.indexOf('=');
+        if (eq > 0) env[t.slice(0, eq).trim()] = t.slice(eq + 1).trim();
+      });
+      return env;
+    }
+
+    function buildMcpFormCfg(withId) {
+      return {
+        ...(withId && editingMcpId ? { id: editingMcpId } : {}),
+        name: inputMcpName.value.trim(),
+        transport: selectMcpTransport.value,
+        command: inputMcpCommand.value.trim(),
+        args: inputMcpArgs.value.split(/\r?\n/).map(l => l.trim()).filter(Boolean),
+        env: parseKeyValueLines(inputMcpEnv.value),
+        url: inputMcpUrl.value.trim(),
+        apiKey: inputMcpApiKey.value.trim(),
+        enabled: chkMcpEnabled.checked
+      };
+    }
+
+    function openMcpEditor(s) {
+      editingMcpId = s ? s.id : null;
+      mcpEditTitle.textContent = s ? `编辑服务器: ${s.name}` : '添加 MCP 服务器';
+      inputMcpName.value = s ? s.name : '';
+      selectMcpTransport.value = s ? (s.transport || 'stdio') : 'stdio';
+      inputMcpCommand.value = s ? (s.command || '') : '';
+      inputMcpArgs.value = s ? (s.args || []).join('\n') : '';
+      inputMcpEnv.value = s ? Object.entries(s.env || {}).map(([k, v]) => `${k}=${v}`).join('\n') : '';
+      inputMcpUrl.value = s ? (s.url || '') : '';
+      inputMcpApiKey.value = s ? (s.apiKey || '') : '';
+      chkMcpEnabled.checked = s ? s.enabled !== false : true;
+      mcpTestResult.textContent = '';
+      mcpTestResult.className = 'ai-ext-test-result';
+      syncMcpTransportGroups();
+      mcpServerList.classList.add('hidden');
+      mcpEditPanel.classList.remove('hidden');
+      inputMcpName.focus();
+    }
+
+    function closeMcpEditor() {
+      mcpEditPanel.classList.add('hidden');
+      mcpServerList.classList.remove('hidden');
+      editingMcpId = null;
+    }
+
+    btnCreateMcp.addEventListener('click', () => openMcpEditor(null));
+    btnCloseMcpEdit.addEventListener('click', closeMcpEditor);
+    btnCancelMcpEdit.addEventListener('click', closeMcpEditor);
+    selectMcpTransport.addEventListener('change', syncMcpTransportGroups);
+
+    btnTestMcp.addEventListener('click', async () => {
+      if (!inputMcpName.value.trim()) {
+        mcpTestResult.textContent = '请先填写服务器名称';
+        mcpTestResult.className = 'ai-ext-test-result err';
+        return;
+      }
+      btnTestMcp.disabled = true;
+      mcpTestResult.textContent = '连接中…';
+      mcpTestResult.className = 'ai-ext-test-result';
+      try {
+        const res = await ctx.call('testMcpServer', { server: buildMcpFormCfg(true) });
+        if (res && res.ok) {
+          mcpTestResult.textContent = `✓ 连接成功，发现 ${res.toolCount} 个工具: ${(res.tools || []).slice(0, 6).join(', ')}${res.toolCount > 6 ? ' …' : ''}`;
+          mcpTestResult.className = 'ai-ext-test-result ok';
+        } else {
+          mcpTestResult.textContent = `✗ 连接失败: ${(res && res.error) || '未知错误'}`;
+          mcpTestResult.className = 'ai-ext-test-result err';
+        }
+      } finally {
+        btnTestMcp.disabled = false;
+      }
+    });
+
+    btnSaveMcp.addEventListener('click', async () => {
+      const res = await ctx.call('saveMcpServer', { server: buildMcpFormCfg(true) });
+      if (res && res.ok) {
+        mcpServers = res.mcpServers;
+        closeMcpEditor();
+        renderMcpList();
+      } else {
+        alert(`保存失败: ${(res && res.error) || '未知错误'}`);
+      }
+    });
+
+    /* --- Skills Controller ------------------------------------------------- */
+    function renderSkillsList() {
+      skillsCardList.innerHTML = '';
+      if (!skills.length) {
+        const empty = document.createElement('div');
+        empty.className = 'ai-model-empty-tip';
+        empty.textContent = '暂无技能，点击右上角新建或恢复默认';
+        skillsCardList.appendChild(empty);
+        return;
+      }
+      skills.forEach(sk => {
+        const card = document.createElement('div');
+        card.className = 'ai-skill-card';
+        card.innerHTML = `
+          <div class="ai-mcp-card-head">
+            <span class="ai-mcp-ico">🧠</span>
+            <div class="ai-mcp-card-info">
+              <span class="ai-mcp-name">${escapeHtml(sk.name)}</span>
+              <span class="ai-mcp-target" title="${escapeHtml(sk.desc || '')}">${escapeHtml(sk.desc || '(未设置简介)')}</span>
+            </div>
+            <div class="ai-persona-card-btns">
+              <button type="button" class="ai-persona-card-btn edit">✏️ 编辑</button>
+              <button type="button" class="ai-persona-card-btn del">🗑️ 删除</button>
+            </div>
+          </div>
+        `;
+        card.querySelector('.edit').addEventListener('click', () => {
+          editingSkillId = sk.id;
+          skillEditTitle.textContent = `编辑技能: ${sk.name}`;
+          inputSkillName.value = sk.name || '';
+          inputSkillDesc.value = sk.desc || '';
+          inputSkillContent.value = sk.content || '';
+          skillsCardList.classList.add('hidden');
+          skillEditPanel.classList.remove('hidden');
+          inputSkillName.focus();
+        });
+        card.querySelector('.del').addEventListener('click', async () => {
+          if (!confirm(`确定删除技能「${sk.name}」吗？`)) return;
+          const res = await ctx.call('deleteSkill', { id: sk.id });
+          if (res && res.ok) {
+            skills = res.skills;
+            renderSkillsList();
+          }
+        });
+        skillsCardList.appendChild(card);
+      });
+    }
+
+    function closeSkillEditor() {
+      skillEditPanel.classList.add('hidden');
+      skillsCardList.classList.remove('hidden');
+      editingSkillId = null;
+    }
+
+    btnCreateSkill.addEventListener('click', () => {
+      editingSkillId = null;
+      skillEditTitle.textContent = '新建技能';
+      inputSkillName.value = '';
+      inputSkillDesc.value = '';
+      inputSkillContent.value = '';
+      skillsCardList.classList.add('hidden');
+      skillEditPanel.classList.remove('hidden');
+      inputSkillName.focus();
+    });
+    btnCloseSkillEdit.addEventListener('click', closeSkillEditor);
+    btnCancelSkillEdit.addEventListener('click', closeSkillEditor);
+
+    btnResetSkills.addEventListener('click', async () => {
+      if (!confirm('确定恢复内置默认技能吗？当前全部技能（含自定义）将被重置为内置默认。')) return;
+      const res = await ctx.call('resetSkills');
+      if (res && res.ok) {
+        skills = res.skills;
+        closeSkillEditor();
+        renderSkillsList();
+      }
+    });
+
+    btnSaveSkill.addEventListener('click', async () => {
+      const name = inputSkillName.value.trim();
+      const content = inputSkillContent.value.trim();
+      if (!name) { alert('请输入技能名称'); inputSkillName.focus(); return; }
+      if (!content) { alert('请输入技能内容'); inputSkillContent.focus(); return; }
+      const res = await ctx.call('saveSkill', {
+        id: editingSkillId,
+        name,
+        desc: inputSkillDesc.value.trim(),
+        content
+      });
+      if (res && res.ok) {
+        skills = res.skills;
+        closeSkillEditor();
+        renderSkillsList();
       } else {
         alert(`保存失败: ${(res && res.error) || '未知错误'}`);
       }
@@ -1944,6 +2339,8 @@
       if (!data) return;
       config = data.config || {};
       personas = data.personas || [];
+      skills = data.skills || [];
+      mcpServers = data.mcpServers || [];
       sessions = data.sessions || [];
       currentSession = data.activeSession || null;
 
