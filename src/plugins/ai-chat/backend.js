@@ -7,6 +7,10 @@ const { streamCompletion, syncCompletion, fetchRemoteModels } = require('./proto
 const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = require('./agent-tools');
 const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
 const { parseSkillMarkdown, resolveSkillSourceUrl } = require('./skills-util');
+const { LOCAL_TOOL_NAMES, LOCAL_TOOLS_DEFINITIONS, executeLocalTool } = require('./local-tools');
+const os = require('os');
+const fs = require('fs');
+const path = require('path');
 
 const DEFAULT_CONFIG = {
   channel: 'openai',
@@ -24,7 +28,9 @@ const DEFAULT_CONFIG = {
   // Agent approval tiers: 'ask' (每次确认) | 'auto' (自动审核，低风险直跑) | 'full' (完全访问)
   agentApprovalMode: 'ask',
   // Thinking level when reasoning is on: 'auto' (不传参，跟随模型默认) | 'low' | 'medium' | 'high'
-  thinkingLevel: 'auto'
+  thinkingLevel: 'auto',
+  // Default working directory for the local assistant (empty -> user home)
+  agentWorkDir: ''
 };
 
 const DEFAULT_PERSONAS = [
@@ -212,6 +218,7 @@ module.exports = {
         id: genId('sess'),
         title: (args && args.title) || `${persona.title || '新对话'}`,
         personaId,
+        workDir: config.agentWorkDir || os.homedir(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         totalTokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -328,6 +335,25 @@ module.exports = {
       return { ok: true, alwaysAllowTools: [] };
     });
 
+    ctx.ipc.handle('setSessionWorkDir', args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      const dir = String((args && args.dir) || '').trim();
+      if (!dir) return { ok: false, error: '路径不能为空' };
+      let resolved;
+      try {
+        resolved = path.resolve(dir);
+        const st = fs.statSync(resolved);
+        if (!st.isDirectory()) return { ok: false, error: '路径不是目录' };
+      } catch {
+        return { ok: false, error: `目录不存在或无法访问: ${resolved || dir}` };
+      }
+      s.workDir = resolved;
+      s.updatedAt = Date.now();
+      save();
+      return { ok: true, workDir: resolved };
+    });
+
     /* --- MCP runtime: pooled connections + merged tool table ---------------- */
 
     const getMcpRuntime = async () => {
@@ -371,7 +397,7 @@ module.exports = {
     };
 
     // Unified agent tool dispatcher: skills tools + MCP routing + legacy built-ins
-    const dispatchAgentTool = async (name, rawArgs, mcpRoutes) => {
+    const dispatchAgentTool = async (name, rawArgs, mcpRoutes, workDir) => {
       const parseArgs = () => {
         try { return typeof rawArgs === 'string' ? JSON.parse(rawArgs) : (rawArgs || {}); } catch { return {}; }
       };
@@ -391,6 +417,9 @@ module.exports = {
         } catch (err) {
           return { ok: false, error: `MCP 调用失败 (${route.serverName}): ${err.message}` };
         }
+      }
+      if (LOCAL_TOOL_NAMES.has(name)) {
+        return executeLocalTool(name, parseArgs(), { workDir: workDir || os.homedir() });
       }
       return executeAgentTool(name, rawArgs, ctx);
     };
@@ -621,7 +650,12 @@ module.exports = {
 
       // Assemble system prompt & bounded context
       const persona = getPersona(session.personaId);
-      const systemContent = persona ? persona.prompt : '';
+      // Local assistant: resolve the session working directory + capability note
+      const agentWorkDir = session.workDir || config.agentWorkDir || os.homedir();
+      let systemContent = persona ? persona.prompt : '';
+      if (enableAgent) {
+        systemContent += `\n\n[本地助手环境] 工作目录: ${agentWorkDir}。你拥有本地能力：list_dir / read_file / search_files 操作文件系统，write_file 写入文件，run_command 在工作目录执行 shell 命令 (Windows 为 cmd)；相对路径一律基于工作目录解析。写文件与执行命令属高危操作，需用户审批。`;
+      }
 
       const maxContext = Math.max(2, Number(config.maxContextMessages) || 16);
       // Grab preceding context messages (excluding current placeholder)
@@ -657,14 +691,15 @@ module.exports = {
         const primaryModel = modelOverride || config.model || 'gpt-4o-mini';
         const fallbackModel = (config.fallbackModel && config.fallbackModel.trim()) || '';
 
-        // Agent tool table: built-ins + live MCP tools (chat must never block on MCP failure)
+        // Agent tool table: built-ins + local assistant tools + live MCP tools
+        // (chat must never block on MCP failure)
         let mcpRoutes = new Map();
-        let agentToolDefs = AGENT_TOOLS_DEFINITIONS;
+        let agentToolDefs = [...AGENT_TOOLS_DEFINITIONS, ...LOCAL_TOOLS_DEFINITIONS];
         if (enableAgent) {
           try {
             const rt = await getMcpRuntime();
             mcpRoutes = rt.routes;
-            agentToolDefs = rt.defs.length > 0 ? [...AGENT_TOOLS_DEFINITIONS, ...rt.defs] : AGENT_TOOLS_DEFINITIONS;
+            agentToolDefs = rt.defs.length > 0 ? [...agentToolDefs, ...rt.defs] : agentToolDefs;
             for (const st of rt.statuses) {
               emitChunk({ type: 'mcp_error', server: st.name, error: st.error });
             }
@@ -759,7 +794,7 @@ module.exports = {
               assistantMsg.toolStatus[tc.id] = approved ? (permission === 'ask' ? 'approved' : 'auto') : 'denied';
 
               const result = approved
-                ? await dispatchAgentTool(toolName, toolArgs, mcpRoutes)
+                ? await dispatchAgentTool(toolName, toolArgs, mcpRoutes, agentWorkDir)
                 : { ok: false, denied: true, error: '用户拒绝执行该工具调用，请改用纯文本回答或调整方案' };
 
               emitChunk({ type: 'tool_approval_result', toolId: tc.id, approved, asked: permission === 'ask' });

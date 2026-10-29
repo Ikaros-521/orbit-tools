@@ -12,7 +12,13 @@ const AGENT_TOOL_META = {
   list_workflows: { risk: 'low', label: '读取工作流列表' },
   create_workflow: { risk: 'high', label: '创建并保存工作流' },
   list_skills: { risk: 'low', label: '列出可用技能' },
-  read_skill: { risk: 'low', label: '读取技能内容' }
+  read_skill: { risk: 'low', label: '读取技能内容' },
+  // Local assistant tools (local-tools.js): reads are low-risk, writes/commands high
+  list_dir: { risk: 'low', label: '列出本地目录' },
+  read_file: { risk: 'low', label: '读取本地文件' },
+  search_files: { risk: 'low', label: '搜索本地文件' },
+  write_file: { risk: 'high', label: '写入本地文件' },
+  run_command: { risk: 'high', label: '执行系统命令' }
   // MCP tools (mcp__server__tool) are dynamic and default to high-risk
   // in resolveToolPermission — they ask in 'ask' and 'auto' tiers.
 };

@@ -2112,6 +2112,16 @@ input.hidden {
 }
 
 /* Skill import toolbar (GitHub download / local files) */
+.ai-header-workdir {
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.ai-header-workdir:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+}
+
 .ai-skill-import-row {
   display: flex;
   align-items: center;

@@ -250,6 +250,7 @@
               <button class="ai-btn-toggle-sidebar" id="btnToggleSidebar" title="收起/展开侧边栏">☰</button>
               <span class="ai-header-title" id="headerTitle" title="双击重命名">新对话</span>
               <span class="ai-header-model-pill" id="headerModelPill">gpt-4o-mini</span>
+              <span class="ai-header-model-pill ai-header-workdir" id="headerWorkDirPill" title="Agent 工作目录，点击修改">📁</span>
             </div>
             <div class="ai-header-right">
               <span class="ai-usage-badge" id="sessionUsageBadge" title="会话累计 Token 消耗">0 tokens</span>
@@ -651,6 +652,7 @@
     const sessionsList = el.querySelector('#sessionsList');
     const headerTitle = el.querySelector('#headerTitle');
     const headerModelPill = el.querySelector('#headerModelPill');
+    const headerWorkDirPill = el.querySelector('#headerWorkDirPill');
     const sessionUsageBadge = el.querySelector('#sessionUsageBadge');
     const btnClearSession = el.querySelector('#btnClearSession');
     const btnOpenSettings = el.querySelector('#btnOpenSettings');
@@ -1155,6 +1157,20 @@
       }
     });
 
+    /* --- Agent Working Directory ------------------------------------------- */
+    headerWorkDirPill.addEventListener('click', async () => {
+      if (!currentSession) return;
+      const dir = prompt('设置 Agent 工作目录 (本地文件读写与命令执行均基于此目录解析相对路径):', currentSession.workDir || '');
+      if (dir === null) return;
+      const res = await ctx.call('setSessionWorkDir', { sessionId: currentSession.id, dir: dir.trim() });
+      if (res && res.ok) {
+        currentSession.workDir = res.workDir;
+        updateHeader();
+      } else {
+        alert(`设置失败: ${(res && res.error) || '未知错误'}`);
+      }
+    });
+
     /* --- Clear Session ---------------------------------------------------- */
     btnClearSession.addEventListener('click', async () => {
       if (!currentSession || (currentSession.messages || []).length === 0) return;
@@ -1175,10 +1191,21 @@
       if (!currentSession) {
         headerTitle.textContent = '暂无对话';
         sessionUsageBadge.textContent = '0 tokens';
+        headerWorkDirPill.textContent = '📁';
+        headerWorkDirPill.title = 'Agent 工作目录';
         return;
       }
       headerTitle.textContent = currentSession.title || '新对话';
       headerModelPill.textContent = config.model || 'gpt-4o-mini';
+
+      const wd = currentSession.workDir || '';
+      if (wd) {
+        headerWorkDirPill.textContent = `📁 ${wd.length <= 30 ? wd : wd.split(/[\\/]/).slice(-2).join('/')}`;
+        headerWorkDirPill.title = `Agent 工作目录: ${wd} (点击修改)`;
+      } else {
+        headerWorkDirPill.textContent = '📁 未设置';
+        headerWorkDirPill.title = '点击设置 Agent 工作目录';
+      }
 
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
       sessionUsageBadge.textContent = `${tokens.toLocaleString()} tokens`;
