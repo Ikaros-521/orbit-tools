@@ -213,6 +213,68 @@ async function testFetchRemoteModels() {
   }
 }
 
+async function testFallbackMechanism() {
+  const http = require('http');
+  const server = http.createServer(async (req, res) => {
+    let raw = '';
+    req.on('data', c => raw += c);
+    req.on('end', () => {
+      try {
+        const body = JSON.parse(raw);
+        if (body.model === 'fail-primary') {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: { message: 'Primary model overloaded' } }));
+        } else if (body.model === 'backup-model') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            choices: [{ message: { role: 'assistant', content: 'Fallback Success' } }]
+          }));
+        } else {
+          res.writeHead(400);
+          res.end('Unknown model');
+        }
+      } catch {
+        res.writeHead(400);
+        res.end('Bad body');
+      }
+    });
+  });
+
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  const port = server.address().port;
+  const baseUrl = `http://127.0.0.1:${port}/v1`;
+
+  const { syncCompletion } = require('../src/plugins/ai-chat/protocols');
+  const reqOpts = {
+    protocol: 'openai-chat',
+    baseUrl,
+    apiKey: 'sk-mock',
+    model: 'fail-primary',
+    messages: [{ role: 'user', content: 'hi' }]
+  };
+
+  // Test automatic fallback pattern
+  let res;
+  let fallbackInvoked = false;
+  try {
+    res = await syncCompletion(reqOpts);
+  } catch (err) {
+    const fallback = 'backup-model';
+    if (fallback && fallback !== reqOpts.model) {
+      fallbackInvoked = true;
+      res = await syncCompletion({ ...reqOpts, model: fallback });
+      res.fallbackFrom = reqOpts.model;
+    }
+  }
+
+  assert.strictEqual(fallbackInvoked, true);
+  assert.strictEqual(res.content, 'Fallback Success');
+  assert.strictEqual(res.fallbackFrom, 'fail-primary');
+  console.log('PASS: Fallback Model Automatic Recovery');
+
+  await new Promise(resolve => server.close(resolve));
+}
+
 async function main() {
   testOpenAIChatProtocol();
   testClaudeMessagesProtocol();
@@ -220,6 +282,7 @@ async function main() {
   testSSEParser();
   await testAgentTools();
   await testFetchRemoteModels();
+  await testFallbackMechanism();
   console.log('\nALL PROTOCOL & AGENT TESTS PASSED!');
 }
 

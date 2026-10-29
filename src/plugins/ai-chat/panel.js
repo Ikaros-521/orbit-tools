@@ -270,7 +270,25 @@
               <button class="ai-pill-btn active agent" id="pillAgent" title="开启 Agent 工具调用 (支持代码执行与自动生成工作流)">
                 <span>🤖</span> <span>Agent 工具</span>
               </button>
-              <select class="ai-pill-select" id="selectPersona" title="切换当前助手人设"></select>
+              <div class="ai-persona-picker-wrap">
+                <button type="button" class="ai-pill-btn persona" id="btnTogglePersonaPicker" title="选择或搜索助手人设角色 (支持搜索与分页)">
+                  <span id="currentPersonaIcon">✨</span> <span id="currentPersonaTitle">通用助手</span> <span class="ai-pill-arrow">▾</span>
+                </button>
+                <!-- 弹出式人设搜索与分页浮层 -->
+                <div class="ai-persona-popover hidden" id="personaPopover">
+                  <div class="ai-persona-popover-header">
+                    <span class="ai-search-ico">🔍</span>
+                    <input type="text" class="ai-persona-popover-search" id="inputPopoverPersonaSearch" placeholder="搜索人设角色…" autocomplete="off">
+                    <button type="button" class="ai-model-search-clear hidden" id="btnClearPopoverPersonaSearch">×</button>
+                  </div>
+                  <div class="ai-persona-popover-list" id="popoverPersonaList"></div>
+                  <div class="ai-persona-popover-footer" id="popoverPersonaPagination">
+                    <button type="button" class="ai-popover-page-btn" id="btnPopoverPrevPage">◀</button>
+                    <span class="ai-popover-page-text" id="popoverPageText">1 / 1</span>
+                    <button type="button" class="ai-popover-page-btn" id="btnPopoverNextPage">▶</button>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="ai-input-box">
@@ -361,6 +379,12 @@
               </div>
 
               <div class="ai-form-group">
+                <label class="ai-form-label">异常自动降级模型 (Fallback Model - 可选)</label>
+                <input type="text" class="ai-form-input" id="cfgFallbackModel" placeholder="例如：deepseek-chat 或 gpt-4o-mini (留空则不开启降级)">
+                <span class="ai-form-hint">当主模型遇网络超时、429 超载或 5xx 故障时，将自动切换至备用模型重试</span>
+              </div>
+
+              <div class="ai-form-group">
                 <label class="ai-form-label">温度 (Temperature): <span id="cfgTempVal">0.7</span></label>
                 <input type="range" min="0" max="2" step="0.1" value="0.7" id="cfgTempRange">
                 <span class="ai-form-hint">较低值更严谨聚焦，较高值更有创意发散</span>
@@ -375,8 +399,8 @@
             <!-- 板块 2: 人设卡片管理 -->
             <div class="ai-modal-body ai-tab-pane hidden" id="panePersonasSettings">
               <div class="ai-personas-header">
-                <div class="ai-personas-subhead">
-                  <span class="ai-personas-hint">配置角色人设与 Prompt，随时用于会话指导模型回答</span>
+                <div class="ai-personas-search-row">
+                  <input type="text" class="ai-form-input ai-persona-search-input" id="inputSearchPersonas" placeholder="🔍 搜索人设标题或提示词…" autocomplete="off">
                 </div>
                 <div class="ai-personas-actions">
                   <button type="button" class="ai-btn-text-action" id="btnResetPersonas" title="恢复内置默认的人设">🔄 恢复默认</button>
@@ -386,6 +410,13 @@
 
               <!-- 人设卡片列表 -->
               <div class="ai-personas-list" id="personasCardList"></div>
+
+              <!-- 人设列表分页栏 -->
+              <div class="ai-pagination" id="personasPagination">
+                <button type="button" class="ai-page-btn" id="btnPrevPersonaPage">◀ 上一页</button>
+                <span class="ai-page-info" id="personaPageInfo">第 1 / 1 页 (共 0 项)</span>
+                <button type="button" class="ai-page-btn" id="btnNextPersonaPage">下一页 ▶</button>
+              </div>
 
               <!-- 内联/模态人设编辑器 (新增或编辑时展开) -->
               <div class="ai-persona-edit-panel hidden" id="personaEditPanel">
@@ -455,9 +486,21 @@
     const messagesScroll = el.querySelector('#messagesScroll');
     const pillCot = el.querySelector('#pillCot');
     const pillAgent = el.querySelector('#pillAgent');
-    const selectPersona = el.querySelector('#selectPersona');
     const chatInput = el.querySelector('#chatInput');
     const btnSendOrStop = el.querySelector('#btnSendOrStop');
+
+    // Persona Popover (Chat Footer) DOM
+    const btnTogglePersonaPicker = el.querySelector('#btnTogglePersonaPicker');
+    const currentPersonaIcon = el.querySelector('#currentPersonaIcon');
+    const currentPersonaTitle = el.querySelector('#currentPersonaTitle');
+    const personaPopover = el.querySelector('#personaPopover');
+    const inputPopoverPersonaSearch = el.querySelector('#inputPopoverPersonaSearch');
+    const btnClearPopoverPersonaSearch = el.querySelector('#btnClearPopoverPersonaSearch');
+    const popoverPersonaList = el.querySelector('#popoverPersonaList');
+    const popoverPersonaPagination = el.querySelector('#popoverPersonaPagination');
+    const btnPopoverPrevPage = el.querySelector('#btnPopoverPrevPage');
+    const popoverPageText = el.querySelector('#popoverPageText');
+    const btnPopoverNextPage = el.querySelector('#btnPopoverNextPage');
 
     // Settings Modal DOM
     const settingsModal = el.querySelector('#settingsModal');
@@ -470,6 +513,7 @@
     const cfgApiKey = el.querySelector('#cfgApiKey');
     const btnToggleApiKey = el.querySelector('#btnToggleApiKey');
     const cfgModel = el.querySelector('#cfgModel');
+    const cfgFallbackModel = el.querySelector('#cfgFallbackModel');
     const btnFetchModels = el.querySelector('#btnFetchModels');
     const iconFetchSpin = el.querySelector('#iconFetchSpin');
     const btnToggleModelSearch = el.querySelector('#btnToggleModelSearch');
@@ -493,9 +537,14 @@
     const paneModelSettings = el.querySelector('#paneModelSettings');
     const panePersonasSettings = el.querySelector('#panePersonasSettings');
     const settingsModalFooter = el.querySelector('#settingsModalFooter');
+    const inputSearchPersonas = el.querySelector('#inputSearchPersonas');
     const btnResetPersonas = el.querySelector('#btnResetPersonas');
     const btnCreatePersona = el.querySelector('#btnCreatePersona');
     const personasCardList = el.querySelector('#personasCardList');
+    const personasPagination = el.querySelector('#personasPagination');
+    const btnPrevPersonaPage = el.querySelector('#btnPrevPersonaPage');
+    const personaPageInfo = el.querySelector('#personaPageInfo');
+    const btnNextPersonaPage = el.querySelector('#btnNextPersonaPage');
     const personaEditPanel = el.querySelector('#personaEditPanel');
     const personaEditTitle = el.querySelector('#personaEditTitle');
     const btnClosePersonaEdit = el.querySelector('#btnClosePersonaEdit');
@@ -520,6 +569,15 @@
     let activeModelTab = 'channel';
     let editingPersonaId = null;
 
+    // Personas Search & Pagination State
+    let personaSearchKeyword = '';
+    let personaCurrentPage = 1;
+    const personaPageSize = 4;
+
+    let popoverPersonaSearch = '';
+    let popoverCurrentPage = 1;
+    const popoverPageSize = 4;
+
     /* --- Auto Resize Textarea --------------------------------------------- */
     function autoResizeInput() {
       chatInput.style.height = 'auto';
@@ -540,25 +598,119 @@
       pillAgent.classList.toggle('active');
     });
 
-    /* --- Personas Selector ------------------------------------------------ */
-    function renderPersonas() {
-      selectPersona.innerHTML = '';
-      personas.forEach(p => {
-        const opt = document.createElement('option');
-        opt.value = p.id;
-        opt.textContent = `${p.icon || '🎭'} ${p.title}`;
-        selectPersona.appendChild(opt);
-      });
-      if (currentSession && currentSession.personaId) {
-        selectPersona.value = currentSession.personaId;
+    /* --- Personas Selector Popover (Chat Footer) --------------------------- */
+    function updateActivePersonaPill() {
+      const activePersonaId = (currentSession && currentSession.personaId) || 'general';
+      const p = personas.find(x => x.id === activePersonaId) || personas[0];
+      if (p) {
+        currentPersonaIcon.textContent = p.icon || '✨';
+        currentPersonaTitle.textContent = p.title;
       }
     }
 
-    selectPersona.addEventListener('change', () => {
-      if (currentSession) {
-        currentSession.personaId = selectPersona.value;
+    function renderPopoverPersonas() {
+      const q = popoverPersonaSearch.trim().toLowerCase();
+      btnClearPopoverPersonaSearch.classList.toggle('hidden', !q);
+
+      const filtered = q
+        ? personas.filter(p => (p.title || '').toLowerCase().includes(q) || (p.prompt || '').toLowerCase().includes(q))
+        : personas;
+
+      const totalPages = Math.max(1, Math.ceil(filtered.length / popoverPageSize));
+      if (popoverCurrentPage > totalPages) popoverCurrentPage = totalPages;
+      if (popoverCurrentPage < 1) popoverCurrentPage = 1;
+
+      popoverPageText.textContent = `${popoverCurrentPage} / ${totalPages}`;
+      btnPopoverPrevPage.disabled = popoverCurrentPage <= 1;
+      btnPopoverNextPage.disabled = popoverCurrentPage >= totalPages;
+
+      const start = (popoverCurrentPage - 1) * popoverPageSize;
+      const pageItems = filtered.slice(start, start + popoverPageSize);
+
+      popoverPersonaList.innerHTML = '';
+      if (pageItems.length === 0) {
+        const empty = document.createElement('div');
+        empty.style.padding = '12px 8px';
+        empty.style.textAlign = 'center';
+        empty.style.fontSize = '11.5px';
+        empty.style.color = 'var(--ink-faint)';
+        empty.textContent = q ? `未搜到包含 "${q}" 的人设` : '暂无人设';
+        popoverPersonaList.appendChild(empty);
+        return;
+      }
+
+      const activeId = (currentSession && currentSession.personaId) || 'general';
+      pageItems.forEach(p => {
+        const item = document.createElement('div');
+        item.className = 'ai-popover-persona-item' + (p.id === activeId ? ' selected' : '');
+        item.innerHTML = `
+          <span class="ai-popover-persona-icon">${escapeHtml(p.icon || '✨')}</span>
+          <div class="ai-popover-persona-content">
+            <span class="ai-popover-persona-title">${escapeHtml(p.title)} <span style="font-weight:normal;opacity:0.6;font-size:10px;">(T: ${p.temperature ?? 0.7})</span></span>
+            <span class="ai-popover-persona-desc">${escapeHtml(p.prompt || '')}</span>
+          </div>
+        `;
+        item.addEventListener('click', () => {
+          if (currentSession) {
+            currentSession.personaId = p.id;
+          }
+          updateActivePersonaPill();
+          personaPopover.classList.add('hidden');
+        });
+        popoverPersonaList.appendChild(item);
+      });
+    }
+
+    btnTogglePersonaPicker.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const isHidden = personaPopover.classList.toggle('hidden');
+      if (!isHidden) {
+        popoverPersonaSearch = '';
+        inputPopoverPersonaSearch.value = '';
+        popoverCurrentPage = 1;
+        renderPopoverPersonas();
+        inputPopoverPersonaSearch.focus();
       }
     });
+
+    inputPopoverPersonaSearch.addEventListener('input', () => {
+      popoverPersonaSearch = inputPopoverPersonaSearch.value;
+      popoverCurrentPage = 1;
+      renderPopoverPersonas();
+    });
+
+    btnClearPopoverPersonaSearch.addEventListener('click', () => {
+      popoverPersonaSearch = '';
+      inputPopoverPersonaSearch.value = '';
+      popoverCurrentPage = 1;
+      renderPopoverPersonas();
+      inputPopoverPersonaSearch.focus();
+    });
+
+    btnPopoverPrevPage.addEventListener('click', () => {
+      if (popoverCurrentPage > 1) {
+        popoverCurrentPage--;
+        renderPopoverPersonas();
+      }
+    });
+
+    btnPopoverNextPage.addEventListener('click', () => {
+      popoverCurrentPage++;
+      renderPopoverPersonas();
+    });
+
+    document.addEventListener('click', (e) => {
+      if (!personaPopover.classList.contains('hidden')) {
+        if (!e.target.closest('.ai-persona-picker-wrap')) {
+          personaPopover.classList.add('hidden');
+        }
+      }
+    });
+
+    function renderPersonas() {
+      updateActivePersonaPill();
+      renderPopoverPersonas();
+    }
 
     /* --- Sessions List ---------------------------------------------------- */
     function renderSessionsList() {
@@ -627,7 +779,8 @@
     });
 
     btnNewChat.addEventListener('click', async () => {
-      const res = await ctx.call('createSession', { personaId: selectPersona.value || 'general' });
+      const activePersonaId = (currentSession && currentSession.personaId) || 'general';
+      const res = await ctx.call('createSession', { personaId: activePersonaId });
       if (res && res.ok) {
         sessions.unshift({
           id: res.session.id,
@@ -686,9 +839,7 @@
 
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
       sessionUsageBadge.textContent = `${tokens.toLocaleString()} tokens`;
-      if (currentSession.personaId) {
-        selectPersona.value = currentSession.personaId;
-      }
+      updateActivePersonaPill();
     }
 
     /* --- Render Messages -------------------------------------------------- */
@@ -764,6 +915,14 @@
           <span class="ai-msg-meta">${timeStr}</span>
         `;
       } else {
+        // Fallback Model Badge (if invoked fallback)
+        if (msg.fallbackFrom) {
+          const fbBadge = document.createElement('div');
+          fbBadge.className = 'ai-msg-fallback-badge';
+          fbBadge.textContent = `⚠️ 主模型 [${msg.fallbackFrom}] 异常，已自动降级至备用模型`;
+          bubble.appendChild(fbBadge);
+        }
+
         // CoT Reasoning Box
         if (msg.reasoning) {
           const cotBox = document.createElement('details');
@@ -995,7 +1154,18 @@
       if (!msgEl) return;
       const bubble = msgEl.querySelector('.ai-msg-bubble');
 
-      if (chunk.type === 'reasoning') {
+      if (chunk.type === 'fallback') {
+        let fbBadge = bubble.querySelector('.ai-msg-fallback-badge');
+        if (!fbBadge) {
+          fbBadge = document.createElement('div');
+          fbBadge.className = 'ai-msg-fallback-badge';
+          bubble.insertBefore(fbBadge, bubble.firstChild);
+        }
+        fbBadge.textContent = `⚠️ 主模型 [${chunk.fromModel}] 请求异常，已自动为您降级至 [${chunk.toModel}]`;
+        const mdBody = bubble.querySelector('.ai-md-body');
+        if (mdBody) mdBody.innerHTML = '';
+        scrollToBottom();
+      } else if (chunk.type === 'reasoning') {
         let cotBox = bubble.querySelector('.ai-cot-box');
         if (!cotBox) {
           cotBox = document.createElement('details');
@@ -1107,15 +1277,32 @@
     /* --- Personas Management Controller --- */
     function renderPersonasSettingsList() {
       personasCardList.innerHTML = '';
-      if (!personas || personas.length === 0) {
+      const q = personaSearchKeyword.trim().toLowerCase();
+      const filtered = q
+        ? personas.filter(p => (p.title || '').toLowerCase().includes(q) || (p.prompt || '').toLowerCase().includes(q))
+        : personas;
+
+      const total = filtered.length;
+      const totalPages = Math.max(1, Math.ceil(total / personaPageSize));
+      if (personaCurrentPage > totalPages) personaCurrentPage = totalPages;
+      if (personaCurrentPage < 1) personaCurrentPage = 1;
+
+      personaPageInfo.textContent = `第 ${personaCurrentPage} / ${totalPages} 页 (共 ${total} 项)`;
+      btnPrevPersonaPage.disabled = personaCurrentPage <= 1;
+      btnNextPersonaPage.disabled = personaCurrentPage >= totalPages;
+
+      if (filtered.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'ai-model-empty-tip';
-        empty.textContent = '暂无人设卡片，点击右上角新建';
+        empty.textContent = q ? `未找到匹配 "${q}" 的人设卡片` : '暂无人设卡片，点击右上角新建';
         personasCardList.appendChild(empty);
         return;
       }
 
-      personas.forEach(p => {
+      const start = (personaCurrentPage - 1) * personaPageSize;
+      const pageItems = filtered.slice(start, start + personaPageSize);
+
+      pageItems.forEach(p => {
         const card = document.createElement('div');
         card.className = 'ai-persona-card';
         card.innerHTML = `
@@ -1157,6 +1344,24 @@
       });
     }
 
+    inputSearchPersonas.addEventListener('input', () => {
+      personaSearchKeyword = inputSearchPersonas.value;
+      personaCurrentPage = 1;
+      renderPersonasSettingsList();
+    });
+
+    btnPrevPersonaPage.addEventListener('click', () => {
+      if (personaCurrentPage > 1) {
+        personaCurrentPage--;
+        renderPersonasSettingsList();
+      }
+    });
+
+    btnNextPersonaPage.addEventListener('click', () => {
+      personaCurrentPage++;
+      renderPersonasSettingsList();
+    });
+
     function openPersonaEditor(p) {
       if (p) {
         editingPersonaId = p.id;
@@ -1176,6 +1381,7 @@
         inputPersonaPrompt.value = '';
       }
       personasCardList.classList.add('hidden');
+      personasPagination.classList.add('hidden');
       personaEditPanel.classList.remove('hidden');
       inputPersonaTitle.focus();
     }
@@ -1183,6 +1389,7 @@
     function closePersonaEditor() {
       personaEditPanel.classList.add('hidden');
       personasCardList.classList.remove('hidden');
+      personasPagination.classList.remove('hidden');
       editingPersonaId = null;
     }
 
@@ -1462,6 +1669,7 @@
       btnToggleApiKey.textContent = '👁️';
       btnToggleApiKey.title = '显示密钥';
       cfgModel.value = config.model || 'gpt-4o-mini';
+      cfgFallbackModel.value = config.fallbackModel || '';
       cfgTempRange.value = config.temperature ?? 0.7;
       cfgTempVal.textContent = config.temperature ?? 0.7;
       cfgMaxContext.value = config.maxContextMessages ?? 16;
@@ -1487,6 +1695,7 @@
         baseUrl: cfgBaseUrl.value.trim(),
         apiKey: cfgApiKey.value.trim(),
         model: cfgModel.value.trim(),
+        fallbackModel: cfgFallbackModel.value.trim(),
         temperature: Number(cfgTempRange.value),
         maxContextMessages: Number(cfgMaxContext.value) || 16
       };
