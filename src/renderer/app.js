@@ -1358,6 +1358,8 @@ const WF_TRIGGER_TYPE_OPTIONS = [
   ['application/json', 'JSON'],
   ['text/timestamp', '时间戳'],
   ['text/base64', 'Base64'],
+  ['text/hex', 'Hex 十六进制'],
+  ['text/unicode', 'Unicode 转义'],
   ['text/url', 'URL'],
   ['text/jwt', 'JWT'],
   ['system/port', '端口号'],
@@ -2459,6 +2461,13 @@ async function collectActionPaletteItems() {
       type = 'text/timestamp';
     } else if (/^ey[A-Za-z0-9_-]+\.ey/.test(currentText)) {
       type = 'text/jwt';
+    } else if (/^(\\u(\{[0-9a-fA-F]{1,6}\}|[0-9a-fA-F]{4})|&#x[0-9a-fA-F]+;)/.test(currentText)) {
+      type = 'text/unicode';
+    } else if (((() => {
+      const bare = currentText.replace(/0x/gi, '').replace(/[\s,:;-]+/g, '');
+      return bare.length >= 8 && bare.length % 2 === 0 && /^[0-9a-f]+$/i.test(bare) && /[a-f]/i.test(bare);
+    })())) {
+      type = 'text/hex';
     } else if (/^https?:\/\//.test(currentText)) {
       type = 'text/url';
     }

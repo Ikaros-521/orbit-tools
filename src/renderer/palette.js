@@ -73,6 +73,15 @@
     if (/^ey[A-Za-z0-9_-]+\.ey/.test(text)) {
       return { type: 'text/jwt', labelZh: 'JWT 令牌', labelEn: 'JWT' };
     }
+    if (/^(\\u(\{[0-9a-fA-F]{1,6}\}|[0-9a-fA-F]{4})|&#x[0-9a-fA-F]+;)/.test(text)) {
+      return { type: 'text/unicode', labelZh: 'Unicode 转义', labelEn: 'Unicode' };
+    }
+    if (/^0x[0-9a-f]/i.test(text) || (() => {
+      const bare = text.replace(/0x/gi, '').replace(/[\s,:;-]+/g, '');
+      return bare.length >= 8 && bare.length % 2 === 0 && /^[0-9a-f]+$/i.test(bare) && /[a-f]/i.test(bare);
+    })()) {
+      return { type: 'text/hex', labelZh: 'Hex 十六进制', labelEn: 'Hex' };
+    }
     if (/^https?:\/\//i.test(text)) {
       return { type: 'text/url', labelZh: 'URL 网址', labelEn: 'URL' };
     }

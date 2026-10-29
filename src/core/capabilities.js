@@ -134,6 +134,67 @@ const DETECTORS = {
     }
   },
 
+  'text/hex': {
+    test: text => {
+      const t = text.trim();
+      if (t.length < 8) return false;
+      const bare = t.replace(/0x/gi, '').replace(/[\s,:;-]+/g, '');
+      if (bare.length < 8 || bare.length % 2 !== 0) return false;
+      if (!/^[0-9a-f]+$/i.test(bare)) return false;
+      // pure digits read as a number/timestamp — demand at least one a-f digit
+      if (!/[a-f]/i.test(bare)) return false;
+      return true;
+    },
+    resolve: (text) => {
+      try {
+        const bare = text.trim().replace(/0x/gi, '').replace(/[\s,:;-]+/g, '');
+        const decoded = Buffer.from(bare, 'hex').toString('utf8');
+        if (!decoded || /[\x00-\x08\x0E-\x1F]/.test(decoded)) return null;
+        return {
+          type: 'text/hex',
+          badge: `Hex 解码 (${bare.length / 2} 字节)`,
+          preview: decoded.length > 70 ? decoded.slice(0, 70) + '…' : decoded,
+          copyValue: decoded,
+          subText: `原长 ${text.trim().length} 字符 · 解码后 ${decoded.length} 字符`,
+          targetAction: 'openPanel',
+        };
+      } catch {
+        return null;
+      }
+    }
+  },
+  'text/unicode': {
+    test: text => {
+      const t = text.trim();
+      if (t.length < 6) return false;
+      const m = t.match(/\\u\{[0-9a-fA-F]{1,6}\}|\\u[0-9a-fA-F]{4}|&#x[0-9a-fA-F]+;|\\x[0-9a-fA-F]{2}/g);
+      if (!m) return false;
+      // escapes must dominate the text, otherwise it's prose quoting an escape
+      return m.join('').length / t.length >= 0.5;
+    },
+    resolve: (text) => {
+      try {
+        const decoded = text.trim().replace(
+          /\\u\{([0-9a-fA-F]+)\}|\\u([0-9a-fA-F]{4})|&#x([0-9a-fA-F]+);|\\x([0-9a-fA-F]{2})/g,
+          (whole, b1, b2, b3, b4) => {
+            const cp = parseInt(b1 || b2 || b3 || b4, 16);
+            try { return String.fromCodePoint(cp); } catch { return whole; }
+          }
+        );
+        if (!decoded || decoded === text.trim()) return null;
+        return {
+          type: 'text/unicode',
+          badge: 'Unicode 解码',
+          preview: decoded.length > 70 ? decoded.slice(0, 70) + '…' : decoded,
+          copyValue: decoded,
+          subText: `原长 ${text.trim().length} 字符 · 解码后 ${decoded.length} 字符`,
+          targetAction: 'openPanel',
+        };
+      } catch {
+        return null;
+      }
+    }
+  },
   'application/json': {
     test: text => {
       const t = text.trim();

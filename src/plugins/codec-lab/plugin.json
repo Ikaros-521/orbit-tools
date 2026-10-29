@@ -12,10 +12,12 @@
   "actions": [
     { "id": "open", "label": { "zh": "打开编码转换", "en": "Open Codec Lab" }, "method": "openPanel", "hotkey": "Ctrl+Shift+C" }
   ],
-  "consumes": ["text/plain", "text/base64", "text/url", "text/jwt", "text/timestamp"],
+  "consumes": ["text/plain", "text/base64", "text/url", "text/jwt", "text/timestamp", "text/hex", "text/unicode"],
   "capabilities": [
     { "id": "timestamp", "type": "text/timestamp", "title": { "zh": "时间戳转换", "en": "Timestamp Convert" } },
     { "id": "jwt", "type": "text/jwt", "title": { "zh": "JWT 解码", "en": "JWT Decode" } },
+    { "id": "unicode", "type": "text/unicode", "title": { "zh": "Unicode 转义解码", "en": "Unicode Decode" } },
+    { "id": "hex", "type": "text/hex", "title": { "zh": "Hex 十六进制解码", "en": "Hex Decode" } },
     { "id": "base64", "type": "text/base64", "title": { "zh": "Base64 解码", "en": "Base64 Decode" } },
     { "id": "url", "type": "text/url", "title": { "zh": "URL 参数解析", "en": "URL Parse" } }
   ]
