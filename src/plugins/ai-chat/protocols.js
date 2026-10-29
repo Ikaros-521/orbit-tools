@@ -108,6 +108,10 @@ const OpenAIChatAdapter = {
       body.tools = opts.tools;
       body.tool_choice = 'auto';
     }
+    // Thinking level (o-series / GPT-5 style): 'low' | 'medium' | 'high'
+    if (opts.enableReasoning && ['low', 'medium', 'high'].includes(opts.thinkingLevel)) {
+      body.reasoning_effort = opts.thinkingLevel;
+    }
 
     return { url, headers, body: JSON.stringify(body) };
   },
@@ -192,6 +196,10 @@ const OpenAIResponsesAdapter = {
     if (typeof opts.temperature === 'number') body.temperature = opts.temperature;
     if (Array.isArray(opts.tools) && opts.tools.length > 0) {
       body.tools = opts.tools;
+    }
+    // Thinking level for reasoning models
+    if (opts.enableReasoning && ['low', 'medium', 'high'].includes(opts.thinkingLevel)) {
+      body.reasoning = { effort: opts.thinkingLevel };
     }
 
     return { url, headers, body: JSON.stringify(body) };
@@ -288,11 +296,14 @@ const ClaudeMessagesAdapter = {
       body.temperature = opts.temperature;
     }
 
-    // Anthropic Native Thinking (CoT)
+    // Anthropic Native Thinking (CoT) — thinking level maps to a token budget:
+    // low ≈ 2048, medium ≈ 8192, high ≈ 16384; 'auto' keeps the legacy thinkingBudget config.
     if (opts.enableReasoning) {
+      const levelBudgets = { low: 2048, medium: 8192, high: 16384 };
+      const budget = Math.max(1024, levelBudgets[opts.thinkingLevel] || Number(opts.thinkingBudget) || 2048);
       body.thinking = {
         type: 'enabled',
-        budget_tokens: Math.max(1024, Number(opts.thinkingBudget) || 2048)
+        budget_tokens: budget
       };
       // Claude requires max_tokens > budget_tokens
       if (body.max_tokens <= body.thinking.budget_tokens) {

@@ -271,6 +271,55 @@
                 <span>🤖</span> <span>Agent 工具</span>
               </button>
               <select class="ai-pill-select" id="selectPersona" title="切换当前助手人设"></select>
+
+              <!-- Agent 审批档位 (参考 Codex / ZCode 的权限档位) -->
+              <div class="ai-ctrl-popover-wrap">
+                <button type="button" class="ai-pill-btn mode ask" id="btnAgentMode" title="Agent 审批档位：每次确认 / 自动审核 / 完全访问">
+                  <span id="agentModeIcon">🔐</span> <span id="agentModeLabel">每次确认</span> <span class="ai-pill-caret">▾</span>
+                </button>
+                <div class="ai-ctrl-popover hidden" id="agentModePopover">
+                  <div class="ai-ctrl-popover-title">Agent 审批档位</div>
+                  <div class="ai-ctrl-opt active" data-mode="ask">
+                    <span class="ai-ctrl-opt-ico">🔐</span>
+                    <span class="ai-ctrl-opt-txt"><b>每次确认</b><i>每个工具调用都需手动批准后才会执行</i></span>
+                  </div>
+                  <div class="ai-ctrl-opt" data-mode="auto">
+                    <span class="ai-ctrl-opt-ico">📝</span>
+                    <span class="ai-ctrl-opt-txt"><b>自动审核</b><i>只读类工具自动执行，脚本与写操作仍需确认</i></span>
+                  </div>
+                  <div class="ai-ctrl-opt" data-mode="full">
+                    <span class="ai-ctrl-opt-ico">🚀</span>
+                    <span class="ai-ctrl-opt-txt"><b>完全访问</b><i>全部工具免确认直接执行，请谨慎使用</i></span>
+                  </div>
+                  <div class="ai-ctrl-always-row hidden" id="agentAlwaysRow"></div>
+                </div>
+              </div>
+
+              <!-- 思维等级 -->
+              <div class="ai-ctrl-popover-wrap">
+                <button type="button" class="ai-pill-btn think" id="btnThinkLevel" title="思维等级：控制推理模型的思考深度">
+                  <span>🎚️</span> <span id="thinkLevelLabel">思考·跟随默认</span> <span class="ai-pill-caret">▾</span>
+                </button>
+                <div class="ai-ctrl-popover hidden" id="thinkLevelPopover">
+                  <div class="ai-ctrl-popover-title">思维等级 (需开启深度思考)</div>
+                  <div class="ai-ctrl-opt active" data-level="auto">
+                    <span class="ai-ctrl-opt-ico">⚙️</span>
+                    <span class="ai-ctrl-opt-txt"><b>跟随默认</b><i>不额外传参，使用模型默认思考行为</i></span>
+                  </div>
+                  <div class="ai-ctrl-opt" data-level="low">
+                    <span class="ai-ctrl-opt-ico">⚡</span>
+                    <span class="ai-ctrl-opt-txt"><b>低</b><i>快速思考，响应更快、Token 消耗更少</i></span>
+                  </div>
+                  <div class="ai-ctrl-opt" data-level="medium">
+                    <span class="ai-ctrl-opt-ico">🧠</span>
+                    <span class="ai-ctrl-opt-txt"><b>中</b><i>均衡思考深度，适合大多数任务</i></span>
+                  </div>
+                  <div class="ai-ctrl-opt" data-level="high">
+                    <span class="ai-ctrl-opt-ico">🌟</span>
+                    <span class="ai-ctrl-opt-txt"><b>高</b><i>深度推理，适合复杂分析与架构问题</i></span>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div class="ai-input-box">
@@ -459,6 +508,16 @@
     const chatInput = el.querySelector('#chatInput');
     const btnSendOrStop = el.querySelector('#btnSendOrStop');
 
+    // Agent Approval Mode & Thinking Level Popover DOM
+    const btnAgentMode = el.querySelector('#btnAgentMode');
+    const agentModeIcon = el.querySelector('#agentModeIcon');
+    const agentModeLabel = el.querySelector('#agentModeLabel');
+    const agentModePopover = el.querySelector('#agentModePopover');
+    const agentAlwaysRow = el.querySelector('#agentAlwaysRow');
+    const btnThinkLevel = el.querySelector('#btnThinkLevel');
+    const thinkLevelLabel = el.querySelector('#thinkLevelLabel');
+    const thinkLevelPopover = el.querySelector('#thinkLevelPopover');
+
     // Settings Modal DOM
     const settingsModal = el.querySelector('#settingsModal');
     const btnCloseSettings = el.querySelector('#btnCloseSettings');
@@ -519,6 +578,8 @@
     let remoteModels = [];
     let activeModelTab = 'channel';
     let editingPersonaId = null;
+    let agentMode = 'ask'; // 'ask' | 'auto' | 'full'
+    let thinkLevel = 'auto'; // 'auto' | 'low' | 'medium' | 'high'
 
     /* --- Auto Resize Textarea --------------------------------------------- */
     function autoResizeInput() {
@@ -535,9 +596,114 @@
     /* --- CoT & Agent Pills ------------------------------------------------ */
     pillCot.addEventListener('click', () => {
       pillCot.classList.toggle('active');
+      syncThinkLevelPill();
     });
     pillAgent.addEventListener('click', () => {
       pillAgent.classList.toggle('active');
+    });
+
+    /* --- Agent Approval Mode & Thinking Level ------------------------------ */
+    const AGENT_MODES = {
+      ask: { icon: '🔐', label: '每次确认', cls: 'ask' },
+      auto: { icon: '📝', label: '自动审核', cls: 'auto' },
+      full: { icon: '🚀', label: '完全访问', cls: 'full' }
+    };
+    const THINK_LEVEL_LABELS = {
+      auto: '思考·跟随默认',
+      low: '思考·低',
+      medium: '思考·中',
+      high: '思考·高'
+    };
+
+    function updateAgentModeUI() {
+      const m = AGENT_MODES[agentMode] || AGENT_MODES.ask;
+      agentModeIcon.textContent = m.icon;
+      agentModeLabel.textContent = m.label;
+      btnAgentMode.className = `ai-pill-btn mode ${m.cls}`;
+      agentModePopover.querySelectorAll('.ai-ctrl-opt').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.mode === agentMode);
+      });
+    }
+
+    function updateThinkLevelUI() {
+      thinkLevelLabel.textContent = THINK_LEVEL_LABELS[thinkLevel] || THINK_LEVEL_LABELS.auto;
+      thinkLevelPopover.querySelectorAll('.ai-ctrl-opt').forEach(opt => {
+        opt.classList.toggle('active', opt.dataset.level === thinkLevel);
+      });
+      syncThinkLevelPill();
+    }
+
+    function syncThinkLevelPill() {
+      const cotOn = pillCot.classList.contains('active');
+      btnThinkLevel.classList.toggle('dimmed', !cotOn);
+      btnThinkLevel.title = cotOn
+        ? '思维等级：控制推理模型的思考深度'
+        : '当前不生效：开启「深度思考」后思维等级才会应用';
+    }
+
+    function renderAlwaysAllowRow() {
+      const list = (currentSession && currentSession.alwaysAllowTools) || [];
+      if (!list.length) {
+        agentAlwaysRow.classList.add('hidden');
+        agentAlwaysRow.innerHTML = '';
+        return;
+      }
+      agentAlwaysRow.classList.remove('hidden');
+      agentAlwaysRow.innerHTML = `
+        <span class="ai-ctrl-always-txt">本会话免确认：${list.map(t => escapeHtml(t)).join('、')}</span>
+        <button type="button" class="ai-ctrl-reset-link">重置授权</button>
+      `;
+      agentAlwaysRow.querySelector('.ai-ctrl-reset-link').addEventListener('click', async () => {
+        if (!currentSession) return;
+        const res = await ctx.call('resetSessionApprovals', { sessionId: currentSession.id });
+        if (res && res.ok) {
+          currentSession.alwaysAllowTools = [];
+          renderAlwaysAllowRow();
+        }
+      });
+    }
+
+    function closeCtrlPopovers() {
+      agentModePopover.classList.add('hidden');
+      thinkLevelPopover.classList.add('hidden');
+    }
+
+    btnAgentMode.addEventListener('click', () => {
+      const willOpen = agentModePopover.classList.contains('hidden');
+      closeCtrlPopovers();
+      if (willOpen) {
+        renderAlwaysAllowRow();
+        agentModePopover.classList.remove('hidden');
+      }
+    });
+
+    btnThinkLevel.addEventListener('click', () => {
+      const willOpen = thinkLevelPopover.classList.contains('hidden');
+      closeCtrlPopovers();
+      if (willOpen) thinkLevelPopover.classList.remove('hidden');
+    });
+
+    // Click outside the popover wraps closes them (scoped to this panel root)
+    el.addEventListener('click', e => {
+      if (!e.target.closest('.ai-ctrl-popover-wrap')) closeCtrlPopovers();
+    });
+
+    agentModePopover.querySelectorAll('.ai-ctrl-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        agentMode = opt.dataset.mode;
+        updateAgentModeUI();
+        closeCtrlPopovers();
+        ctx.call('saveConfig', { agentApprovalMode: agentMode });
+      });
+    });
+
+    thinkLevelPopover.querySelectorAll('.ai-ctrl-opt').forEach(opt => {
+      opt.addEventListener('click', () => {
+        thinkLevel = opt.dataset.level;
+        updateThinkLevelUI();
+        closeCtrlPopovers();
+        ctx.call('saveConfig', { thinkingLevel: thinkLevel });
+      });
     });
 
     /* --- Personas Selector ------------------------------------------------ */
@@ -778,12 +944,18 @@
           bubble.appendChild(cotBox);
         }
 
-        // Tool Calls badge
+        // Tool Calls badge (with approval outcome from history)
         if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
+          const statusMap = msg.toolStatus || {};
           msg.toolCalls.forEach(tc => {
+            const st = statusMap[tc.id];
             const toolBadge = document.createElement('div');
-            toolBadge.className = 'ai-tool-badge';
-            toolBadge.innerHTML = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            toolBadge.className = 'ai-tool-badge' + (st === 'denied' ? ' denied' : '');
+            let label;
+            if (st === 'denied') label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            else if (st === 'approved') label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            else label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            toolBadge.innerHTML = label;
             bubble.appendChild(toolBadge);
           });
         }
@@ -940,7 +1112,9 @@
         editMessageId,
         streamId,
         enableReasoning: pillCot.classList.contains('active'),
-        enableAgent: pillAgent.classList.contains('active')
+        enableAgent: pillAgent.classList.contains('active'),
+        agentApprovalMode: agentMode,
+        thinkingLevel: pillCot.classList.contains('active') ? thinkLevel : 'auto'
       });
 
       if (!res || !res.ok) {
@@ -1042,10 +1216,66 @@
           }
         }
         scrollToBottom();
+      } else if (chunk.type === 'tool_approval_request') {
+        // Approval card: suspend execution until the user answers (tier: 每次确认/自动审核高危)
+        let card = bubble.querySelector(`.ai-tool-approval[data-approval="${chunk.toolId}"]`);
+        if (!card) {
+          card = document.createElement('div');
+          card.className = 'ai-tool-approval';
+          card.dataset.approval = chunk.toolId;
+          let argsPretty = chunk.args || '';
+          try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
+          card.innerHTML = `
+            <div class="ai-approval-head">
+              <span class="ai-approval-ico">🔐</span>
+              <span>请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong></span>
+            </div>
+            <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
+            <div class="ai-approval-actions">
+              <button type="button" class="ai-approval-btn allow">✓ 允许执行</button>
+              <button type="button" class="ai-approval-btn deny">✗ 拒绝</button>
+              <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
+            </div>
+          `;
+          const badge = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
+          if (badge) badge.insertAdjacentElement('afterend', card);
+          else bubble.appendChild(card);
+
+          card.querySelectorAll('.ai-approval-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+              const approved = !btn.classList.contains('deny');
+              const alwaysAllow = btn.classList.contains('always');
+              card.querySelectorAll('.ai-approval-btn').forEach(b => { b.disabled = true; });
+              ctx.call('resolveToolApproval', {
+                streamId: payload.streamId || currentStreamId,
+                toolCallId: chunk.toolId,
+                approved,
+                alwaysAllow
+              });
+            });
+          });
+        }
+        scrollToBottom();
+      } else if (chunk.type === 'tool_approval_result') {
+        const card = bubble.querySelector(`.ai-tool-approval[data-approval="${chunk.toolId}"]`);
+        if (card) {
+          const actions = card.querySelector('.ai-approval-actions');
+          if (actions) {
+            const status = document.createElement('div');
+            status.className = `ai-approval-status ${chunk.approved ? 'ok' : 'denied'}`;
+            status.textContent = chunk.approved ? '✓ 已允许，正在执行…' : '✗ 已拒绝该工具调用';
+            actions.replaceWith(status);
+          }
+        }
       } else if (chunk.type === 'tool_result') {
         const b = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
         if (b) {
-          b.innerHTML = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong> <span style="opacity:0.7">(已捕获结果)</span>`;
+          if (chunk.result && chunk.result.denied) {
+            b.classList.add('denied');
+            b.innerHTML = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+          } else {
+            b.innerHTML = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong> <span style="opacity:0.7">(已捕获结果)</span>`;
+          }
         }
         scrollToBottom();
       } else if (chunk.type === 'usage') {
@@ -1508,6 +1738,11 @@
 
       pillCot.classList.toggle('active', !!config.enableReasoning);
       pillAgent.classList.toggle('active', !!config.enableAgent);
+
+      agentMode = config.agentApprovalMode || 'ask';
+      thinkLevel = config.thinkingLevel || 'auto';
+      updateAgentModeUI();
+      updateThinkLevelUI();
 
       renderPersonas();
       updateHeader();

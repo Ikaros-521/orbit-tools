@@ -2,10 +2,10 @@
   "id": "ai-chat",
   "name": { "zh": "AI 对话", "en": "AI Chat" },
   "desc": {
-    "zh": "全能 AI 助手：兼容 OpenAI / Responses / Claude 协议，支持深度思考思维链、用量统计、会话分支编辑与 Agent 工作流自动生成",
-    "en": "Universal AI assistant: supports OpenAI, Responses & Claude protocols, reasoning CoT, usage stats, message branch editing, and Agent workflow generation"
+    "zh": "全能 AI 助手：兼容 OpenAI / Responses / Claude 协议，支持深度思考与思维等级、用量统计、会话分支编辑、Agent 工具审批档位（每次确认/自动审核/完全访问）与工作流自动生成",
+    "en": "Universal AI assistant: supports OpenAI, Responses & Claude protocols, reasoning CoT with thinking levels, usage stats, message branch editing, Agent tool approval tiers (ask/auto/full), and workflow generation"
   },
-  "version": "1.0.0",
+  "version": "1.1.0",
   "category": "dev",
   "author": "Ikaros-521",
   "keywords": ["ai", "chat", "gpt", "deepseek", "claude", "llm", "agent", "cot", "openai", "对话", "模型", "思维链", "工作流"],

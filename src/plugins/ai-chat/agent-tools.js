@@ -4,6 +4,33 @@
 
 const vm = require('vm');
 
+/* Tool risk metadata: 'low' = read-only / pure compute, 'high' = side effects or arbitrary execution.
+   Drives the Agent approval tiers ('ask' | 'auto' | 'full') in backend.js. */
+const AGENT_TOOL_META = {
+  run_javascript: { risk: 'high', label: '执行 JavaScript 脚本' },
+  get_current_time: { risk: 'low', label: '读取当前时间' },
+  list_workflows: { risk: 'low', label: '读取工作流列表' },
+  create_workflow: { risk: 'high', label: '创建并保存工作流' }
+};
+
+/**
+ * Pure permission resolver for Agent approval tiers.
+ * - 'ask'  : every tool call requires explicit user confirmation
+ * - 'auto' : low-risk tools run automatically, high-risk tools still ask
+ * - 'full' : everything runs without asking
+ * A session-level always-allow list (user clicked "allow & remember") upgrades
+ * that tool to auto-execution regardless of the current tier.
+ * Returns 'auto' (execute directly) or 'ask' (needs user confirmation).
+ */
+function resolveToolPermission(approvalMode, toolName, alwaysAllowedTools) {
+  const mode = ['ask', 'auto', 'full'].includes(approvalMode) ? approvalMode : 'ask';
+  const meta = AGENT_TOOL_META[toolName] || { risk: 'high' }; // unknown tools are treated as high-risk
+  if (Array.isArray(alwaysAllowedTools) && alwaysAllowedTools.includes(toolName)) return 'auto';
+  if (mode === 'full') return 'auto';
+  if (mode === 'auto' && meta.risk === 'low') return 'auto';
+  return 'ask';
+}
+
 const AGENT_TOOLS_DEFINITIONS = [
   {
     type: 'function',
@@ -202,5 +229,7 @@ async function executeAgentTool(name, rawArgs, ctx) {
 
 module.exports = {
   AGENT_TOOLS_DEFINITIONS,
+  AGENT_TOOL_META,
+  resolveToolPermission,
   executeAgentTool
 };
