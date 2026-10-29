@@ -25,7 +25,7 @@ app.whenReady().then(async () => {
   const expect = ['antigravity-launcher', 'clip-history', 'codec-lab', 'draw-board', 'json-editor', 'mirror-hub', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
-  if (info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have no backend');
+  if (!info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have a backend');
   if (info.find(p => p.id === 'json-editor').hasBackend) throw new Error('json-editor should have no backend');
   if (!info.find(p => p.id === 'clip-history').hasBackend) throw new Error('clip-history should have a backend');
   if (!info.find(p => p.id === 'mirror-hub').hasBackend) throw new Error('mirror-hub should have a backend');
@@ -96,6 +96,24 @@ app.whenReady().then(async () => {
   const writeRes = await manager.call('clip-history', 'writeClipboardText', { text: 'https://test-clip.org' });
   if (!writeRes.ok) throw new Error('writeClipboardText failed');
   console.log('clip-history IPC OK');
+
+  // codec-lab crypto/gzip IPC verification
+  const algos = await manager.call('codec-lab', 'digestAlgos');
+  if (!algos.includes('md5') || !algos.includes('sha256')) throw new Error('codec-lab digestAlgos missing md5/sha256');
+  const hashRes = await manager.call('codec-lab', 'hash', { input: 'admin', algos: ['md5', 'sha256'] });
+  if (hashRes.md5 !== '21232f297a57a5a743894a0e4a801fc3') throw new Error('codec-lab md5 vector mismatch');
+  const ciphers = await manager.call('codec-lab', 'ciphers');
+  if (!ciphers.includes('aes-256-cbc') || !ciphers.includes('rc4')) throw new Error('codec-lab ciphers missing aes/rc4');
+  const cipEnc = await manager.call('codec-lab', 'cipher', { op: 'encrypt', algo: 'aes-256-cbc', password: 'pw', input: '轨道 🚀' });
+  if (!cipEnc.startsWith('U2FsdGVkX1')) throw new Error('codec-lab password cipher is not a Salted__ blob');
+  const cipDec = await manager.call('codec-lab', 'cipher', { op: 'decrypt', algo: 'aes-256-cbc', password: 'pw', input: cipEnc, inputFormat: 'base64' });
+  if (cipDec !== '轨道 🚀') throw new Error('codec-lab password cipher round-trip failed');
+  const rc4Hex = await manager.call('codec-lab', 'cipher', { op: 'encrypt', algo: 'rc4', key: 'Key', input: 'Plaintext', outputFormat: 'hex' });
+  if (rc4Hex.toUpperCase() !== 'BBF316E8D940AF0AD3') throw new Error('codec-lab rc4 known vector mismatch');
+  const gz = await manager.call('codec-lab', 'gzip', { op: 'compress', input: 'aaaa compress me 轨道', inputFormat: 'text', outputFormat: 'base64' });
+  const gun = await manager.call('codec-lab', 'gzip', { op: 'decompress', input: gz, inputFormat: 'base64' });
+  if (gun !== 'aaaa compress me 轨道') throw new Error('codec-lab gzip round-trip failed');
+  console.log('codec-lab crypto/gzip IPC OK');
 
   // test plugin data dir custom switch
   const customDataDir = path.join(tmp, 'custom-data');

@@ -1,13 +1,14 @@
 {
   "id": "codec-lab",
   "name": { "zh": "编码转换", "en": "Codec Lab" },
-  "desc": { "zh": "Base64 / URL / Hex / Unicode / JWT / 时间戳，双向互转", "en": "Base64 / URL / Hex / Unicode / JWT / timestamp, both ways" },
-  "version": "1.0.0",
+  "desc": { "zh": "Base64 / URL / Hex / GZIP / JWT / 进制互转 / 哈希 / AES 加密，双向互转", "en": "Base64 / URL / Hex / GZIP / JWT / radix / hash / AES, both ways" },
+  "version": "2.0.0",
   "category": "dev",
   "author": "Ikaros-521",
-  "keywords": ["base64", "url", "hex", "unicode", "jwt", "timestamp", "编码", "解码", "转换"],
+  "keywords": ["base64", "url", "hex", "unicode", "jwt", "timestamp", "html", "gzip", "radix", "md5", "sha1", "sha256", "sha512", "hash", "hmac", "aes", "des", "rc4", "编码", "解码", "转换", "进制", "哈希", "加密", "压缩"],
   "icon": "icon.svg",
   "defaultEnabled": true,
+  "backend": "backend.js",
   "panel": { "script": "panel.js", "style": "panel.css" },
   "actions": [
     { "id": "open", "label": { "zh": "打开编码转换", "en": "Open Codec Lab" }, "method": "openPanel", "hotkey": "Ctrl+Shift+C" }
