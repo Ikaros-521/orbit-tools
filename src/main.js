@@ -191,7 +191,7 @@ async function toggleActionPalette() {
   let selectedText = null;
   selectionCaptureActive = true;
   try {
-    const selRes = await captureActiveSelection({ timeoutMs: 90 });
+    const selRes = await captureActiveSelection({ timeoutMs: 150 });
     if (selRes && selRes.ok) {
       selectedText = selRes.text;
     }

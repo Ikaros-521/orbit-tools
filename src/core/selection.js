@@ -8,7 +8,9 @@ function simulateCopy() {
   return new Promise(resolve => {
     const platform = process.platform;
     if (platform === 'win32') {
-      execFile('cscript', ['//nologo', VBS_PATH], { windowsHide: true, timeout: 150 }, err => {
+      // cscript startup alone measures ~190ms here; the old 150ms cap killed
+      // the helper before SendKeys ran, so every capture silently failed.
+      execFile('cscript', ['//nologo', VBS_PATH], { windowsHide: true, timeout: 600 }, err => {
         resolve(!err);
       });
     } else if (platform === 'darwin') {
@@ -46,7 +48,7 @@ function snapshotClipboard() {
   return snap;
 }
 
-function restoreClipboard(snap) {
+function restoreClipboardSnapshot(snap) {
   try {
     if (snap.fileBuffer) {
       // mirrors clip-history's copyItem: text first, FileNameW last —
@@ -96,7 +98,7 @@ async function captureActiveSelection({ restoreClipboard = true, timeoutMs = 90 
 
   // 安全回滚：把快照原样写回，图片/文件剪贴板不被划选捕获破坏
   if (restoreClipboard) {
-    restoreClipboard(snap);
+    restoreClipboardSnapshot(snap);
   }
 
   return {
