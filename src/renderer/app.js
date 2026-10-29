@@ -333,7 +333,7 @@ function renderSmartPeek(data) {
   if (btnOpen) {
     btnOpen.addEventListener('click', (e) => {
       e.stopPropagation();
-      openPlugin(data.pluginId);
+      openPlugin(data.pluginId, { payload: data.payload });
     });
   }
 
@@ -992,7 +992,7 @@ els.search.addEventListener('keydown', e => {
     if (target) useDeckTool(target);
   } else if (e.key === 'Tab' && state.smartPeekData) {
     e.preventDefault();
-    openPlugin(state.smartPeekData.pluginId);
+    openPlugin(state.smartPeekData.pluginId, { payload: state.smartPeekData.payload });
   } else if (e.key === 'Escape') {
     if (state.smartPeekData) {
       hideSmartPeek();
@@ -1553,6 +1553,7 @@ function scheduleWfAutosave() {
 const WF_TRIGGER_TYPE_OPTIONS = [
   ['any', '任意文本'],
   ['math/expression', '算式 (数学表达式)'],
+  ['color/css', '颜色值 (HEX / RGB / HSL)'],
   ['application/json', 'JSON'],
   ['text/timestamp', '时间戳'],
   ['text/base64', 'Base64'],

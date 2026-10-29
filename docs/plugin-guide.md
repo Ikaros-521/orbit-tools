@@ -125,7 +125,7 @@ Orbit Toolbox 支持两类插件目录（用户插件在 ID 冲突时具有更�
 | 字段 | 说明 |
 |---|---|
 | `id` | 能力唯一标识（工作流节点保存 `capabilityId`） |
-| `type` | 声明该能力消费/匹配的信封类型；若属于内置识别类型（`application/json`、`text/timestamp`、`text/jwt`、`text/base64`、`text/url`、`system/port`），即使没有 backend 也能自动获得内置转换 |
+| `type` | 声明该能力消费/匹配的信封类型；若属于内置识别类型（`application/json`、`text/timestamp`、`text/jwt`、`text/base64`、`text/url`、`system/port`、`color/css`），即使没有 backend 也能自动获得内置转换 |
 | `method` | 可选，backend 中处理该能力的 IPC 方法名；缺省等于 `id` |
 | `title` | 节点库中展示的双语标题 |
 

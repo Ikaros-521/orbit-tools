@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>color picker</title>
+<link rel="stylesheet" href="picker.css">
+</head>
+<body>
+<img id="shot" alt="" draggable="false">
+<video id="live" autoplay muted playsinline></video>
+<div id="cross"></div>
+<div id="hud" hidden>
+  <div id="loupe"><canvas id="zoom"></canvas></div>
+  <div id="card">
+    <div class="row head">
+      <span id="swatch"></span>
+      <b id="hex">#FFFFFF</b>
+      <span id="alpha" class="dim">A 255</span>
+    </div>
+    <div class="row" id="rgb">R 255  G 255  B 255</div>
+    <div class="row" id="rgba"></div>
+    <div class="row" id="hsl"></div>
+    <div class="row dim" id="coord"></div>
+  </div>
+  <div id="hint">
+    <button type="button" id="zoomOut" class="hud-btn" title="缩小放大镜">−</button>
+    <button type="button" id="zoomIn" class="hud-btn" title="放大放大镜">+</button>
+    <span id="hintText">单击取色 · 方向键微调 · Esc / 右键取消</span>
+  </div>
+</div>
+<script src="color-math.js"></script>
+<script src="picker.js"></script>
+</body>
+</html>

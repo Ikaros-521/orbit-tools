@@ -1,0 +1,21 @@
+{
+  "id": "color-lab",
+  "name": { "zh": "色彩工坊", "en": "Color Lab" },
+  "desc": { "zh": "RGBA 调色板 + 屏幕吸管取色（冻结/动态双模式），HEX / RGB / HSL / HSV 多格式互转", "en": "RGBA palette + screen eyedropper (freeze/live), HEX/RGB/HSL/HSV conversion" },
+  "version": "1.0.0",
+  "category": "media",
+  "author": "Ikaros-521",
+  "keywords": ["color", "colour", "picker", "eyedropper", "palette", "hex", "rgb", "rgba", "hsl", "hsv", "hsb", "argb", "取色", "吸管", "调色", "色板", "颜色", "色值"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "backend": "backend.js",
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "pick", "label": { "zh": "吸管取色", "en": "Pick color from screen" }, "method": "startPick", "hotkey": "Ctrl+Shift+E" },
+    { "id": "open", "label": { "zh": "打开色彩工坊", "en": "Open Color Lab" }, "method": "openPanel" }
+  ],
+  "consumes": ["color/css"],
+  "capabilities": [
+    { "id": "convert", "type": "color/css", "method": "convert", "title": { "zh": "颜色格式转换", "en": "Color Convert" } }
+  ]
+}

@@ -35,6 +35,35 @@ const DETECTORS = {
       };
     }
   },
+  'color/css': {
+    /* Color literals are extremely specific: '#' + hex length, a color
+       function, or an 0x integer. Nothing else in the chain can swallow them
+       (math rejects letters; hex/base64 reject '#'). */
+    test: text => {
+      const t = text.trim();
+      if (t.length < 4 || t.length > 80) return false;
+      return /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t)
+        || /^(?:rgba?|hsla?|hsva?|hsba?)\(\s*[^(),\s]+(?:\s*,\s*|\s+)[^(),\s]+(?:\s*,\s*|\s+)[^(),\s]+(?:\s*[,/]\s*[^(),\s]+)?\s*\)$/i.test(t)
+        || /^0x[0-9a-f]{6}$/i.test(t);
+    },
+    resolve: (text) => {
+      let CM = null;
+      try { CM = require('../plugins/color-lab/color-math'); } catch { return null; }
+      const c = CM.parse(text.trim());
+      if (!c) return null;
+      const hex = CM.format(c, 'hex');
+      const hsl = CM.format(c, 'hsl');
+      return {
+        type: 'color/css',
+        badge: `颜色 ${hex}`,
+        preview: `${hex} · ${CM.format(c, 'rgb')}`,
+        copyValue: hex,
+        subText: `${hsl}${c.a < 255 ? ` · A ${c.a}` : ''} · Enter 复制 HEX，Tab 打开色彩工坊`,
+        payload: { color: hex },
+        targetAction: 'openPanel',
+      };
+    }
+  },
   'text/timestamp': {
     test: text => /^\d{10}(\d{3})?$/.test(text.trim()),
     resolve: (text) => {

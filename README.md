@@ -18,6 +18,7 @@ A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or
 | 镜像源切换 Mirror Hub | npm / pip / docker / maven / rust 常见开发工具国内镜像源一键测速与切换 | — |
 | 端口与进程 Port Scope | 查 TCP/UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | — |
 | 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转 | — |
+| 色彩工坊 Color Lab | RGBA 调色板 + 屏幕吸管取色（像素放大镜 / 冻结与动态双模式），HEX / RGB / HSL / HSV / ARGB 多格式互转 | `Ctrl+Shift+E` |
 
 工具箱本身的呼出热键默认 `Alt+Shift+Space`，可在设置里自定义。
 
@@ -66,7 +67,8 @@ src/
     ├── antigravity-launcher/# 反重力代理启动器（探测 / 诊断 / 终端 / 代理拉起）
     ├── calculator/          # 计算器（科学算式 + 实时预览 + 历史；剪贴板算式智能求值）
     ├── clip-history/        # 剪贴板历史（多条历史、置顶收藏与图片预览）
-    ├── codec-lab/           # 编码转换（纯面板插件，无后端）
+    ├── codec-lab/           # 编码转换（编解码 / 进制 / 哈希 / 对称加密，crypto 后端）
+    ├── color-lab/           # 色彩工坊（RGBA 调色板 + 全屏吸管取色 + 像素放大镜）
     ├── draw-board/          # 屏幕画板（全屏透明画布 + 屏幕底图快照）
     ├── json-editor/         # JSON 编辑器（语法校验 / 树状折叠 / Python转JSON / 压缩转义）
     ├── memo/                # 备忘录（Markdown 分屏实时预览 + 行/字/词统计 + 自动保存）
@@ -75,7 +77,7 @@ src/
     └── screenshot-pin/      # 截图悬浮（选区覆盖窗口 + 贴图窗口，各自独立 preload）
 ```
 
-测试：`node tools/test-port-parsers.js`（解析器单测）、`electron tools/smoke-plugins.js`（插件系统冒烟）、`electron tools/uitest.js`（真实窗口 UI 回归，含热键冲突，截图输出到 dist/）。
+测试：`node tools/test-color-math.js`（颜色解析 / 转换单测）、`node tools/test-port-parsers.js`（解析器单测）、`electron tools/smoke-plugins.js`（插件系统冒烟）、`electron tools/uitest.js`（真实窗口 UI 回归，含热键冲突，截图输出到 dist/）。
 
 安全边界：插件面板脚本运行在宿主渲染进程（contextIsolation、无 Node），只能通过 `Toolbox` 上下文调用宿主能力；插件后端模块运行在主进程，通过 `ctx` 拿到受控的窗口创建 / IPC / 持久化 API。插件自有窗口通过 `plugin://<id>/...` 协议加载资源，路径越界直接 403。
 

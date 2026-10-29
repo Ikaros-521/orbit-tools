@@ -1,0 +1,124 @@
+/* color-lab picker overlay — a frozen frame with a pixel-exact magnifier.
+   The image is only a backdrop (JPEG); every value and every magnified pixel
+   comes from the untouched nativeImage through the backend probe IPC. */
+html, body {
+  width: 100vw;
+  height: 100vh;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  cursor: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+#shot,
+#live {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  display: block;
+  pointer-events: none;
+}
+#live { display: none; object-fit: fill; background: #000; }
+body.live #shot { display: none; }
+body.live #live { display: block; }
+/* native GDI sampling: the overlay is transparent, no capture surface at all */
+body.gdi #shot,
+body.gdi #live { display: none; }
+
+/* full-screen crosshair: difference blending keeps it readable on any color.
+   Four segments leave a gap around the sampled pixel so even a platform where
+   content protection is unavailable cannot sample its own crosshair. */
+#cross { position: fixed; inset: 0; z-index: 2; pointer-events: none; }
+#cross i {
+  position: absolute;
+  display: block;
+  background: #fff;
+  mix-blend-mode: difference;
+}
+#cross i.v { width: 1px; }
+#cross i.h { height: 1px; }
+
+#hud {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+  will-change: transform;
+  filter: drop-shadow(0 14px 32px rgba(0, 0, 0, .6));
+}
+#hud[hidden] { display: none; }
+
+#loupe {
+  position: relative;
+  align-self: flex-start;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, .3);
+  background: #000;
+}
+#zoom {
+  display: block;
+  image-rendering: pixelated;
+}
+
+#card {
+  min-width: 188px;
+  padding: 9px 11px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .16);
+  background: rgba(9, 12, 14, .93);
+  color: #e9efec;
+  font: 12px/1.6 "Cascadia Mono", "Cascadia Code", "Consolas", ui-monospace, monospace;
+}
+#card .row { white-space: nowrap; }
+#card .head { display: flex; align-items: center; gap: 8px; font-size: 15px; line-height: 1.3; }
+#card .dim { color: #8b9694; }
+#swatch {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .32);
+  background-image:
+    linear-gradient(var(--sw, #fff), var(--sw, #fff)),
+    repeating-conic-gradient(#8d9492 0 25%, #d9dedc 0 50%);
+  background-size: 100% 100%, 8px 8px;
+}
+#hex { letter-spacing: .06em; }
+
+#hint {
+  align-self: flex-start;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, .13);
+  background: rgba(9, 12, 14, .8);
+  color: #aeb8b5;
+  font: 11px/1 "Bahnschrift", "Segoe UI", "Noto Sans", sans-serif;
+  letter-spacing: .08em;
+  white-space: nowrap;
+}
+#hintText { padding: 0 2px; }
+#hint .hud-btn {
+  pointer-events: auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, .22);
+  background: rgba(255, 255, 255, .08);
+  color: #e9efec;
+  font: 13px/1 "Cascadia Mono", "Consolas", monospace;
+  cursor: pointer;
+}
+#hint .hud-btn:hover { background: rgba(255, 255, 255, .2); }

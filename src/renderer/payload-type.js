@@ -46,6 +46,15 @@
       gate: t => /^(\\u(\{[0-9a-fA-F]{1,6}\}|[0-9a-fA-F]{4})|&#x[0-9a-fA-F]+;)/.test(t),
     },
     {
+      // color literals: very specific shapes; #RRGGBB(AA) must be classified
+      // before text/hex so a color never reads as a hex byte string
+      type: 'color/css', labelZh: '颜色值', labelEn: 'Color',
+      test: () => true,
+      gate: t => /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(t)
+        || /^(?:rgba?|hsla?|hsva?|hsba?)\(\s*[^(),\s]+(?:\s*,\s*|\s+)[^(),\s]+(?:\s*,\s*|\s+)[^(),\s]+(?:\s*[,/]\s*[^(),\s]+)?\s*\)$/i.test(t)
+        || /^0x[0-9a-f]{6}$/i.test(t),
+    },
+    {
       // hex wins over base64: an even-length a-f0-9 string is valid base64
       // charset too, but reads as hex when it carries hex letters
       type: 'text/hex', labelZh: 'Hex 十六进制', labelEn: 'Hex',

@@ -22,10 +22,11 @@ app.whenReady().then(async () => {
   const info = manager.serialize();
   console.log('discovered:', found.map(p => `${p.id}(${p.source})`).join(', '));
 
-  const expect = ['antigravity-launcher', 'calculator', 'clip-history', 'codec-lab', 'draw-board', 'json-editor', 'memo', 'mirror-hub', 'port-scope', 'screenshot-pin'];
+  const expect = ['antigravity-launcher', 'calculator', 'clip-history', 'codec-lab', 'color-lab', 'draw-board', 'json-editor', 'memo', 'mirror-hub', 'port-scope', 'screenshot-pin'];
   const missing = expect.filter(id => !info.find(p => p.id === id));
   if (missing.length) throw new Error(`missing plugins: ${missing}`);
   if (!info.find(p => p.id === 'codec-lab').hasBackend) throw new Error('codec-lab should have a backend');
+  if (!info.find(p => p.id === 'color-lab').hasBackend) throw new Error('color-lab should have a backend');
   if (info.find(p => p.id === 'json-editor').hasBackend) throw new Error('json-editor should have no backend');
   if (!info.find(p => p.id === 'clip-history').hasBackend) throw new Error('clip-history should have a backend');
   if (!info.find(p => p.id === 'mirror-hub').hasBackend) throw new Error('mirror-hub should have a backend');
@@ -52,6 +53,11 @@ app.whenReady().then(async () => {
   if (await fetchStatus('plugin://calculator/eval.js') !== 200) throw new Error('plugin:// calculator eval.js not served');
   if (await fetchStatus('plugin://memo/panel.js') !== 200) throw new Error('plugin:// memo panel.js not served');
   if (await fetchStatus('plugin://memo/panel.css') !== 200) throw new Error('plugin:// memo panel.css not served');
+  if (await fetchStatus('plugin://color-lab/panel.js') !== 200) throw new Error('plugin:// color-lab panel.js not served');
+  if (await fetchStatus('plugin://color-lab/color-math.js') !== 200) throw new Error('plugin:// color-lab color-math.js not served');
+  if (await fetchStatus('plugin://color-lab/picker.html') !== 200) throw new Error('plugin:// color-lab picker.html not served');
+  if (await fetchStatus('plugin://color-lab/picker-preload.js') !== 200) throw new Error('plugin:// color-lab picker-preload.js not served');
+  if (await fetchStatus('plugin://color-lab/icon.svg') !== 200) throw new Error('plugin:// color-lab icon.svg not served');
   // The WHATWG URL parser collapses encoded ../ segments during normalization,
   // so traversal dies as 404; the handler's containment check would 403 anything
   // that still slips through. Either way the file must NOT be served.
@@ -143,6 +149,26 @@ app.whenReady().then(async () => {
   if (gun !== 'aaaa compress me 轨道') throw new Error('codec-lab gzip round-trip failed');
   console.log('codec-lab crypto/gzip IPC OK');
 
+  // color-lab: palette state + conversion capability
+  const colorState = await manager.call('color-lab', 'getState');
+  if (!colorState || !colorState.color || colorState.settings.hideHost !== true || colorState.settings.freeze !== true) {
+    throw new Error('color-lab getState failed');
+  }
+  const colorCfg = await manager.call('color-lab', 'setConfig', { hideHost: false, freeze: false, copyFormat: 'rgba' });
+  if (colorCfg.settings.hideHost !== false || colorCfg.settings.freeze !== false || colorCfg.settings.copyFormat !== 'rgba') {
+    throw new Error('color-lab setConfig failed');
+  }
+  const colorSet = await manager.call('color-lab', 'setColor', { color: { r: 255, g: 171, b: 46, a: 255 } });
+  if (!colorSet.color || colorSet.color.r !== 255) throw new Error('color-lab setColor failed');
+  const colorText = await manager.call('color-lab', 'convert', { value: 'rgba(255, 171, 46, 0.5)' });
+  if (!colorText.includes('HEX') || !colorText.includes('#FFAB2E')) {
+    throw new Error(`color-lab convert output unexpected: ${colorText}`);
+  }
+  const colorHex = await manager.call('color-lab', 'convert', { value: 'hsl(0, 100%, 50%)', config: { format: 'hex' } });
+  if (colorHex !== '#FF0000') throw new Error(`color-lab hsl→hex failed: ${colorHex}`);
+  await manager.call('color-lab', 'setConfig', { hideHost: true, freeze: true, copyFormat: 'hex' });
+  console.log('color-lab palette IPC OK');
+
   // test plugin data dir custom switch
   const customDataDir = path.join(tmp, 'custom-data');
   const dataDirInfo = manager.setPluginDataDir(customDataDir);
@@ -216,6 +242,20 @@ app.whenReady().then(async () => {
   if (!jsonRes || jsonRes.pluginId !== 'json-editor' || jsonRes.type !== 'application/json') {
     throw new Error('smart peek json detection failed');
   }
+  const colorRes = manager.detectSmartPeek('#FFAB2E');
+  if (!colorRes || colorRes.pluginId !== 'color-lab' || colorRes.type !== 'color/css') {
+    throw new Error(`smart peek color detection failed: ${JSON.stringify(colorRes)}`);
+  }
+  if (!colorRes.payload || colorRes.payload.color !== '#FFAB2E' || colorRes.copyValue !== '#FFAB2E') {
+    throw new Error('smart peek color payload/copyValue mismatch');
+  }
+  const rgbaRes = manager.detectSmartPeek('rgba(0, 128, 255, 0.5)');
+  if (!rgbaRes || rgbaRes.type !== 'color/css' || rgbaRes.payload.color !== '#0080FF') {
+    throw new Error('smart peek rgba detection failed');
+  }
+  if (manager.detectSmartPeek('2026-10-29') !== null) {
+    throw new Error('date-like string must not be detected as a color');
+  }
 
   // test dynamic self-healing: disable codec-lab -> capability detection must NOT match
   manager.setEnabled('codec-lab', false);
@@ -238,6 +278,10 @@ app.whenReady().then(async () => {
   const base64Pipeline = manager.getPipelineActions({ type: 'text/base64', value: 'SGVsbG8=' });
   if (!base64Pipeline.find(a => a.pluginId === 'codec-lab')) {
     throw new Error('pipeline should resolve codec-lab for text/base64');
+  }
+  const colorPipeline = manager.getPipelineActions({ type: 'color/css', value: '#FFAB2E' });
+  if (!colorPipeline.find(a => a.pluginId === 'color-lab')) {
+    throw new Error('pipeline should resolve color-lab for color/css');
   }
 
   // test pipeline self-healing: disable json-editor -> pipeline must exclude it
