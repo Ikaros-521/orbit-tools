@@ -25,6 +25,7 @@ const els = {
   wfSvgLayer: $('wfSvgLayer'), wfNodesContainer: $('wfNodesContainer'),
   btnWfZoomIn: $('btnWfZoomIn'), wfZoomScale: $('wfZoomScale'), btnWfZoomOut: $('btnWfZoomOut'),
   btnWfFitView: $('btnWfFitView'), btnWfResetView: $('btnWfResetView'),
+  btnWfUndo: $('btnWfUndo'), btnWfRedo: $('btnWfRedo'),
   wfConsole: $('wfConsole'), wfConsoleBody: $('wfConsoleBody'), btnWfClearConsole: $('btnWfClearConsole'),
   btnBack: $('btnBack'), panelIcon: $('panelIcon'), panelName: $('panelName'), panelMeta: $('panelMeta'),
   panelHost: $('panelHost'),
@@ -78,6 +79,8 @@ const state = {
   actionPaletteItems: [],
   actionPaletteFiltered: [],
   actionPaletteIndex: 0,
+  usage: {},            // usageId -> {n, t} frecency (persisted main-side)
+  deckIndex: 0,         // keyboard-selected card on the home deck
   // Workflows canvas state
   workflows: [],
   currentWorkflowId: null,
@@ -89,7 +92,7 @@ const state = {
   pluginCat: 'all',
   pluginStatus: 'all',
   pluginPage: 1,
-  pageSize: 4,
+  pageSize: 8,
   ctxTargetPlugin: null,
   highlightPluginId: null,
   userPluginsDir: '',
@@ -139,16 +142,30 @@ function applyLang(lang) {
 
 /* --- deck (tool cards + search) ---------------------------------------------- */
 function pluginText(p) {
-  return [p.id, p.name.zh, p.name.en, p.desc.zh, p.desc.en, ...p.keywords].join('\n').toLowerCase();
+  const base = [p.id, p.name.zh, p.name.en, p.desc.zh, p.desc.en, ...p.keywords].join('\n').toLowerCase();
+  // 拼音全拼+首字母并入匹配域：jt / jietu 也能命中「截图悬浮」
+  return window.PaletteSearch.enrich(base, `${p.name.zh || ''} ${p.name.en || ''}`);
+}
+function visibleDeckPlugins() {
+  const q = state.query.trim().toLowerCase();
+  return state.plugins.filter(p => p.enabled && (!q || pluginText(p).includes(q)));
+}
+function updateDeckSelection(scroll = true) {
+  const cards = els.deck.querySelectorAll('.card');
+  cards.forEach((el, idx) => el.classList.toggle('selected', idx === state.deckIndex));
+  if (scroll) {
+    const sel = cards[state.deckIndex];
+    if (sel) sel.scrollIntoView({ block: 'nearest' });
+  }
 }
 function renderDeck() {
-  const q = state.query.trim().toLowerCase();
-  const shown = state.plugins.filter(p => p.enabled && (!q || pluginText(p).includes(q)));
+  const shown = visibleDeckPlugins();
+  if (state.deckIndex >= shown.length) state.deckIndex = Math.max(0, shown.length - 1);
   els.deck.innerHTML = '';
-  for (const p of shown) {
+  shown.forEach((p, i) => {
     const card = document.createElement('button');
     card.type = 'button';
-    card.className = 'card';
+    card.className = `card${i === state.deckIndex ? ' selected' : ''}`;
     card.innerHTML = `
       <span class="card-icon">${p.iconSvg || escapeHtml(p.iconText)}</span>
       <span class="card-name"></span>
@@ -171,7 +188,7 @@ function renderDeck() {
       e.stopPropagation();
       showCardContextMenu(p, e.clientX, e.clientY);
     });
-    card.addEventListener('mouseenter', () => { hoveredPlugin = p; });
+    card.addEventListener('mouseenter', () => { hoveredPlugin = p; state.deckIndex = i; updateDeckSelection(false); });
     card.addEventListener('mouseleave', () => { if (hoveredPlugin === p) hoveredPlugin = null; });
     card.addEventListener('mousemove', e => {
       const r = card.getBoundingClientRect();
@@ -179,9 +196,9 @@ function renderDeck() {
       card.style.setProperty('--my', `${e.clientY - r.top}px`);
     });
     els.deck.appendChild(card);
-  }
+  });
   const enabledCount = state.plugins.filter(p => p.enabled).length;
-  els.deckMeta.textContent = q ? t('deckMeta', { n: shown.length }) : t('deckMeta', { n: enabledCount });
+  els.deckMeta.textContent = state.query.trim() ? t('deckMeta', { n: shown.length }) : t('deckMeta', { n: enabledCount });
   const emptyMsg = enabledCount === 0 ? t('noTools') : t('empty');
   els.empty.textContent = emptyMsg;
   els.empty.hidden = shown.length > 0;
@@ -293,6 +310,8 @@ function renderSmartPeek(data) {
             if (b) b.innerHTML = '<span>✓ 已复制</span>';
           });
           $('btnPeekKill')?.addEventListener('click', async () => {
+            // 结束进程不可逆——横幅上的误点不该直接杀掉系统进程
+            if (!confirm(`确定结束进程 "${procName}" (PID ${item.pid}) 吗？此操作不可恢复。`)) return;
             const killRes = await window.host.pluginCall('port-scope', 'kill', { pid: item.pid, force: true });
             if (killRes && killRes.ok) {
               if (previewEl) previewEl.innerHTML = `<span style="color:#2ecc71">●</span> PID ${item.pid} 已成功结束`;
@@ -833,6 +852,7 @@ async function init() {
   state.plugins = [...boot.plugins].sort((a, b) => a.id.localeCompare(b.id));
   state.config = { ...state.config, ...boot.config };
   state.hotkeys = boot.hotkeys || [];
+  state.usage = boot.usage || {};
   state.userPluginsDir = boot.userPluginsDir;
   state.defaultUserPluginsDir = boot.defaultUserPluginsDir;
   state.isCustomUserPluginsDir = boot.isCustomUserPluginsDir;
@@ -863,10 +883,20 @@ els.tabs.addEventListener('click', e => {
 els.btnBack.addEventListener('click', () => { closePanel(); setView('home'); });
 els.search.addEventListener('input', () => {
   state.query = els.search.value;
+  state.deckIndex = 0;
   renderDeck();
   checkClipboardSmartPeek();
 });
 els.search.addEventListener('keydown', e => {
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    const shown = visibleDeckPlugins();
+    if (shown.length === 0) return;
+    e.preventDefault();
+    const delta = e.key === 'ArrowDown' ? 1 : -1;
+    state.deckIndex = (state.deckIndex + delta + shown.length) % shown.length;
+    updateDeckSelection();
+    return;
+  }
   if (e.key === 'Enter') {
     if (state.smartPeekData) {
       e.preventDefault();
@@ -880,9 +910,9 @@ els.search.addEventListener('keydown', e => {
       }
       return;
     }
-    const q = state.query.trim().toLowerCase();
-    const first = state.plugins.find(p => p.enabled && (!q || pluginText(p).includes(q)));
-    if (first) openPlugin(first.id);
+    const shown = visibleDeckPlugins();
+    const target = shown[Math.min(state.deckIndex, shown.length - 1)];
+    if (target) openPlugin(target.id);
   } else if (e.key === 'Tab' && state.smartPeekData) {
     e.preventDefault();
     openPlugin(state.smartPeekData.pluginId);
@@ -1089,6 +1119,80 @@ if (els.btnRescanFromGuide) {
 /* --- workflows canvas controller ----------------------------------------------- */
 let currentWorkflow = null;
 
+/* --- canvas undo/redo ------------------------------------------------------------
+   Snapshot-based (nodes+edges deep-copied). The canvas is full of one-gesture
+   destructive edits (right-click deletes a node, pulling a wire disconnects
+   it) with 500ms autosave — without undo those misfires are unrecoverable. */
+const wfHistory = { undo: [], redo: [], wfId: null };
+
+function wfSnapshot() {
+  if (!currentWorkflow) return null;
+  return { nodes: structuredClone(currentWorkflow.nodes), edges: structuredClone(currentWorkflow.edges) };
+}
+function pushWfHistory() {
+  if (!currentWorkflow) return;
+  if (wfHistory.wfId !== currentWorkflow.id) {
+    wfHistory.undo = [];
+    wfHistory.redo = [];
+    wfHistory.wfId = currentWorkflow.id;
+  }
+  const snap = wfSnapshot();
+  if (!snap) return;
+  wfHistory.undo.push(snap);
+  if (wfHistory.undo.length > 60) wfHistory.undo.shift();
+  wfHistory.redo.length = 0;
+  updateWfUndoButtons();
+}
+function applyWfSnapshot(snap) {
+  currentWorkflow.nodes = snap.nodes;
+  currentWorkflow.edges = snap.edges;
+  wfCanvas.selectedNodeId = null;
+  wfCanvas.selectedEdgeId = null;
+  cancelDraftConnection();
+  renderWorkflowCanvas();
+  scheduleWfAutosave();
+  updateWfUndoButtons();
+}
+function undoWf() {
+  if (!currentWorkflow || wfHistory.undo.length === 0) return;
+  wfHistory.redo.push(wfSnapshot());
+  applyWfSnapshot(wfHistory.undo.pop());
+  logToWfConsole('↶ 已撤销');
+}
+function redoWf() {
+  if (!currentWorkflow || wfHistory.redo.length === 0) return;
+  wfHistory.undo.push(wfSnapshot());
+  applyWfSnapshot(wfHistory.redo.pop());
+  logToWfConsole('↷ 已重做');
+}
+function updateWfUndoButtons() {
+  if (els.btnWfUndo) els.btnWfUndo.disabled = wfHistory.undo.length === 0;
+  if (els.btnWfRedo) els.btnWfRedo.disabled = wfHistory.redo.length === 0;
+}
+/* Push once per field focus so typing a config value doesn't flood the stack
+   with per-keystroke snapshots. */
+function beginWfFieldEdit(inputEl) {
+  if (!inputEl || inputEl.dataset.wfHist) return;
+  inputEl.dataset.wfHist = '1';
+  inputEl.addEventListener('blur', () => { delete inputEl.dataset.wfHist; }, { once: true });
+  pushWfHistory();
+}
+function duplicateSelectedNode() {
+  if (!currentWorkflow || !wfCanvas.selectedNodeId) return;
+  const src = currentWorkflow.nodes.find(n => n.id === wfCanvas.selectedNodeId);
+  if (!src) return;
+  pushWfHistory();
+  const copy = structuredClone(src);
+  copy.id = `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  copy.x = (src.x || 0) + 32;
+  copy.y = (src.y || 0) + 32;
+  currentWorkflow.nodes.push(copy);
+  wfCanvas.selectedNodeId = copy.id;
+  renderWorkflowCanvas();
+  scheduleWfAutosave();
+  logToWfConsole(`⧉ 已复制节点 [${copy.title}] (Ctrl+D)`);
+}
+
 // Infinite Canvas & Connection State Machine
 const wfCanvas = {
   panX: 0,
@@ -1185,6 +1289,7 @@ function completeConnection(fromNodeId, fromType, targetNodeId, targetType) {
   if (!currentWorkflow.edges.some(ed => ed.from === src && ed.to === dst)) {
     const fromNode = currentWorkflow.nodes.find(n => n.id === src);
     const toNode = currentWorkflow.nodes.find(n => n.id === dst);
+    pushWfHistory();
     currentWorkflow.edges.push({ id: `e-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, from: src, to: dst });
     renderWorkflowCanvas();
     logToWfConsole(`✓ 连线建立成功: [${fromNode?.title || src}] ➔ [${toNode?.title || dst}]`);
@@ -1319,11 +1424,18 @@ function loadCurrentWorkflow() {
     currentWorkflow = state.workflows[0];
     state.currentWorkflowId = currentWorkflow.id;
   }
+  // 历史栈按工作流隔离：切换目标后清空，避免撤销跨流串档
+  if (wfHistory.wfId !== state.currentWorkflowId) {
+    wfHistory.undo = [];
+    wfHistory.redo = [];
+    wfHistory.wfId = state.currentWorkflowId || null;
+  }
   cancelDraftConnection();
   wfCanvas.selectedEdgeId = null;
   applyCanvasTransform();
   renderWorkflowCanvas();
   renderWorkflowMeta();
+  updateWfUndoButtons();
 }
 
 /* --- workflow meta editor (name / desc / auto-trigger switch) ----------------- */
@@ -1469,22 +1581,37 @@ function renderWorkflowLib() {
   }
 }
 
+/* 点击节点库添加时的默认落点：当前视口中心（拖拽添加会带显式坐标）。
+   画布可能被平移/缩放得很远——固定级联偏移会让新节点落在视野外。 */
+function defaultNodePosition() {
+  const n = currentWorkflow ? currentWorkflow.nodes.length : 0;
+  const jitter = (n % 5);
+  if (!els.wfCanvasArea) return { x: 120 + jitter * 40, y: 90 + jitter * 40 };
+  const rect = els.wfCanvasArea.getBoundingClientRect();
+  const cx = (rect.width / 2 - wfCanvas.panX) / wfCanvas.scale;
+  const cy = (rect.height / 2 - wfCanvas.panY) / wfCanvas.scale;
+  return { x: Math.round(cx - 110 + jitter * 26), y: Math.round(cy - 34 + jitter * 20) };
+}
+
 function addNodeToCanvas(type, title, extra = {}) {
   if (!currentWorkflow) return;
   const { config, ...rest } = extra;
   const id = `node-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const pos = extra.x !== undefined ? { x: extra.x, y: extra.y } : defaultNodePosition();
+  pushWfHistory();
   const newNode = {
     id,
     type,
     title,
-    x: extra.x !== undefined ? extra.x : (120 + (currentWorkflow.nodes.length % 5) * 40),
-    y: extra.y !== undefined ? extra.y : (90 + (currentWorkflow.nodes.length % 5) * 40),
+    x: pos.x,
+    y: pos.y,
     ...(config && Object.keys(config).length ? { config: { ...config } } : {}),
     ...rest
   };
   currentWorkflow.nodes.push(newNode);
   wfCanvas.selectedNodeId = id;
   renderWorkflowCanvas();
+  updateWfUndoButtons();
   logToWfConsole(`+ 已添加节点 [${title}]，可在右侧检查器配置参数`);
 }
 
@@ -1599,6 +1726,7 @@ function renderWfInspector(node) {
   titleInput.className = 'wf-insp-input';
   titleInput.value = node.title || '';
   titleInput.addEventListener('input', () => {
+    beginWfFieldEdit(titleInput);
     node.title = titleInput.value;
     renderWorkflowCanvas();
   });
@@ -1647,6 +1775,7 @@ function renderWfInspector(node) {
       });
       input.value = readVal() ?? '';
       input.addEventListener('change', () => {
+        pushWfHistory();
         writeVal(input.value || null);
         renderWorkflowCanvas(); // 末尾会 syncWfInspector 刷新摘要
       });
@@ -1661,6 +1790,7 @@ function renderWfInspector(node) {
       });
       input.value = readVal() ?? f.def;
       input.addEventListener('change', () => {
+        pushWfHistory();
         writeVal(input.value);
         renderWorkflowCanvas();
       });
@@ -1670,6 +1800,7 @@ function renderWfInspector(node) {
       input.className = 'wf-insp-check';
       input.checked = !!readVal();
       input.addEventListener('change', () => {
+        pushWfHistory();
         writeVal(input.checked);
         renderWorkflowCanvas();
       });
@@ -1679,6 +1810,7 @@ function renderWfInspector(node) {
       input.rows = 3;
       input.value = readVal() ?? f.def;
       input.addEventListener('input', () => {
+        beginWfFieldEdit(input);
         writeVal(input.value);
         renderWorkflowCanvas();
       });
@@ -1688,6 +1820,7 @@ function renderWfInspector(node) {
       input.className = 'wf-insp-input';
       input.value = readVal() ?? f.def;
       input.addEventListener('input', () => {
+        beginWfFieldEdit(input);
         writeVal(f.kind === 'number' ? Number(input.value) : input.value);
         renderWorkflowCanvas();
       });
@@ -1748,6 +1881,7 @@ function renderWorkflowCanvas() {
       delBtn.addEventListener('mousedown', (e) => e.stopPropagation());
       delBtn.addEventListener('click', (e) => {
         e.stopPropagation();
+        pushWfHistory();
         currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
         currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
         if (wfCanvas.selectedNodeId === node.id) wfCanvas.selectedNodeId = null;
@@ -1761,6 +1895,7 @@ function renderWorkflowCanvas() {
       if (e.target.closest('.wf-port') || e.target.closest('.wf-node-del')) return;
       e.preventDefault();
       e.stopPropagation();
+      pushWfHistory();
       currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
       currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
       if (wfCanvas.selectedNodeId === node.id) wfCanvas.selectedNodeId = null;
@@ -1780,8 +1915,11 @@ function renderWorkflowCanvas() {
 
       let startX = e.clientX, startY = e.clientY;
       let origX = node.x || 0, origY = node.y || 0;
+      let dragHistPushed = false;
 
       const onMouseMove = (ev) => {
+        // 纯点击选中不产生历史；首次真正位移时才入栈
+        if (!dragHistPushed) { pushWfHistory(); dragHistPushed = true; }
         node.x = Math.max(10, origX + (ev.clientX - startX) / wfCanvas.scale);
         node.y = Math.max(10, origY + (ev.clientY - startY) / wfCanvas.scale);
         el.style.left = `${node.x}px`;
@@ -1809,6 +1947,7 @@ function renderWorkflowCanvas() {
         e.preventDefault();
         e.stopPropagation();
         const beforeLen = currentWorkflow.edges.length;
+        pushWfHistory();
         currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id);
         if (currentWorkflow.edges.length !== beforeLen) {
           renderWorkflowCanvas();
@@ -1833,6 +1972,7 @@ function renderWorkflowCanvas() {
         const existingInEdge = currentWorkflow.edges.find(ed => ed.to === node.id);
         if (existingInEdge) {
           const upstreamNode = currentWorkflow.nodes.find(n => n.id === existingInEdge.from);
+          pushWfHistory();
           currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed !== existingInEdge);
           renderWorkflowCanvas();
           if (upstreamNode) {
@@ -1850,6 +1990,7 @@ function renderWorkflowCanvas() {
         e.preventDefault();
         e.stopPropagation();
         const beforeLen = currentWorkflow.edges.length;
+        pushWfHistory();
         currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.to !== node.id);
         if (currentWorkflow.edges.length !== beforeLen) {
           renderWorkflowCanvas();
@@ -1901,6 +2042,7 @@ function renderWorkflowCanvas() {
     path.style.cursor = 'pointer';
 
     const removeThisEdge = (actionDesc = '断开') => {
+      pushWfHistory();
       currentWorkflow.edges = currentWorkflow.edges.filter(x => x !== edge);
       if (wfCanvas.selectedEdgeId === edgeKey) wfCanvas.selectedEdgeId = null;
       renderWorkflowCanvas();
@@ -2209,11 +2351,32 @@ window.addEventListener('keydown', (e) => {
       wfCanvas.selectedEdgeId = null;
       renderWorkflowCanvas();
     }
-  } else if ((e.key === 'Delete' || e.key === 'Backspace') && currentWorkflow) {
-    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    return;
+  }
+  const ae = document.activeElement;
+  const aeTag = ae && ae.tagName;
+  const typing = aeTag === 'INPUT' || aeTag === 'TEXTAREA' || aeTag === 'SELECT' || (ae && ae.isContentEditable);
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (e.key === 'z' || e.key === 'Z')) {
+    e.preventDefault();
+    if (e.shiftKey) redoWf(); else undoWf();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (e.key === 'y' || e.key === 'Y')) {
+    e.preventDefault();
+    redoWf();
+    return;
+  }
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !typing && (e.key === 'd' || e.key === 'D')) {
+    e.preventDefault();
+    duplicateSelectedNode();
+    return;
+  }
+  if ((e.key === 'Delete' || e.key === 'Backspace') && currentWorkflow) {
+    if (typing) return;
     if (wfCanvas.selectedNodeId) {
       const targetNode = currentWorkflow.nodes.find(n => n.id === wfCanvas.selectedNodeId);
       if (targetNode) {
+        pushWfHistory();
         currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== targetNode.id);
         currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== targetNode.id && ed.to !== targetNode.id);
         wfCanvas.selectedNodeId = null;
@@ -2222,9 +2385,9 @@ window.addEventListener('keydown', (e) => {
         return;
       }
     }
-    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA')) return;
     const removedEdge = currentWorkflow.edges.find(ed => (ed.id || `edge-${ed.from}-${ed.to}`) === wfCanvas.selectedEdgeId);
     if (removedEdge) {
+      pushWfHistory();
       currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed !== removedEdge);
       wfCanvas.selectedEdgeId = null;
       renderWorkflowCanvas();
@@ -2316,6 +2479,12 @@ if (els.btnWfSave) {
     logToWfConsole(`✓ 工作流 [${currentWorkflow.name}] 已保存`);
   });
 }
+if (els.btnWfUndo) {
+  els.btnWfUndo.addEventListener('click', () => undoWf());
+}
+if (els.btnWfRedo) {
+  els.btnWfRedo.addEventListener('click', () => redoWf());
+}
 if (els.btnWfDelete) {
   els.btnWfDelete.addEventListener('click', async () => {
     if (!currentWorkflow) return;
@@ -2385,7 +2554,12 @@ if (window.host.onNavigateTo) {
       closePanel();
       setView('workflows');
       if (opts.workflowId && typeof selectWorkflow === 'function') {
-        selectWorkflow(opts.workflowId);
+        // 悬浮抽屉「运行工作流」条目带 run:true — 选中后立即执行
+        selectWorkflow(opts.workflowId).then(() => {
+          if (opts.run && typeof runCurrentWorkflow === 'function') {
+            setTimeout(() => runCurrentWorkflow(), 60);
+          }
+        });
       }
     } else if (opts.view) {
       closePanel();
@@ -2434,7 +2608,8 @@ async function collectActionPaletteItems() {
       title: isZh ? '打开插件安装目录' : 'Open Plugin Folder',
       sub: activePlugin.root || '',
       badge: 'Folder',
-      searchKey: `${pName} folder 插件目录 文件夹 ${activePlugin.id}`.toLowerCase(),
+      usageId: `ctx:${activePlugin.id}:folder`,
+      searchKey: window.PaletteSearch.enrich(`${pName} folder 插件目录 文件夹 ${activePlugin.id}`, isZh ? '打开插件安装目录' : 'Open Plugin Folder'),
       run: () => window.host.openPluginFolder(activePlugin.id),
     });
     items.push({
@@ -2443,7 +2618,8 @@ async function collectActionPaletteItems() {
       title: isZh ? '复制插件 ID' : 'Copy Plugin ID',
       sub: activePlugin.id,
       badge: 'Copy',
-      searchKey: `${pName} id 复制 标识 ${activePlugin.id}`.toLowerCase(),
+      usageId: `ctx:${activePlugin.id}:copyid`,
+      searchKey: window.PaletteSearch.enrich(`${pName} id 复制 标识 ${activePlugin.id}`, isZh ? '复制插件 ID' : 'Copy Plugin ID'),
       run: () => window.host.writeClipboardText(activePlugin.id),
     });
   }
@@ -2454,26 +2630,14 @@ async function collectActionPaletteItems() {
   const currentText = windowSel || els.search.value.trim() || (await window.host.readClipboardText().catch(() => ''));
   const isFromSel = !!windowSel;
   if (currentText) {
-    let type = 'text/plain';
-    if (/^\s*[\{\[]/.test(currentText)) {
-      try { JSON.parse(currentText); type = 'application/json'; } catch {}
-    } else if (/^\d{10}(\d{3})?$/.test(currentText)) {
-      type = 'text/timestamp';
-    } else if (/^ey[A-Za-z0-9_-]+\.ey/.test(currentText)) {
-      type = 'text/jwt';
-    } else if (/^(\\u(\{[0-9a-fA-F]{1,6}\}|[0-9a-fA-F]{4})|&#x[0-9a-fA-F]+;)/.test(currentText)) {
-      type = 'text/unicode';
-    } else if (((() => {
-      const bare = currentText.replace(/0x/gi, '').replace(/[\s,:;-]+/g, '');
-      return bare.length >= 8 && bare.length % 2 === 0 && /^[0-9a-f]+$/i.test(bare) && /[a-f]/i.test(bare);
-    })())) {
-      type = 'text/hex';
-    } else if (/^https?:\/\//.test(currentText)) {
-      type = 'text/url';
-    }
+    // 统一走共享检测模块（含 base64），与悬浮抽屉 / Smart Peek 行为一致
+    const detected = window.PayloadType.detect(currentText);
+    const type = detected ? detected.type : 'text/plain';
 
     const envelope = { type, value: currentText };
-    const pipeActions = await window.host.getPipelineActions(envelope).catch(() => []);
+    // 固定排序让默认 Enter 行为可预期
+    const pipeActions = (await window.host.getPipelineActions(envelope).catch(() => []))
+      .sort((a, b) => String(a.pluginId).localeCompare(String(b.pluginId)));
     const groupTitle = isZh
       ? (isFromSel ? '⚡ 划选内容管道流转 (Selection)' : '⚡ 跨插件管道流转 (Pipeline)')
       : (isFromSel ? '⚡ Selection Transit' : '⚡ Pipeline Transit');
@@ -2485,7 +2649,8 @@ async function collectActionPaletteItems() {
         title: pTitle,
         sub: `${type} ➔ ${pa.pluginId}`,
         badge: isFromSel ? (isZh ? '划选直达' : 'Selection') : 'Transit',
-        searchKey: `pipeline 流转 管道 划选 ${pTitle} ${pa.pluginId}`.toLowerCase(),
+        usageId: `pipeline:${pa.pluginId}:${type}`,
+        searchKey: window.PaletteSearch.enrich(`pipeline 流转 管道 划选 ${pTitle} ${pa.pluginId}`, pTitle),
         run: () => openPlugin(pa.pluginId, { payload: envelope }),
       });
     }
@@ -2512,7 +2677,8 @@ async function collectActionPaletteItems() {
       title: pName,
       sub: pDesc || p.id,
       badge: isZh ? '插件' : 'Plugin',
-      searchKey,
+      usageId: `plugin:${p.id}`,
+      searchKey: window.PaletteSearch.enrich(searchKey, pName),
       run: () => {
         if (p.panel) {
           openPlugin(p.id);
@@ -2546,7 +2712,8 @@ async function collectActionPaletteItems() {
         title: `${pName} · ${aLabel}`,
         sub: a.method ? `调用 ${p.id}:${a.method}` : a.key,
         badge: a.hotkey || (isZh ? '动作' : 'Action'),
-        searchKey,
+        usageId: `action:${p.id}:${a.key || aLabel}`,
+        searchKey: window.PaletteSearch.enrich(searchKey, `${pName} ${aLabel}`),
         run: async () => {
           if (a.method) {
             await window.host.pluginCall(p.id, a.method, {}).catch(() => {});
@@ -2561,110 +2728,70 @@ async function collectActionPaletteItems() {
   // 5. 可视化工作流 (Visual Workflows)
   if (Array.isArray(state.workflows) && state.workflows.length > 0) {
     for (const wf of state.workflows) {
+      const wfTitle = isZh ? `运行工作流: ${wf.name}` : `Run Workflow: ${wf.name}`;
       items.push({
         group: isZh ? '🔀 可视化工作流' : '🔀 Workflows',
         icon: '🔀',
-        title: isZh ? `运行工作流: ${wf.name}` : `Run Workflow: ${wf.name}`,
+        title: wfTitle,
         sub: `${(wf.nodes || []).length} 节点 · ${wf.desc || wf.id}`,
         badge: 'Workflow',
-        searchKey: `workflow 工作流 ${wf.name} ${wf.desc || ''}`.toLowerCase(),
+        usageId: `workflow:${wf.id}`,
+        searchKey: window.PaletteSearch.enrich(`workflow 工作流 ${wf.name} ${wf.desc || ''}`, wfTitle),
         run: async () => {
           setView('workflows');
-          if (typeof selectWorkflow === 'function') selectWorkflow(wf.id);
-          if (typeof runCurrentWorkflow === 'function') setTimeout(runCurrentWorkflow, 100);
+          // await the switch — a fixed timer could fire before the async
+          // selection finished and run the PREVIOUS workflow
+          if (typeof selectWorkflow === 'function') await selectWorkflow(wf.id);
+          if (state.currentWorkflowId === wf.id && typeof runCurrentWorkflow === 'function') {
+            runCurrentWorkflow();
+          }
         },
       });
     }
   }
 
   // 6. 快速导航与系统动作 (System & Navigation)
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '🏠',
-    title: isZh ? '返回工具主页' : 'Go to Home',
-    badge: 'View',
-    searchKey: 'home 主页 返回'.toLowerCase(),
-    run: () => { closePanel(); setView('home'); },
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '🧩',
-    title: isZh ? '打开插件中心' : 'Plugin Center',
-    badge: 'View',
-    searchKey: 'plugin center 插件中心 市场'.toLowerCase(),
-    run: () => { closePanel(); setView('plugins'); },
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '🔀',
-    title: isZh ? '打开工作流画布' : 'Workflow Canvas',
-    badge: 'View',
-    searchKey: 'workflow 工作流 画布 DAG'.toLowerCase(),
-    run: () => { closePanel(); setView('workflows'); },
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '⚙️',
-    title: isZh ? '打开偏好设置' : 'Preferences',
-    badge: 'View',
-    searchKey: 'settings 设置 偏好'.toLowerCase(),
-    run: () => { closePanel(); setView('settings'); },
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '🔄',
-    title: isZh ? '重新扫描插件' : 'Rescan Plugins',
-    badge: 'Action',
-    searchKey: 'rescan 重新扫描 刷新插件'.toLowerCase(),
-    run: async () => {
+  const sysGroup = isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation';
+  const sys = (icon, title, badge, key, usageId, run) => {
+    items.push({
+      group: sysGroup, icon, title, badge, usageId,
+      searchKey: window.PaletteSearch.enrich(key, title),
+      run,
+    });
+  };
+  sys('🏠', isZh ? '返回工具主页' : 'Go to Home', 'View', 'home 主页 返回', 'sys:home',
+    () => { closePanel(); setView('home'); });
+  sys('🧩', isZh ? '打开插件中心' : 'Plugin Center', 'View', 'plugin center 插件中心 市场', 'sys:plugins',
+    () => { closePanel(); setView('plugins'); });
+  sys('🔀', isZh ? '打开工作流画布' : 'Workflow Canvas', 'View', 'workflow 工作流 画布 DAG', 'sys:workflows',
+    () => { closePanel(); setView('workflows'); });
+  sys('⚙️', isZh ? '打开偏好设置' : 'Preferences', 'View', 'settings 设置 偏好', 'sys:settings',
+    () => { closePanel(); setView('settings'); });
+  sys('🔄', isZh ? '重新扫描插件' : 'Rescan Plugins', 'Action', 'rescan 重新扫描 刷新插件', 'sys:rescan',
+    async () => {
       const res = await window.host.rescanPlugins();
       state.plugins = [...res.plugins].sort((a, b) => a.id.localeCompare(b.id));
       state.hotkeys = res.hotkeys;
       renderDeck(); renderPlugins(); renderSettings();
-    },
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '📁',
-    title: isZh ? '打开通用数据存储目录' : 'Open Plugin Data Folder',
-    badge: 'Folder',
-    searchKey: 'data folder 存储目录 数据'.toLowerCase(),
-    run: () => window.host.openPluginDataDir(),
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '📂',
-    title: isZh ? '打开用户插件目录' : 'Open User Plugins Folder',
-    badge: 'Folder',
-    searchKey: 'user plugins folder 用户插件目录'.toLowerCase(),
-    run: () => window.host.openUserPlugins(),
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '🌓',
-    title: isZh ? '切换主题模式 (深色/浅色)' : 'Toggle Theme',
-    badge: 'Pref',
-    searchKey: 'theme 主题 浅色 深色 暗黑 模式'.toLowerCase(),
-    run: async () => {
+    });
+  sys('📁', isZh ? '打开通用数据存储目录' : 'Open Plugin Data Folder', 'Folder', 'data folder 存储目录 数据', 'sys:data-dir',
+    () => window.host.openPluginDataDir());
+  sys('📂', isZh ? '打开用户插件目录' : 'Open User Plugins Folder', 'Folder', 'user plugins folder 用户插件目录', 'sys:user-plugins',
+    () => window.host.openUserPlugins());
+  sys('🌓', isZh ? '切换主题模式 (深色/浅色)' : 'Toggle Theme', 'Pref', 'theme 主题 浅色 深色 暗黑 模式', 'sys:theme',
+    async () => {
       const next = state.config.theme === 'dark' ? 'light' : 'dark';
       state.config.theme = next;
       await window.host.setPref('theme', next);
       applyTheme(next);
-    },
-  });
-  items.push({
-    group: isZh ? '⚙️ 快速导航与系统操作' : '⚙️ System & Navigation',
-    icon: '🌐',
-    title: isZh ? '切换界面语言 (中文 / English)' : 'Switch Language',
-    badge: 'Pref',
-    searchKey: 'language 语言 中文 英文 english'.toLowerCase(),
-    run: async () => {
+    });
+  sys('🌐', isZh ? '切换界面语言 (中文 / English)' : 'Switch Language', 'Pref', 'language 语言 中文 英文 english', 'sys:lang',
+    async () => {
       const next = state.config.lang === 'zh' ? 'en' : 'zh';
       state.config.lang = next;
       await window.host.setPref('lang', next);
       applyLang(next);
-    },
-  });
+    });
 
   return items;
 }
@@ -2695,16 +2822,29 @@ function closeActionPalette() {
   state.actionPaletteFiltered = [];
 }
 
+function trackActionRun(item) {
+  if (!item || !item.usageId || !window.host.bumpUsage) return;
+  const u = state.usage[item.usageId] || { n: 0, t: 0 };
+  u.n += 1;
+  u.t = Date.now();
+  state.usage[item.usageId] = u;
+  window.host.bumpUsage(item.usageId)
+    .then(us => { if (us && us[item.usageId]) state.usage = us; })
+    .catch(() => {});
+}
+
+function executeActionPaletteItem(item) {
+  if (!item) return;
+  trackActionRun(item);
+  closeActionPalette();
+  item.run();
+}
+
 function renderActionPaletteList() {
   const q = els.apInput.value.trim().toLowerCase();
-  state.actionPaletteFiltered = state.actionPaletteItems.filter(item => {
-    if (!q) return true;
-    if (item.title && item.title.toLowerCase().includes(q)) return true;
-    if (item.sub && item.sub.toLowerCase().includes(q)) return true;
-    if (item.searchKey && item.searchKey.includes(q)) return true;
-    if (item.group && item.group.toLowerCase().includes(q)) return true;
-    return false;
-  });
+  state.actionPaletteFiltered = window.PaletteSearch.filterAndRank(
+    state.actionPaletteItems, q, state.usage, window.I18N.lang === 'en'
+  );
 
   if (state.actionPaletteIndex >= state.actionPaletteFiltered.length) {
     state.actionPaletteIndex = Math.max(0, state.actionPaletteFiltered.length - 1);
@@ -2734,14 +2874,13 @@ function renderActionPaletteList() {
     row.innerHTML = `
       <div class="ap-item-left">
         ${iconHtml}
-        <span class="ap-item-title">${escapeHtml(item.title)}</span>
+        <span class="ap-item-title">${window.PaletteSearch.highlightHtml(item.title, q)}</span>
         ${item.sub ? `<span class="ap-item-sub">${escapeHtml(item.sub)}</span>` : ''}
       </div>
       ${item.badge ? `<span class="ap-item-badge">${escapeHtml(item.badge)}</span>` : ''}
     `;
     row.addEventListener('click', () => {
-      closeActionPalette();
-      item.run();
+      executeActionPaletteItem(item);
     });
     row.addEventListener('mousemove', () => {
       if (state.actionPaletteIndex !== idx) {
@@ -2782,6 +2921,14 @@ if (els.apInput) {
 
 window.addEventListener('keydown', e => {
   if (state.actionPaletteOpen) {
+    if (e.altKey && /^[1-9]$/.test(e.key)) {
+      const item = state.actionPaletteFiltered[Number(e.key) - 1];
+      if (item) {
+        e.preventDefault();
+        executeActionPaletteItem(item);
+      }
+      return;
+    }
     if (e.key === 'Escape') {
       e.preventDefault();
       closeActionPalette();
@@ -2805,11 +2952,7 @@ window.addEventListener('keydown', e => {
     }
     if (e.key === 'Enter') {
       e.preventDefault();
-      const item = state.actionPaletteFiltered[state.actionPaletteIndex];
-      if (item) {
-        closeActionPalette();
-        item.run();
-      }
+      executeActionPaletteItem(state.actionPaletteFiltered[state.actionPaletteIndex]);
       return;
     }
     return;
@@ -2823,7 +2966,7 @@ window.addEventListener('keydown', e => {
     return;
   }
 
-  if (e.key === 'Escape' && state.view === 'panel') { closePanel(); setView('home'); }
+  if (e.key === 'Escape' && state.view === 'panel') { closePanel(); setView('home'); window.host.win('hide'); }
   else if (e.key === 'Escape' && state.view === 'dev-guide') { setView('plugins'); }
   else if (e.key === 'Escape' && state.view === 'home') {
     if (state.smartPeekData) hideSmartPeek();

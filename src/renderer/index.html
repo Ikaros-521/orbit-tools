@@ -289,6 +289,8 @@
           <select id="wfSelect" class="wf-select"></select>
           <button type="button" class="btn small" id="btnWfNew">+ 新建工作流</button>
           <button type="button" class="btn ghost small" id="btnWfSave">保存</button>
+          <button type="button" class="btn ghost small" id="btnWfUndo" title="撤销 (Ctrl+Z)" disabled>↶ 撤销</button>
+          <button type="button" class="btn ghost small" id="btnWfRedo" title="重做 (Ctrl+Y / Ctrl+Shift+Z)" disabled>↷ 重做</button>
           <button type="button" class="btn ghost small warn" id="btnWfDelete">删除</button>
         </div>
         <div class="wf-toolbar-right">
@@ -392,12 +394,16 @@
     <div class="ap-footer">
       <span><kbd>↑</kbd><kbd>↓</kbd> 移动选择</span>
       <span><kbd>Enter</kbd> 触发</span>
+      <span><kbd>Alt</kbd>+<kbd>1-9</kbd> 快速触发</span>
       <span><kbd>Esc</kbd> 关闭</span>
     </div>
   </div>
 </div>
 
 <script src="i18n.js"></script>
+<script src="pinyin.js"></script>
+<script src="payload-type.js"></script>
+<script src="palette-search.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

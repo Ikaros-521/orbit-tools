@@ -28,6 +28,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     pluginDataDir: manager.dataRoot,
     defaultPluginDataDir: manager.defaultDataRoot,
     isCustomPluginDataDir: manager.dataRoot !== manager.defaultDataRoot,
+    usage: cfg.data.usage || {},
   }));
 
   ipcMain.handle('plugin-call', async (e, payload) => {
@@ -88,6 +89,37 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     if (!['lang', 'theme'].includes(k)) return cfg.data;
     cfg.set({ [k]: v });
     return cfg.data;
+  });
+
+  /* --- usage tracking (palette frecency) ---------------------------------- */
+  ipcMain.handle('usage-bump', (e, id) => {
+    if (typeof id !== 'string' || !id || id.length > 200) return cfg.data.usage || {};
+    const usage = { ...(cfg.data.usage || {}) };
+    const cur = usage[id] || { n: 0, t: 0 };
+    cur.n += 1;
+    cur.t = Date.now();
+    usage[id] = cur;
+    // keep the map bounded — drop the stalest entries beyond 300
+    const ids = Object.keys(usage);
+    if (ids.length > 300) {
+      ids.sort((a, b) => (usage[a].t || 0) - (usage[b].t || 0));
+      for (const k of ids.slice(0, ids.length - 300)) delete usage[k];
+    }
+    cfg.set({ usage });
+    return usage;
+  });
+
+  /* The floating palette sizes itself to its content; only that window ever
+     calls this. Keep x/y anchored so growing/shrinking stays centered-ish. */
+  ipcMain.handle('resize-palette', (e, height) => {
+    const pal = getPaletteWindow && getPaletteWindow();
+    if (!pal || pal.isDestroyed()) return false;
+    const h = Math.min(560, Math.max(230, Math.round(Number(height) || 440)));
+    const [w] = pal.getSize();
+    if (Math.abs(pal.getSize()[1] - h) <= 4) return true;
+    const [x, y] = pal.getPosition();
+    pal.setBounds({ x, y, width: w, height: h });
+    return true;
   });
 
   ipcMain.handle('open-external', (e, { url }) => {

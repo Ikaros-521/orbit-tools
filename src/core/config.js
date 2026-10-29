@@ -12,6 +12,7 @@ const DEFAULTS = {
   userPluginsDir: null, // string absolute path | null (defaults to <userData>/plugins)
   pluginDataDir: null,  // string absolute path | null (defaults to <userData>/plugin-data)
   workflows: [],        // visual DAG workflows
+  usage: {},            // actionUsageId -> {n: count, t: lastUsedAt} for palette frecency
 };
 
 class Config {

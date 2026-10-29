@@ -38,6 +38,8 @@ contextBridge.exposeInMainWorld('host', {
   readClipboardText: () => ipcRenderer.invoke('read-clipboard-text'),
   captureSelection: () => ipcRenderer.invoke('capture-selection'),
   writeClipboardText: text => ipcRenderer.invoke('write-clipboard-text', text),
+  bumpUsage: id => ipcRenderer.invoke('usage-bump', id),
+  resizePalette: height => ipcRenderer.invoke('resize-palette', height),
   listWorkflows: () => ipcRenderer.invoke('workflow-list'),
   saveWorkflow: wf => ipcRenderer.invoke('workflow-save', wf),
   deleteWorkflow: id => ipcRenderer.invoke('workflow-delete', id),
