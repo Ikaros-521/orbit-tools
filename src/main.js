@@ -110,6 +110,10 @@ function bringToForeground(targetWin) {
   targetWin.focus();
 }
 
+function hidePalette() {
+  if (paletteWin && !paletteWin.isDestroyed() && paletteWin.isVisible()) paletteWin.hide();
+}
+
 function toggleWindow() {
   if (!win) return;
   if (win.isVisible() && win.isFocused()) {
@@ -141,6 +145,12 @@ function createPaletteWindow() {
     },
   });
   paletteWin.loadFile(path.join(__dirname, 'renderer', 'palette.html'));
+  // Escape is captured globally only while the palette is on screen: summoning
+  // runs an async selection capture before show(), which can burn the Windows
+  // foreground-activation grant — the palette then paints on top while the
+  // previous app still owns keyboard focus, so its own keydown never fires.
+  paletteWin.on('show', () => { if (hotkeys) hotkeys.setPaletteOpen(true); });
+  paletteWin.on('hide', () => { if (hotkeys) hotkeys.setPaletteOpen(false); });
   paletteWin.on('blur', () => {
     if (!paletteWin.isDestroyed() && paletteWin.isVisible()) {
       paletteWin.hide();
@@ -252,6 +262,7 @@ if (!app.requestSingleInstanceLock()) {
       manager,
       onSummon: toggleActionPalette,
       onSummonActionPalette: toggleActionPalette,
+      onDismissPalette: hidePalette,
       isSuppressed: () => selectionCaptureActive,
     });
 

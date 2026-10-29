@@ -6,10 +6,37 @@ const { globalShortcut } = require('electron');
 
 const HOST_KEY = 'host';
 const PALETTE_KEY = 'action-palette';
+const PALETTE_ESC_ACCEL = 'Escape';
 const HOST_FALLBACKS = ['Alt+Shift+Space', 'Ctrl+Shift+Space', 'Alt+O'];
 
-module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonActionPalette, isSuppressed }) {
+module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonActionPalette, onDismissPalette, isSuppressed }) {
   let status = []; // [{key, accel, ok, conflictKey, externalOccupied, error}]
+  let paletteOpen = false;
+  let paletteEscHeld = false;
+
+  /* While the floating palette is on screen Escape must dismiss it even when
+     the palette never received OS keyboard focus. Summoning runs an async
+     selection capture first; by the time show()/focus() land, Windows has
+     already revoked the foreground-activation grant, so the key goes to the
+     previous app instead of the palette. A transient global binding is the
+     only reliable listener in that state; the renderer keydown handler stays
+     as fallback for when this accelerator is occupied elsewhere. */
+  function syncPaletteEsc() {
+    if (paletteOpen && !paletteEscHeld) {
+      try {
+        paletteEscHeld = globalShortcut.register(PALETTE_ESC_ACCEL, () => {
+          if (typeof onDismissPalette === 'function') onDismissPalette();
+        });
+      } catch {
+        paletteEscHeld = false;
+      }
+      return;
+    }
+    if (!paletteOpen && paletteEscHeld) {
+      try { globalShortcut.unregister(PALETTE_ESC_ACCEL); } catch { /* ignore */ }
+      paletteEscHeld = false;
+    }
+  }
 
   /* While the palette captures a selection it injects a synthetic Ctrl+C. Any
      modifier the user is still physically holding gets folded into that combo
@@ -54,6 +81,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
 
   function registerAll({ allowFallback = true } = {}) {
     globalShortcut.unregisterAll();
+    paletteEscHeld = false; // unregisterAll just dropped the transient ESC binding
     const owners = new Map(); // accel -> key (the registry of what WE hold)
     status = [];
 
@@ -108,7 +136,17 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
         put(key, accel, guard(() => manager.call(h.pluginId, h.method, {}).catch(() => {})));
       }
     }
+    // registerAll() may run while the palette is still on screen (settings
+    // changed from the workbench); re-arm the dismiss binding it just wiped.
+    syncPaletteEsc();
     return status;
+  }
+
+  /* Toggled from the palette window's show/hide events. Escape is only held
+     globally while the palette is visible — never system-wide after it closes. */
+  function setPaletteOpen(open) {
+    paletteOpen = !!open;
+    syncPaletteEsc();
   }
 
   /* Pre-check makes the outcome deterministic (the new assignment loses);
@@ -197,6 +235,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
     HOST_KEY,
     PALETTE_KEY,
     registerAll,
+    setPaletteOpen,
     setHostHotkey,
     setActionPaletteHotkey,
     setPluginHotkey,
