@@ -303,16 +303,19 @@ app.whenReady().then(async () => {
     throw new Error('Selection pipeline failed to detect JSON payload!');
   }
 
-  // Test mutual exclusion: summoning action palette must hide main toolbox window
-  win.show();
-  if (!win.isVisible()) throw new Error('Failed to show win for mutual exclusion test');
-  // Simulate toggleActionPalette hiding win
-  if (win && !win.isDestroyed() && win.isVisible()) win.hide();
+  // Test independence: summoning the action palette must not touch the main
+  // toolbox window in either direction — no auto-open, no forced hide
+  win.hide();
   palWin.show();
   if (win.isVisible() || !palWin.isVisible()) {
-    throw new Error('Action palette summon must hide main window and only show palette!');
+    throw new Error('Palette summon must leave a hidden main window hidden!');
   }
-  console.log('Action palette mutual exclusion test PASS: win hidden, palette visible OK');
+  win.show();
+  palWin.show();
+  if (!win.isVisible() || !palWin.isVisible()) {
+    throw new Error('Palette and main window must be able to coexist!');
+  }
+  console.log('Action palette independence test PASS: palette never toggles main window');
 
   palWin.close();
 

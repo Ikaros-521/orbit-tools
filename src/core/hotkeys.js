@@ -8,8 +8,17 @@ const HOST_KEY = 'host';
 const PALETTE_KEY = 'action-palette';
 const HOST_FALLBACKS = ['Alt+Shift+Space', 'Ctrl+Shift+Space', 'Alt+O'];
 
-module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonActionPalette }) {
+module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonActionPalette, isSuppressed }) {
   let status = []; // [{key, accel, ok, conflictKey, externalOccupied, error}]
+
+  /* While the palette captures a selection it injects a synthetic Ctrl+C. Any
+     modifier the user is still physically holding gets folded into that combo
+     (Ctrl+Shift+E held -> Ctrl+Shift+C), which would fire an unrelated plugin
+     hotkey. Swallow every hotkey callback for that short window. */
+  const guard = fn => (...args) => {
+    if (typeof isSuppressed === 'function' && isSuppressed()) return;
+    return fn(...args);
+  };
 
   const actionOf = key => {
     const [pluginId, actionId] = key.split(':');
@@ -70,13 +79,13 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
     };
 
     if (cfg.data.hotkey) {
-      const hostOk = put(HOST_KEY, cfg.data.hotkey, onSummon);
+      const hostOk = put(HOST_KEY, cfg.data.hotkey, guard(onSummon));
       if (!hostOk && allowFallback) {
         // cfg.data.hotkey failed to register (e.g. Alt+Space is occupied by uTools/system).
         // Try fallback summon hotkeys so the host window is never left unreachable.
         for (const fb of HOST_FALLBACKS) {
           if (fb === cfg.data.hotkey) continue;
-          if (put(HOST_KEY, fb, onSummon)) {
+          if (put(HOST_KEY, fb, guard(onSummon))) {
             cfg.set({ hotkey: fb });
             break;
           }
@@ -85,7 +94,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
     }
 
     if (cfg.data.actionPaletteHotkey && onSummonActionPalette) {
-      put(PALETTE_KEY, cfg.data.actionPaletteHotkey, onSummonActionPalette);
+      put(PALETTE_KEY, cfg.data.actionPaletteHotkey, guard(onSummonActionPalette));
     }
 
     for (const p of manager.plugins.values()) {
@@ -96,7 +105,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
         if (!accel) continue;
         const h = actionOf(key);
         if (!h) continue;
-        put(key, accel, () => manager.call(h.pluginId, h.method, {}).catch(() => {}));
+        put(key, accel, guard(() => manager.call(h.pluginId, h.method, {}).catch(() => {})));
       }
     }
     return status;

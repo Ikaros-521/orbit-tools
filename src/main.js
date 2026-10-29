@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Tray, Menu, protocol, globalShortcut, screen } = require('electron');
+const fs = require('fs');
 const path = require('path');
 
 // Enforce standard sRGB color profile to avoid screen-capture color shifts across displays
@@ -19,6 +20,9 @@ let cfg = null;
 let manager = null;
 let hotkeys = null;
 let quitting = false;
+/* True while the palette injects its synthetic Ctrl+C for selection capture —
+   hotkey callbacks are swallowed for that window (see createHotkeys guard). */
+let selectionCaptureActive = false;
 
 /* Plugin UI files are served over this scheme so built-in and user-installed
    plugins load through one code path (script/style/aux windows alike). */
@@ -46,7 +50,11 @@ function sanitizeWindowBounds(saved) {
   }
 }
 
-function createWindow() {
+/* `show: false` starts the app tray-only: the workbench must never pop up on
+   its own, otherwise summoning the drawer looks like it dragged the main
+   window along. First run is the exception — a brand-new user needs to see
+   the app once. */
+function createWindow({ show = true } = {}) {
   const isMac = process.platform === 'darwin';
   const bounds = sanitizeWindowBounds(cfg.data.windowBounds);
   win = new BrowserWindow({
@@ -67,7 +75,7 @@ function createWindow() {
     },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  if (show) win.once('ready-to-show', () => win.show());
   const saveBounds = () => {
     if (win.isDestroyed() || win.isMinimized()) return;
     cfg.set({ windowBounds: win.getBounds() });
@@ -109,10 +117,7 @@ function toggleWindow() {
   if (win.isVisible() && win.isFocused()) {
     win.hide();
   } else {
-    // 呼出主工具箱工作台时，隐藏动作抽屉
-    if (paletteWin && !paletteWin.isDestroyed() && paletteWin.isVisible()) {
-      paletteWin.hide();
-    }
+    // 工作台与抽屉互不干扰：抽屉失焦会自行收起，这里不做联动
     bringToForeground(win);
     sendWhenReady(win, 'palette-focus');
   }
@@ -179,19 +184,21 @@ async function toggleActionPalette() {
     return;
   }
 
-  // 动作抽屉呼出时，只弹出抽屉，绝不打开或保留主工具箱窗口
-  if (win && !win.isDestroyed() && win.isVisible()) {
-    win.hide();
-  }
+  // 抽屉独立于主窗口：呼出时只弹出抽屉，主窗口的显示状态一概不动
+  // （开着就开着，收着就收着），也绝不顺手把主窗口带出来
 
   // 外部呼出瞬间，在窗口抢焦前尝试捕获当前活动软件中划选的文本
+  // 期间屏蔽全局热键：用户若还按着 Ctrl/Shift，注入的 Ctrl+C 会被系统
+  // 合成成 Ctrl+Shift+C 之类的组合，误触发插件热键（如"打开编码转换"）
   let selectedText = null;
+  selectionCaptureActive = true;
   try {
     const selRes = await captureActiveSelection({ timeoutMs: 90 });
     if (selRes && selRes.ok) {
       selectedText = selRes.text;
     }
   } catch { /* ignore */ }
+  setTimeout(() => { selectionCaptureActive = false; }, 250);
 
   try {
     const point = screen.getCursorScreenPoint();
@@ -225,11 +232,24 @@ function createTray() {
 /* --- boot ------------------------------------------------------------------------ */
 
 if (!app.requestSingleInstanceLock()) {
+  // A tray instance already owns the lock: without this line the fresh
+  // `npm start` process vanishes silently and the terminal keeps testing
+  // the OLD code still living in the tray.
+  console.log('[orbit] 已在托盘运行，本次启动已退出。请先从托盘退出旧实例，再重新 npm start。');
+  console.log('[orbit] Already running in the tray — this launch exited. Quit the tray instance first.');
   app.quit();
 } else {
-  app.on('second-instance', () => toggleWindow());
+  // Relaunching while the app lives in the tray must not drag the workbench
+  // out — it is just another way of summoning the drawer.
+  app.on('second-instance', () => {
+    if (paletteWin && !paletteWin.isDestroyed() && paletteWin.isVisible()) bringToForeground(paletteWin);
+    else toggleActionPalette();
+  });
 
   app.whenReady().then(() => {
+    // config.json only appears once the app has run before; its absence marks
+    // the first launch, the one time the workbench should show itself
+    const firstRun = !fs.existsSync(path.join(app.getPath('userData'), 'config.json'));
     cfg = new Config(app.getPath('userData'));
     manager = new PluginManager({ userDataDir: app.getPath('userData'), config: cfg, getHostWindow: () => win });
     hotkeys = createHotkeys({
@@ -237,6 +257,7 @@ if (!app.requestSingleInstanceLock()) {
       manager,
       onSummon: toggleActionPalette,
       onSummonActionPalette: toggleActionPalette,
+      isSuppressed: () => selectionCaptureActive,
     });
 
     registerPluginProtocol(manager);
@@ -255,7 +276,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const p of manager.plugins.values()) if (p.enabled) manager.activate(p.id);
     hotkeys.registerAll({ allowFallback: true });
 
-    createWindow();
+    createWindow({ show: firstRun });
     createPaletteWindow();
     createTray();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else toggleWindow(); });
