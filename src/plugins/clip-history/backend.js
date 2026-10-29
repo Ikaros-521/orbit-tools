@@ -194,7 +194,9 @@ module.exports = {
 
         // 2. Check for text or links
         const text = clipboard.readText();
-        if (text && text.trim() && text !== lastText) {
+        // 划选捕获 (core/selection.js) 会瞬态写入哨兵串后回滚，轮询若恰好
+        // 落在窗口期内不能把它记进历史
+        if (text && text.trim() && text !== lastText && !text.startsWith('__ORBIT_SEL_')) {
           lastText = text;
           const trimmed = text.trim();
 
