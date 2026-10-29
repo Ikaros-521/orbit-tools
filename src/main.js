@@ -1,5 +1,4 @@
 const { app, BrowserWindow, Tray, Menu, protocol, globalShortcut, screen } = require('electron');
-const fs = require('fs');
 const path = require('path');
 
 // Enforce standard sRGB color profile to avoid screen-capture color shifts across displays
@@ -50,10 +49,9 @@ function sanitizeWindowBounds(saved) {
   }
 }
 
-/* `show: false` starts the app tray-only: the workbench must never pop up on
-   its own, otherwise summoning the drawer looks like it dragged the main
-   window along. First run is the exception — a brand-new user needs to see
-   the app once. */
+/* Created hidden and revealed on ready-to-show to avoid a white flash.
+   Launching the app always brings the workbench up — only a relaunch into an
+   already-running tray instance stays drawer-only (see second-instance). */
 function createWindow({ show = true } = {}) {
   const isMac = process.platform === 'darwin';
   const bounds = sanitizeWindowBounds(cfg.data.windowBounds);
@@ -247,9 +245,6 @@ if (!app.requestSingleInstanceLock()) {
   });
 
   app.whenReady().then(() => {
-    // config.json only appears once the app has run before; its absence marks
-    // the first launch, the one time the workbench should show itself
-    const firstRun = !fs.existsSync(path.join(app.getPath('userData'), 'config.json'));
     cfg = new Config(app.getPath('userData'));
     manager = new PluginManager({ userDataDir: app.getPath('userData'), config: cfg, getHostWindow: () => win });
     hotkeys = createHotkeys({
@@ -276,7 +271,7 @@ if (!app.requestSingleInstanceLock()) {
     for (const p of manager.plugins.values()) if (p.enabled) manager.activate(p.id);
     hotkeys.registerAll({ allowFallback: true });
 
-    createWindow({ show: firstRun });
+    createWindow();
     createPaletteWindow();
     createTray();
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else toggleWindow(); });
