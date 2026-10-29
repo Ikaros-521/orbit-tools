@@ -12,6 +12,7 @@ const DEFAULT_CONFIG = {
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
   model: 'gpt-4o-mini',
+  fallbackModel: '', // 异常自动降级模型 (留空表示不开启)
   temperature: 0.7,
   maxTokens: 4096,
   enableReasoning: true,
@@ -393,12 +394,19 @@ module.exports = {
         let accumulatedReasoning = '';
         let currentToolCalls = [];
 
-        try {
+        const primaryModel = modelOverride || config.model || 'gpt-4o-mini';
+        const fallbackModel = (config.fallbackModel && config.fallbackModel.trim()) || '';
+
+        const runStream = async (targetModel, isFallback = false) => {
+          accumulatedContent = '';
+          accumulatedReasoning = '';
+          currentToolCalls = [];
+
           const reqOpts = {
             protocol: config.protocol || 'openai-chat',
             baseUrl: config.baseUrl || 'https://api.openai.com/v1',
             apiKey: config.apiKey || '',
-            model: modelOverride || config.model || 'gpt-4o-mini',
+            model: targetModel,
             temperature: typeof temperatureOverride === 'number' ? temperatureOverride : (persona.temperature ?? config.temperature ?? 0.7),
             maxTokens: config.maxTokens || 4096,
             enableReasoning: !!enableReasoning,
@@ -525,6 +533,26 @@ module.exports = {
               }
             }, controller.signal);
           }
+        };
+
+        try {
+          try {
+            await runStream(primaryModel, false);
+          } catch (primaryErr) {
+            if (primaryErr.name === 'AbortError') throw primaryErr;
+            if (fallbackModel && fallbackModel !== primaryModel) {
+              assistantMsg.fallbackFrom = primaryModel;
+              emitChunk({
+                type: 'fallback',
+                fromModel: primaryModel,
+                toModel: fallbackModel,
+                error: primaryErr.message
+              });
+              await runStream(fallbackModel, true);
+            } else {
+              throw primaryErr;
+            }
+          }
 
           // Update session total usage
           if (assistantMsg.usage) {
@@ -591,12 +619,24 @@ module.exports = {
         ]
       };
 
-      const res = await syncCompletion(reqOpts);
+      let res;
+      try {
+        res = await syncCompletion(reqOpts);
+      } catch (err) {
+        const fallback = nodeCfg.fallbackModel || config.fallbackModel;
+        if (fallback && fallback !== reqOpts.model) {
+          res = await syncCompletion({ ...reqOpts, model: fallback });
+          res.fallbackFrom = reqOpts.model;
+        } else {
+          throw err;
+        }
+      }
       return {
         type: 'text/plain',
         value: res.content || '',
         reasoning: res.reasoning || '',
-        usage: res.usage || null
+        usage: res.usage || null,
+        fallbackFrom: res.fallbackFrom || null
       };
     });
   },
