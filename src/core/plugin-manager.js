@@ -352,6 +352,20 @@ class PluginManager {
       ipc: {
         handle: (method, fn) => state.handlers.set(method, fn),
       },
+      /* Cross-plugin surface: call another plugin's action handler and open
+         one of its panels with a structured payload — the same paths the
+         palettes drive. The desktop pet's file-drop uses this to become an
+         entry point into the rest of the toolbox. */
+      callPlugin: (id, method, args) => this.call(String(id), String(method), args),
+      openPluginPanel: (id, payload) => {
+        const host = this.getHostWindow();
+        if (!host || host.isDestroyed()) return false;
+        this.bringToForeground(host);
+        if (host.webContents && !host.webContents.isDestroyed()) {
+          host.webContents.send('navigate-to', { pluginId: String(id), payload: payload || null });
+        }
+        return true;
+      },
       windows: {
         create: (opts = {}) => {
           /* webPreferences merge in rather than replace, so a plugin asking for
