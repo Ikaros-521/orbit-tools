@@ -328,7 +328,17 @@
             <div class="memo-cal-wrap">
               <div class="memo-cal-card">
                 <div class="memo-cal-head">
-                  <div class="memo-cal-month-title"></div>
+                  <div class="memo-cal-title-wrap">
+                    <button type="button" class="memo-cal-month-title" title="${L('选择年月', 'Pick month')}"></button>
+                    <div class="memo-cal-picker">
+                      <div class="memo-cal-picker-head">
+                        <button type="button" class="btn ghost small memo-cal-picker-prev">‹</button>
+                        <span class="memo-cal-picker-year"></span>
+                        <button type="button" class="btn ghost small memo-cal-picker-next">›</button>
+                      </div>
+                      <div class="memo-cal-picker-grid"></div>
+                    </div>
+                  </div>
                   <div class="memo-cal-nav">
                     <button type="button" class="btn ghost small memo-cal-prev">◀</button>
                     <button type="button" class="btn ghost small memo-cal-today-btn">${L('今天', 'Today')}</button>
@@ -394,6 +404,11 @@
 
     // Calendar elements
     const calMonthTitle = el.querySelector('.memo-cal-month-title');
+    const calPicker = el.querySelector('.memo-cal-picker');
+    const calPickerYear = el.querySelector('.memo-cal-picker-year');
+    const calPickerGrid = el.querySelector('.memo-cal-picker-grid');
+    const calPickerPrev = el.querySelector('.memo-cal-picker-prev');
+    const calPickerNext = el.querySelector('.memo-cal-picker-next');
     const calGrid = el.querySelector('.memo-cal-grid');
     const calPrev = el.querySelector('.memo-cal-prev');
     const calNext = el.querySelector('.memo-cal-next');
@@ -417,6 +432,7 @@
     let calYear = new Date().getFullYear();
     let calMonth = new Date().getMonth(); // 0-11
     let calSelectedDate = formatDateStr(new Date());
+    let pickerYear = calYear;
 
     const activeNote = () => notes.find(n => n.id === activeId) || null;
 
@@ -869,6 +885,49 @@
       calMonth = now.getMonth();
       calSelectedDate = formatDateStr(now);
       renderCalendar();
+    });
+
+    /* --- Year/Month Picker (popover on the month title) ---------------------- */
+    function renderCalPicker() {
+      calPickerYear.textContent = String(pickerYear);
+      calPickerGrid.innerHTML = '';
+      const names = isZh
+        ? Array.from({ length: 12 }, (_, i) => `${i + 1}月`)
+        : ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+      const now = new Date();
+      names.forEach((nm, m) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'memo-cal-picker-month'
+          + (pickerYear === calYear && m === calMonth ? ' on' : '')
+          + (pickerYear === now.getFullYear() && m === now.getMonth() ? ' cur' : '');
+        b.textContent = nm;
+        b.addEventListener('click', () => {
+          calYear = pickerYear;
+          calMonth = m;
+          closeCalPicker();
+          renderCalendar();
+        });
+        calPickerGrid.appendChild(b);
+      });
+    }
+
+    function openCalPicker() {
+      pickerYear = calYear;
+      renderCalPicker();
+      calPicker.classList.add('open');
+    }
+    function closeCalPicker() { calPicker.classList.remove('open'); }
+
+    calMonthTitle.addEventListener('click', () => {
+      if (calPicker.classList.contains('open')) closeCalPicker();
+      else openCalPicker();
+    });
+    calPickerPrev.addEventListener('click', () => { pickerYear--; renderCalPicker(); });
+    calPickerNext.addEventListener('click', () => { pickerYear++; renderCalPicker(); });
+    // any click outside the picker (day cell, nav buttons, elsewhere) closes it
+    el.addEventListener('click', e => {
+      if (calPicker.classList.contains('open') && !e.target.closest('.memo-cal-title-wrap')) closeCalPicker();
     });
     calAddDayBtn.addEventListener('click', async () => {
       const title = window.prompt(L('请输入待办内容:', 'Enter task title:'));

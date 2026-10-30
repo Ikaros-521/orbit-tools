@@ -176,7 +176,40 @@
   padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
 }
 .memo-cal-head { display: flex; align-items: center; justify-content: space-between; }
-.memo-cal-month-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.memo-cal-title-wrap { position: relative; }
+.memo-cal-month-title {
+  appearance: none; font: inherit; font-size: 16px; font-weight: 700; color: var(--ink);
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: 4px 10px; cursor: pointer; display: inline-flex; align-items: center; gap: 7px;
+}
+.memo-cal-month-title::after { content: '▾'; font-size: 10px; font-weight: 400; color: var(--ink-faint); }
+.memo-cal-month-title:hover { background: var(--inset); border-color: var(--line-strong); }
+
+/* year/month picker popover */
+.memo-cal-picker {
+  display: none; position: absolute; top: calc(100% + 8px); left: 0; z-index: 30;
+  width: 236px; padding: 10px;
+  background: var(--bg); border: 1px solid var(--line-strong); border-radius: var(--r-md, 10px);
+  box-shadow: light-dark(0 10px 30px -6px rgba(0, 0, 0, .2), 0 10px 30px -6px rgba(0, 0, 0, .7));
+}
+.memo-cal-picker.open { display: block; }
+.memo-cal-picker-head { display: flex; align-items: center; justify-content: space-between; padding: 0 2px 8px; }
+.memo-cal-picker-year { font-size: 13px; font-weight: 700; color: var(--ink); letter-spacing: .04em; }
+.memo-cal-picker-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.memo-cal-picker-month {
+  appearance: none; font: inherit; font-size: 12px; color: var(--ink-dim); cursor: pointer;
+  background: var(--inset); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 6px 0; text-align: center; position: relative;
+}
+.memo-cal-picker-month:hover { border-color: var(--amber); color: var(--ink); }
+.memo-cal-picker-month.on {
+  background: var(--amber-soft); color: var(--amber); font-weight: 600;
+  border-color: light-dark(rgba(185, 106, 0, .25), rgba(255, 171, 46, .3));
+}
+.memo-cal-picker-month.cur::after {
+  content: ''; position: absolute; top: 4px; right: 5px;
+  width: 4px; height: 4px; border-radius: 50%; background: var(--amber);
+}
 .memo-cal-nav { display: flex; align-items: center; gap: 6px; }
 
 .memo-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
