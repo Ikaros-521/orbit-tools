@@ -1,6 +1,6 @@
 {
   "name": "orbit-tools",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "A uTools-style pluggable developer toolbox — 截图悬浮 / 画板 / 端口进程 / 编码转换，皆可插拔",
   "main": "src/main.js",
   "author": {
