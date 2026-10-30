@@ -445,6 +445,15 @@
                 <label class="ai-form-label">最大携带上下文轮数 (Max Context Messages)</label>
                 <input type="number" class="ai-form-input" id="cfgMaxContext" min="2" max="64" value="16">
               </div>
+
+              <div class="ai-form-group">
+                <label class="ai-form-label">Agent 默认工作目录</label>
+                <div class="ai-workdir-row">
+                  <input type="text" class="ai-form-input ai-workdir-input" id="cfgAgentWorkDir" placeholder="留空 = 当前用户目录 (C:\\Users\\…)">
+                  <button type="button" class="ai-edit-btn" id="btnPickAgentWorkDir" title="弹出系统目录选择器">📂 选择…</button>
+                </div>
+                <span class="ai-form-hint">本地助手读写文件与执行命令的根目录，新建会话默认使用；相对路径基于此解析。会话顶栏 📁 可单独覆盖</span>
+              </div>
             </div>
 
             <!-- 板块 2: 人设卡片管理 -->
@@ -643,6 +652,33 @@
             </div>
           </div>
         </div>
+
+        <!-- Agent Work Dir Picker Modal -->
+        <div class="ai-modal-overlay ai-workdir-modal hidden" id="workDirModal">
+          <div class="ai-modal-card ai-workdir-card">
+            <div class="ai-modal-header">
+              <span class="ai-modal-title">📁 Agent 工作目录</span>
+              <button class="ai-modal-close" id="btnCloseWorkDirModal">×</button>
+            </div>
+            <div class="ai-workdir-body">
+              <div class="ai-workdir-current hidden" id="workDirCurrentRow">
+                <span class="ai-workdir-current-label">当前</span>
+                <span class="ai-workdir-current-path" id="workDirCurrentPath"></span>
+              </div>
+              <p class="ai-workdir-desc">本地助手读写文件与执行命令均基于此目录解析相对路径。</p>
+              <div class="ai-workdir-actions">
+                <button type="button" class="ai-edit-btn primary" id="btnWorkDirPick">📂 选择目录…</button>
+                <button type="button" class="ai-edit-btn" id="btnWorkDirManual">✏️ 手动输入</button>
+                <button type="button" class="ai-edit-btn" id="btnWorkDirReset">↩️ 恢复默认</button>
+              </div>
+              <div class="ai-workdir-manual hidden" id="workDirManualRow">
+                <input type="text" class="ai-form-input" id="inputWorkDirManual" placeholder="粘贴或输入目录路径，如 E:\Projects\demo" spellcheck="false">
+                <button type="button" class="ai-edit-btn primary" id="btnWorkDirManualOk">确定</button>
+              </div>
+              <div class="ai-workdir-error hidden" id="workDirModalError"></div>
+            </div>
+          </div>
+        </div>
       </div>
     `;
 
@@ -715,6 +751,21 @@
     const cfgTempRange = el.querySelector('#cfgTempRange');
     const cfgTempVal = el.querySelector('#cfgTempVal');
     const cfgMaxContext = el.querySelector('#cfgMaxContext');
+    const cfgAgentWorkDir = el.querySelector('#cfgAgentWorkDir');
+    const btnPickAgentWorkDir = el.querySelector('#btnPickAgentWorkDir');
+
+    // Agent Work Dir Picker Modal DOM
+    const workDirModal = el.querySelector('#workDirModal');
+    const btnCloseWorkDirModal = el.querySelector('#btnCloseWorkDirModal');
+    const workDirCurrentRow = el.querySelector('#workDirCurrentRow');
+    const workDirCurrentPath = el.querySelector('#workDirCurrentPath');
+    const btnWorkDirPick = el.querySelector('#btnWorkDirPick');
+    const btnWorkDirManual = el.querySelector('#btnWorkDirManual');
+    const btnWorkDirReset = el.querySelector('#btnWorkDirReset');
+    const workDirManualRow = el.querySelector('#workDirManualRow');
+    const inputWorkDirManual = el.querySelector('#inputWorkDirManual');
+    const btnWorkDirManualOk = el.querySelector('#btnWorkDirManualOk');
+    const workDirModalError = el.querySelector('#workDirModalError');
 
     // Settings Tabs & Personas Management DOM
     const tabNavModel = el.querySelector('#tabNavModel');
@@ -1184,16 +1235,68 @@
     });
 
     /* --- Agent Working Directory ------------------------------------------- */
-    headerWorkDirPill.addEventListener('click', async () => {
+    headerWorkDirPill.addEventListener('click', () => {
       if (!currentSession) return;
-      const dir = prompt('设置 Agent 工作目录 (本地文件读写与命令执行均基于此目录解析相对路径):', currentSession.workDir || '');
-      if (dir === null) return;
-      const res = await ctx.call('setSessionWorkDir', { sessionId: currentSession.id, dir: dir.trim() });
+      const cur = currentSession.workDir || config.agentWorkDir || '';
+      workDirCurrentRow.classList.toggle('hidden', !cur);
+      workDirCurrentPath.textContent = cur || '';
+      workDirCurrentPath.title = cur ? (currentSession.workDir ? cur : `${cur} (默认)`) : '';
+      workDirManualRow.classList.add('hidden');
+      workDirModalError.classList.add('hidden');
+      workDirModal.classList.remove('hidden');
+    });
+
+    const closeWorkDirModal = () => workDirModal.classList.add('hidden');
+    btnCloseWorkDirModal.addEventListener('click', closeWorkDirModal);
+    workDirModal.addEventListener('click', e => { if (e.target === workDirModal) closeWorkDirModal(); });
+
+    const applySessionWorkDir = async dir => {
+      const res = await ctx.call('setSessionWorkDir', { sessionId: currentSession.id, dir });
       if (res && res.ok) {
         currentSession.workDir = res.workDir;
         updateHeader();
+        closeWorkDirModal();
       } else {
-        alert(`设置失败: ${(res && res.error) || '未知错误'}`);
+        workDirModalError.textContent = `设置失败: ${(res && res.error) || '未知错误'}`;
+        workDirModalError.classList.remove('hidden');
+      }
+    };
+
+    btnWorkDirPick.addEventListener('click', async () => {
+      const res = await ctx.call('chooseAgentWorkDir', { current: currentSession?.workDir || '' });
+      if (res && res.ok) await applySessionWorkDir(res.dir);
+    });
+
+    btnWorkDirManual.addEventListener('click', () => {
+      workDirManualRow.classList.toggle('hidden');
+      if (!workDirManualRow.classList.contains('hidden')) {
+        inputWorkDirManual.value = currentSession.workDir || '';
+        inputWorkDirManual.focus();
+      }
+    });
+
+    const submitManualWorkDir = async () => {
+      const dir = inputWorkDirManual.value.trim();
+      if (!dir) {
+        workDirModalError.textContent = '路径不能为空；如需恢复默认请点「恢复默认」';
+        workDirModalError.classList.remove('hidden');
+        return;
+      }
+      await applySessionWorkDir(dir);
+    };
+    btnWorkDirManualOk.addEventListener('click', submitManualWorkDir);
+    inputWorkDirManual.addEventListener('keydown', e => { if (e.key === 'Enter') submitManualWorkDir(); });
+
+    // Clear the per-session override -> fall back to the configured default dir
+    btnWorkDirReset.addEventListener('click', async () => {
+      const res = await ctx.call('setSessionWorkDir', { sessionId: currentSession.id, dir: '' });
+      if (res && res.ok) {
+        currentSession.workDir = '';
+        updateHeader();
+        closeWorkDirModal();
+      } else {
+        workDirModalError.textContent = `恢复失败: ${(res && res.error) || '未知错误'}`;
+        workDirModalError.classList.remove('hidden');
       }
     });
 
@@ -1229,12 +1332,15 @@
       headerModelPill.textContent = config.model || 'gpt-4o-mini';
 
       const wd = currentSession.workDir || '';
+      const effectiveDefault = config.agentWorkDir || '';
       if (wd) {
         headerWorkDirPill.textContent = `📁 ${wd.length <= 30 ? wd : wd.split(/[\\/]/).slice(-2).join('/')}`;
         headerWorkDirPill.title = `Agent 工作目录: ${wd} (点击修改)`;
       } else {
-        headerWorkDirPill.textContent = '📁 未设置';
-        headerWorkDirPill.title = '点击设置 Agent 工作目录';
+        headerWorkDirPill.textContent = effectiveDefault ? `📁 ${effectiveDefault.length <= 30 ? effectiveDefault : effectiveDefault.split(/[\\/]/).slice(-2).join('/')}` : '📁 默认';
+        headerWorkDirPill.title = effectiveDefault
+          ? `Agent 工作目录 (默认): ${effectiveDefault} (点击修改)`
+          : 'Agent 工作目录: 未单独设置，使用系统用户目录 (点击修改)';
       }
 
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
@@ -2651,6 +2757,7 @@
       cfgTempRange.value = config.temperature ?? 0.7;
       cfgTempVal.textContent = config.temperature ?? 0.7;
       cfgMaxContext.value = config.maxContextMessages ?? 16;
+      cfgAgentWorkDir.value = config.agentWorkDir || '';
       modelSearchPanel.classList.add('hidden');
       inputModelSearch.value = '';
       renderChannelChips(cfgChannel.value);
@@ -2675,14 +2782,23 @@
         model: cfgModel.value.trim(),
         fallbackModel: cfgFallbackModel.value.trim(),
         temperature: Number(cfgTempRange.value),
-        maxContextMessages: Number(cfgMaxContext.value) || 16
+        maxContextMessages: Number(cfgMaxContext.value) || 16,
+        agentWorkDir: cfgAgentWorkDir.value.trim()
       };
       const res = await ctx.call('saveConfig', patch);
       if (res && res.ok) {
         config = res.config;
         headerModelPill.textContent = config.model;
+        updateHeader(); // default work dir may have changed -> refresh 📁 pill fallback
         closeSettings();
+      } else {
+        alert(`保存失败: ${(res && res.error) || '未知错误'}`);
       }
+    });
+
+    btnPickAgentWorkDir.addEventListener('click', async () => {
+      const res = await ctx.call('chooseAgentWorkDir', { current: cfgAgentWorkDir.value.trim() });
+      if (res && res.ok) cfgAgentWorkDir.value = res.dir;
     });
 
     /* --- Boot & Initial Load ---------------------------------------------- */

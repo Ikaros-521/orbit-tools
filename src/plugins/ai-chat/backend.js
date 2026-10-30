@@ -183,6 +183,7 @@ module.exports = {
         id: genId('sess'),
         title: '新对话',
         personaId: 'general',
+        workDir: config.agentWorkDir || os.homedir(),
         createdAt: Date.now(),
         updatedAt: Date.now(),
         totalTokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },

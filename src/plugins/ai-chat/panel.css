@@ -839,6 +839,104 @@
   gap: 12px;
 }
 
+/* --- Agent Work Dir (settings row + picker modal) --- */
+.ai-workdir-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-workdir-row .ai-workdir-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-workdir-modal {
+  z-index: 120;
+}
+
+.ai-workdir-card {
+  width: 420px;
+}
+
+.ai-workdir-body {
+  padding: 14px 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ai-workdir-current {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  min-width: 0;
+}
+
+.ai-workdir-current-label {
+  font-size: 11px;
+  color: var(--ink-dim);
+  flex: none;
+}
+
+.ai-workdir-current-path {
+  font-size: 12px;
+  color: var(--ink);
+  font-family: var(--font-mono, monospace);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.ai-workdir-current.hidden {
+  display: none;
+}
+
+.ai-workdir-desc {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ink-dim);
+  line-height: 1.5;
+}
+
+.ai-workdir-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.ai-workdir-manual {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.ai-workdir-manual .ai-form-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.ai-workdir-manual.hidden {
+  display: none;
+}
+
+.ai-workdir-error {
+  font-size: 12px;
+  color: var(--red);
+  background: var(--red-soft);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+}
+
+.ai-workdir-error.hidden {
+  display: none;
+}
+
 .ai-form-group {
   display: flex;
   flex-direction: column;
