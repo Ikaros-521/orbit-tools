@@ -347,17 +347,25 @@ class PluginManager {
       },
       windows: {
         create: (opts = {}) => {
-          const { preload, ...rest } = opts;
+          /* webPreferences merge in rather than replace, so a plugin asking for
+             e.g. backgroundThrottling:false keeps the isolation defaults. A
+             relative preload (in either slot) resolves against the plugin root. */
+          const { preload, webPreferences, ...rest } = opts;
+          const mergedWp = {
+            contextIsolation: true,
+            nodeIntegration: false,
+            sandbox: true,
+            ...(preload ? { preload } : {}),
+            ...(webPreferences || {}),
+          };
+          if (mergedWp.preload && !path.isAbsolute(mergedWp.preload)) {
+            mergedWp.preload = path.resolve(p.root, mergedWp.preload);
+          }
           const win = new BrowserWindow({
             show: false,
             skipTaskbar: true,
             backgroundColor: '#0a0c0d',
-            webPreferences: {
-              contextIsolation: true,
-              nodeIntegration: false,
-              sandbox: true,
-              ...(preload ? { preload: path.resolve(p.root, preload) } : {}),
-            },
+            webPreferences: mergedWp,
             ...rest,
           });
           state.windows.add(win);

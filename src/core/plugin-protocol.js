@@ -10,6 +10,8 @@ const MIME = {
   '.html': 'text/html', '.htm': 'text/html', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
   '.json': 'application/json', '.woff2': 'font/woff2', '.txt': 'text/plain',
+  '.webm': 'video/webm', '.mp4': 'video/mp4', '.mov': 'video/quicktime',
+  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
 };
 
 function registerPluginProtocol(manager) {
