@@ -6,6 +6,9 @@ A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or
 
 基于 [antigravity-launcher](https://github.com/Ikaros-521/antigravity-launcher) 的架构经验重写：纯 Electron、无前端框架、无打包器，`contextIsolation + sandbox` 全开。
 
+<img width="2810" height="1653" alt="image" src="https://github.com/user-attachments/assets/2eeb16a2-a9ed-4de0-815a-d08721a8f7af" />
+
+
 ## 内置插件
 
 | 插件 | 功能 | 默认热键 |
