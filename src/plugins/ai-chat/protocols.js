@@ -14,6 +14,20 @@ function normalizeUrl(baseUrl, defaultEndpoint) {
 }
 
 /**
+ * Normalizes accumulated streaming tool-call arguments into a valid JSON string.
+ * Empty or unparseable JSON degrades to '{}' instead of throwing.
+ */
+function finalizeToolArgs(rawArgs) {
+  if (typeof rawArgs === 'string' && rawArgs.length > 0) {
+    try {
+      JSON.parse(rawArgs);
+      return rawArgs; // valid JSON — keep the model's exact arguments string
+    } catch { /* fall through to '{}' */ }
+  }
+  return '{}';
+}
+
+/**
  * Parses raw SSE text chunks into parsed data events.
  * Handles multiline buffers, "data: [DONE]", and "event: xxx".
  */
@@ -205,7 +219,33 @@ const OpenAIResponsesAdapter = {
     return { url, headers, body: JSON.stringify(body) };
   },
 
-  handleStreamEvent(event, emit) {
+  // Per-stream assembly state for function_call items (one streamCompletion call = one state)
+  createStreamState() {
+    return { byItem: new Map(), byOutput: new Map(), finalizedTools: [] };
+  },
+
+  _lookupToolEntry(st, data) {
+    const itemId = data.item_id || (data.item && data.item.id);
+    if (itemId && st.byItem.has(itemId)) return st.byItem.get(itemId);
+    if (typeof data.output_index === 'number' && st.byOutput.has(data.output_index)) {
+      return st.byOutput.get(data.output_index);
+    }
+    return null;
+  },
+
+  // Finalize a function_call entry and emit it in the same delta shape as openai-chat,
+  // so backend.js assembles it identically ({type:'tool_calls', delta:[{index,id,function:{name,arguments}}]}).
+  _emitFinalizedTool(entry, st, emit) {
+    entry.arguments = finalizeToolArgs(entry.args);
+    const idx = st.finalizedTools.length;
+    st.finalizedTools.push(entry);
+    emit({
+      type: 'tool_calls',
+      delta: [{ index: idx, id: entry.id, type: 'function', function: { name: entry.name, arguments: entry.arguments } }]
+    });
+  },
+
+  handleStreamEvent(event, emit, state) {
     if (event.type === 'done') {
       emit({ type: 'done' });
       return;
@@ -213,25 +253,105 @@ const OpenAIResponsesAdapter = {
     const data = event.data;
     if (!data) return;
 
-    if (data.usage) {
+    const st = state || this._defaultStreamState || (this._defaultStreamState = this.createStreamState());
+    const type = data.type || '';
+
+    // New stream starts — reset any leftover assembly state
+    if (type === 'response.created') {
+      st.byItem.clear();
+      st.byOutput.clear();
+      st.finalizedTools.length = 0;
+    }
+
+    // Usage: real streams carry it in response.completed (data.response.usage);
+    // keep the direct data.usage form for compatibility with non-typed payloads.
+    const usageSrc = (data.response && data.response.usage) || data.usage;
+    if (usageSrc) {
+      const promptTokens = usageSrc.input_tokens || usageSrc.prompt_tokens || 0;
+      const completionTokens = usageSrc.output_tokens || usageSrc.completion_tokens || 0;
       emit({
         type: 'usage',
         usage: {
-          promptTokens: data.usage.input_tokens || data.usage.prompt_tokens || 0,
-          completionTokens: data.usage.output_tokens || data.usage.completion_tokens || 0,
-          totalTokens: data.usage.total_tokens || 0
+          promptTokens,
+          completionTokens,
+          totalTokens: usageSrc.total_tokens || (promptTokens + completionTokens)
         }
       });
     }
 
-    // Responses API event structure
-    if (data.delta && data.delta.text) {
-      emit({ type: 'content', delta: data.delta.text });
-    } else if (data.delta && data.delta.reasoning) {
-      emit({ type: 'reasoning', delta: data.delta.reasoning });
-    } else if (data.response && data.response.output_item) {
-      const item = data.response.output_item;
-      if (item.content) emit({ type: 'content', delta: item.content });
+    // Text deltas — delta is a plain string in real Responses streams
+    if (type === 'response.output_text.delta') {
+      const text = typeof data.delta === 'string' ? data.delta : (data.delta && data.delta.text);
+      if (text) emit({ type: 'content', delta: text });
+      return;
+    }
+
+    // Function call assembly
+    if (type === 'response.output_item.added' && data.item && data.item.type === 'function_call') {
+      const entry = {
+        id: data.item.call_id || data.item.id || `call_${st.finalizedTools.length}`,
+        name: data.item.name || '',
+        args: typeof data.item.arguments === 'string' ? data.item.arguments : ''
+      };
+      if (data.item.id) st.byItem.set(data.item.id, entry);
+      if (typeof data.output_index === 'number') st.byOutput.set(data.output_index, entry);
+      return;
+    }
+
+    if (type === 'response.function_call_arguments.delta' || type === 'response.function_call_arguments_delta') {
+      const entry = this._lookupToolEntry(st, data);
+      if (entry && typeof data.delta === 'string') entry.args += data.delta;
+      return;
+    }
+
+    if (type === 'response.function_call_arguments.done') {
+      const entry = this._lookupToolEntry(st, data);
+      if (entry && typeof data.arguments === 'string' && data.arguments) entry.args = data.arguments;
+      return;
+    }
+
+    if (type === 'response.output_item.done' && data.item && data.item.type === 'function_call') {
+      let entry = this._lookupToolEntry(st, data);
+      if (!entry) {
+        // added event was never seen — synthesize the entry from the completed item
+        entry = {
+          id: data.item.call_id || data.item.id || `call_${st.finalizedTools.length}`,
+          name: data.item.name || '',
+          args: ''
+        };
+      }
+      if (typeof data.item.arguments === 'string' && data.item.arguments) entry.args = data.item.arguments;
+      if (data.item.id) st.byItem.delete(data.item.id);
+      if (typeof data.output_index === 'number') st.byOutput.delete(data.output_index);
+      this._emitFinalizedTool(entry, st, emit);
+      return;
+    }
+
+    // Terminal events: flush any function calls that never received output_item.done
+    if (type === 'response.completed' || type === 'response.incomplete' || type === 'response.failed') {
+      const pending = new Set([...st.byItem.values(), ...st.byOutput.values()]);
+      if (pending.size > 0) {
+        st.byItem.clear();
+        st.byOutput.clear();
+        for (const entry of pending) {
+          this._emitFinalizedTool(entry, st, emit);
+        }
+      }
+      return;
+    }
+
+    // Legacy / untyped payload compat (providers that omit event type fields)
+    if (!type) {
+      if (typeof data.delta === 'string') {
+        emit({ type: 'content', delta: data.delta });
+      } else if (data.delta && data.delta.text) {
+        emit({ type: 'content', delta: data.delta.text });
+      } else if (data.delta && data.delta.reasoning) {
+        emit({ type: 'reasoning', delta: data.delta.reasoning });
+      } else if (data.response && data.response.output_item) {
+        const item = data.response.output_item;
+        if (item.content) emit({ type: 'content', delta: item.content });
+      }
     }
   },
 
@@ -322,18 +442,37 @@ const ClaudeMessagesAdapter = {
     return { url, headers, body: JSON.stringify(body) };
   },
 
-  handleStreamEvent(event, emit) {
+  // Per-stream assembly state for tool_use blocks (one streamCompletion call = one state)
+  createStreamState() {
+    return { pendingTools: new Map(), finalizedTools: [] };
+  },
+
+  handleStreamEvent(event, emit, state) {
+    const st = state || this._defaultStreamState || (this._defaultStreamState = this.createStreamState());
     const data = event.data;
     if (!data) return;
 
-    if (data.type === 'message_start' && data.message && data.message.usage) {
-      emit({
-        type: 'usage',
-        usage: {
-          promptTokens: data.message.usage.input_tokens || 0,
-          completionTokens: 0,
-          totalTokens: data.message.usage.input_tokens || 0
-        }
+    if (data.type === 'message_start') {
+      // New stream starts — reset any leftover assembly state
+      st.pendingTools.clear();
+      st.finalizedTools.length = 0;
+      if (data.message && data.message.usage) {
+        emit({
+          type: 'usage',
+          usage: {
+            promptTokens: data.message.usage.input_tokens || 0,
+            completionTokens: 0,
+            totalTokens: data.message.usage.input_tokens || 0
+          }
+        });
+      }
+    }
+
+    if (data.type === 'content_block_start' && data.content_block && data.content_block.type === 'tool_use') {
+      st.pendingTools.set(data.index, {
+        id: data.content_block.id || `toolu_${st.finalizedTools.length}`,
+        name: data.content_block.name || '',
+        args: ''
       });
     }
 
@@ -342,6 +481,25 @@ const ClaudeMessagesAdapter = {
         emit({ type: 'reasoning', delta: data.delta.thinking });
       } else if (data.delta.type === 'text_delta') {
         emit({ type: 'content', delta: data.delta.text });
+      } else if (data.delta.type === 'input_json_delta') {
+        const entry = st.pendingTools.get(data.index);
+        if (entry && data.delta.partial_json) entry.args += data.delta.partial_json;
+      }
+    }
+
+    if (data.type === 'content_block_stop') {
+      const entry = st.pendingTools.get(data.index);
+      if (entry) {
+        st.pendingTools.delete(data.index);
+        // Emit in the same delta shape as openai-chat so backend.js assembles it identically:
+        // {type:'tool_calls', delta:[{index, id, type:'function', function:{name, arguments}}]}
+        entry.arguments = finalizeToolArgs(entry.args);
+        const idx = st.finalizedTools.length;
+        st.finalizedTools.push(entry);
+        emit({
+          type: 'tool_calls',
+          delta: [{ index: idx, id: entry.id, type: 'function', function: { name: entry.name, arguments: entry.arguments } }]
+        });
       }
     }
 
@@ -355,6 +513,22 @@ const ClaudeMessagesAdapter = {
     }
 
     if (data.type === 'message_stop') {
+      // Flush any tool_use blocks that never received content_block_stop
+      if (st.pendingTools.size > 0) {
+        const deltas = [];
+        for (const entry of st.pendingTools.values()) {
+          entry.arguments = finalizeToolArgs(entry.args);
+          deltas.push({
+            index: st.finalizedTools.length,
+            id: entry.id,
+            type: 'function',
+            function: { name: entry.name, arguments: entry.arguments }
+          });
+          st.finalizedTools.push(entry);
+        }
+        st.pendingTools.clear();
+        emit({ type: 'tool_calls', delta: deltas });
+      }
       emit({ type: 'done' });
     }
   },
@@ -422,8 +596,10 @@ async function streamCompletion(opts, onChunk, signal) {
     throw new Error(`AI 请求失败 [${res.status}]: ${errText || res.statusText}`);
   }
 
+  // Fresh assembly state per stream so concurrent streams never share tool-call buffers
+  const state = typeof adapter.createStreamState === 'function' ? adapter.createStreamState() : undefined;
   const parser = new SSEParser(event => {
-    adapter.handleStreamEvent(event, onChunk);
+    adapter.handleStreamEvent(event, onChunk, state);
   });
 
   const reader = res.body.getReader();

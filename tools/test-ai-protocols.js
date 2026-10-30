@@ -5,6 +5,40 @@ const assert = require('assert');
 const { PROTOCOLS, SSEParser, fetchRemoteModels } = require('../src/plugins/ai-chat/protocols');
 const { AGENT_TOOLS_DEFINITIONS, executeAgentTool } = require('../src/plugins/ai-chat/agent-tools');
 
+/* ---- Streaming test helpers ---- */
+
+function sseEvent(eventName, data) {
+  return `event: ${eventName}\ndata: ${JSON.stringify(data)}\n\n`;
+}
+
+// Drives raw SSE text through the parser into an adapter, collecting adapter events.
+function driveSse(adapter, chunks) {
+  const events = [];
+  const state = adapter.createStreamState();
+  const parser = new SSEParser(ev => adapter.handleStreamEvent(ev, e => events.push(e), state));
+  for (const chunk of chunks) parser.feed(chunk);
+  parser.finish();
+  return events;
+}
+
+// Mirrors backend.js tool_calls accumulation (src/plugins/ai-chat/backend.js ~lines 737-747)
+function simulateBackendToolAssembly(events) {
+  const currentToolCalls = [];
+  for (const event of events) {
+    if (event.type === 'tool_calls') {
+      for (const tc of event.delta) {
+        const idx = tc.index ?? 0;
+        if (!currentToolCalls[idx]) {
+          currentToolCalls[idx] = { id: tc.id || `tc_${idx}`, type: 'function', function: { name: '', arguments: '' } };
+        }
+        if (tc.function && tc.function.name) currentToolCalls[idx].function.name += tc.function.name;
+        if (tc.function && tc.function.arguments) currentToolCalls[idx].function.arguments += tc.function.arguments;
+      }
+    }
+  }
+  return currentToolCalls.filter(Boolean);
+}
+
 function testOpenAIChatProtocol() {
   const adapter = PROTOCOLS['openai-chat'];
   assert(adapter, 'OpenAI Chat adapter must exist');
@@ -139,6 +173,178 @@ function testSSEParser() {
   assert.strictEqual(events[2].type, 'done');
 
   console.log('PASS: SSE Stream Parser buffer & chunks');
+}
+
+function testClaudeStreamingToolUse() {
+  const adapter = PROTOCOLS['claude-messages'];
+  assert(adapter.createStreamState, 'Claude adapter must expose per-stream state');
+
+  const sse = [
+    sseEvent('message_start', { type: 'message_start', message: { id: 'msg_1', usage: { input_tokens: 25, output_tokens: 1 } } }),
+    sseEvent('ping', { type: 'ping' }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'User wants weather. ' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Use get_weather.' } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 1, content_block: { type: 'text', text: '' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'Let me check ' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 1, delta: { type: 'text_delta', text: 'the weather.' } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 1 }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 2, content_block: { type: 'tool_use', id: 'toolu_01ABC', name: 'get_weather' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"city":' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '"Paris","unit":"celsius"}' } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 2 }),
+    sseEvent('message_delta', { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 42 } }),
+    sseEvent('message_stop', { type: 'message_stop' })
+  ].join('');
+
+  // Feed as two uneven raw chunks so events straddle the SSE buffer
+  const cut = Math.floor(sse.length * 0.6);
+  const events = driveSse(adapter, [sse.slice(0, cut), sse.slice(cut)]);
+
+  const content = events.filter(e => e.type === 'content').map(e => e.delta).join('');
+  assert.strictEqual(content, 'Let me check the weather.');
+  const reasoning = events.filter(e => e.type === 'reasoning').map(e => e.delta).join('');
+  assert.strictEqual(reasoning, 'User wants weather. Use get_weather.');
+
+  assert.deepStrictEqual(
+    events.find(e => e.type === 'usage'),
+    { type: 'usage', usage: { promptTokens: 25, completionTokens: 0, totalTokens: 25 } }
+  );
+  assert.deepStrictEqual(
+    events.find(e => e.type === 'usage_delta'),
+    { type: 'usage_delta', usage: { completionTokens: 42 } }
+  );
+
+  const toolEvents = events.filter(e => e.type === 'tool_calls');
+  assert.strictEqual(toolEvents.length, 1, 'must emit exactly one consolidated tool_calls event');
+  assert.deepStrictEqual(toolEvents[0], {
+    type: 'tool_calls',
+    delta: [{
+      index: 0,
+      id: 'toolu_01ABC',
+      type: 'function',
+      function: { name: 'get_weather', arguments: '{"city":"Paris","unit":"celsius"}' }
+    }]
+  });
+
+  // tool_calls must arrive before done; done must be the terminal event
+  assert.ok(events.indexOf(toolEvents[0]) < events.findIndex(e => e.type === 'done'), 'tool_calls must precede done');
+  assert.strictEqual(events[events.length - 1].type, 'done');
+
+  // Arguments must parse back into the tool input object
+  assert.deepStrictEqual(JSON.parse(toolEvents[0].delta[0].function.arguments), { city: 'Paris', unit: 'celsius' });
+
+  // Backend.js accumulation contract must reconstruct the call identically
+  const assembled = simulateBackendToolAssembly(events);
+  assert.strictEqual(assembled.length, 1);
+  assert.strictEqual(assembled[0].id, 'toolu_01ABC');
+  assert.strictEqual(assembled[0].function.name, 'get_weather');
+  assert.deepStrictEqual(JSON.parse(assembled[0].function.arguments), { city: 'Paris', unit: 'celsius' });
+
+  console.log('PASS: Claude streaming tool_use assembly (thinking + text + split input_json_delta)');
+}
+
+function testResponsesStreamingToolUse() {
+  const adapter = PROTOCOLS['openai-responses'];
+  assert(adapter.createStreamState, 'Responses adapter must expose per-stream state');
+
+  const sse = [
+    sseEvent('response.created', { type: 'response.created', response: { id: 'resp_1' } }),
+    sseEvent('response.output_item.added', { type: 'response.output_item.added', output_index: 0, item: { type: 'message', id: 'msg_1', role: 'assistant', content: [] } }),
+    sseEvent('response.output_text.delta', { type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, delta: 'Checking now. ' }),
+    sseEvent('response.output_text.delta', { type: 'response.output_text.delta', item_id: 'msg_1', output_index: 0, delta: 'Done.' }),
+    sseEvent('response.output_item.added', { type: 'response.output_item.added', output_index: 1, item: { type: 'function_call', id: 'fc_77', call_id: 'call_abc', name: 'run_javascript', arguments: '', status: 'in_progress' } }),
+    sseEvent('response.function_call_arguments.delta', { type: 'response.function_call_arguments.delta', item_id: 'fc_77', output_index: 1, delta: '{"code":' }),
+    sseEvent('response.function_call_arguments.delta', { type: 'response.function_call_arguments.delta', item_id: 'fc_77', output_index: 1, delta: '"return 6*7"}' }),
+    sseEvent('response.output_item.done', { type: 'response.output_item.done', output_index: 1, item: { type: 'function_call', id: 'fc_77', call_id: 'call_abc', name: 'run_javascript', arguments: '{"code":"return 6*7"}', status: 'completed' } }),
+    sseEvent('response.completed', { type: 'response.completed', response: { id: 'resp_1', usage: { input_tokens: 12, output_tokens: 34, total_tokens: 46 } } })
+  ].join('');
+
+  const events = driveSse(adapter, [sse]);
+
+  const content = events.filter(e => e.type === 'content').map(e => e.delta).join('');
+  assert.strictEqual(content, 'Checking now. Done.');
+
+  assert.deepStrictEqual(
+    events.find(e => e.type === 'usage'),
+    { type: 'usage', usage: { promptTokens: 12, completionTokens: 34, totalTokens: 46 } }
+  );
+
+  const toolEvents = events.filter(e => e.type === 'tool_calls');
+  assert.strictEqual(toolEvents.length, 1, 'must emit exactly one consolidated tool_calls event');
+  assert.deepStrictEqual(toolEvents[0], {
+    type: 'tool_calls',
+    delta: [{
+      index: 0,
+      id: 'call_abc',
+      type: 'function',
+      function: { name: 'run_javascript', arguments: '{"code":"return 6*7"}' }
+    }]
+  });
+
+  const assembled = simulateBackendToolAssembly(events);
+  assert.strictEqual(assembled.length, 1);
+  assert.strictEqual(assembled[0].id, 'call_abc');
+  assert.strictEqual(assembled[0].function.name, 'run_javascript');
+  assert.deepStrictEqual(JSON.parse(assembled[0].function.arguments), { code: 'return 6*7' });
+
+  console.log('PASS: OpenAI Responses streaming text (string delta) + function_call assembly');
+}
+
+function testToolCallMalformedArguments() {
+  // (1) Claude tool_use with NO input_json_delta → '{}' arguments, no throw
+  const claude = PROTOCOLS['claude-messages'];
+  let events = driveSse(claude, [
+    sseEvent('message_start', { type: 'message_start', message: { id: 'msg_2', usage: { input_tokens: 5, output_tokens: 1 } } }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_empty', name: 'get_current_time' } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 }),
+    sseEvent('message_stop', { type: 'message_stop' })
+  ]);
+  let toolEv = events.find(e => e.type === 'tool_calls');
+  assert(toolEv, 'empty-args tool_use must still emit tool_calls');
+  assert.strictEqual(toolEv.delta[0].id, 'toolu_empty');
+  assert.strictEqual(toolEv.delta[0].function.name, 'get_current_time');
+  assert.strictEqual(toolEv.delta[0].function.arguments, '{}');
+
+  // (2) Claude tool_use with truncated (malformed) partial_json → '{}' arguments, no throw
+  events = driveSse(claude, [
+    sseEvent('message_start', { type: 'message_start', message: { id: 'msg_3', usage: { input_tokens: 5, output_tokens: 1 } } }),
+    sseEvent('content_block_start', { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: 'toolu_bad', name: 'run_javascript' } }),
+    sseEvent('content_block_delta', { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"code": "return [1,' } }),
+    sseEvent('content_block_stop', { type: 'content_block_stop', index: 0 }),
+    sseEvent('message_stop', { type: 'message_stop' })
+  ]);
+  toolEv = events.find(e => e.type === 'tool_calls');
+  assert(toolEv, 'malformed-args tool_use must still emit tool_calls');
+  assert.strictEqual(toolEv.delta[0].function.arguments, '{}');
+
+  // (3) Responses function_call truncated in output_item.done → '{}' arguments, no throw
+  const responses = PROTOCOLS['openai-responses'];
+  events = driveSse(responses, [
+    sseEvent('response.created', { type: 'response.created', response: { id: 'resp_2' } }),
+    sseEvent('response.output_item.added', { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', id: 'fc_bad', call_id: 'call_bad', name: 'run_javascript', arguments: '' } }),
+    sseEvent('response.function_call_arguments.delta', { type: 'response.function_call_arguments.delta', item_id: 'fc_bad', output_index: 0, delta: '{"code": "retu' }),
+    sseEvent('response.output_item.done', { type: 'response.output_item.done', output_index: 0, item: { type: 'function_call', id: 'fc_bad', call_id: 'call_bad', name: 'run_javascript', arguments: '{"code": "retu' } }),
+    sseEvent('response.completed', { type: 'response.completed', response: { id: 'resp_2', usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 } } })
+  ]);
+  toolEv = events.find(e => e.type === 'tool_calls');
+  assert(toolEv, 'malformed Responses function_call must still emit tool_calls');
+  assert.strictEqual(toolEv.delta[0].function.arguments, '{}');
+
+  // (4) Responses function_call missing output_item.done is flushed by response.completed
+  events = driveSse(responses, [
+    sseEvent('response.created', { type: 'response.created', response: { id: 'resp_3' } }),
+    sseEvent('response.output_item.added', { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', id: 'fc_lost', call_id: 'call_lost', name: 'get_current_time', arguments: '' } }),
+    sseEvent('response.function_call_arguments.delta', { type: 'response.function_call_arguments.delta', item_id: 'fc_lost', output_index: 0, delta: '{}' }),
+    sseEvent('response.completed', { type: 'response.completed', response: { id: 'resp_3', usage: { input_tokens: 3, output_tokens: 4, total_tokens: 7 } } })
+  ]);
+  toolEv = events.find(e => e.type === 'tool_calls');
+  assert(toolEv, 'response.completed must flush unfinished function_call items');
+  assert.strictEqual(toolEv.delta[0].id, 'call_lost');
+  assert.strictEqual(toolEv.delta[0].function.arguments, '{}');
+
+  console.log('PASS: Malformed/empty tool-call arguments degrade to {} without throwing');
 }
 
 async function testAgentTools() {
@@ -280,6 +486,9 @@ async function main() {
   testClaudeMessagesProtocol();
   testOpenAIResponsesProtocol();
   testSSEParser();
+  testClaudeStreamingToolUse();
+  testResponsesStreamingToolUse();
+  testToolCallMalformedArguments();
   await testAgentTools();
   await testFetchRemoteModels();
   await testFallbackMechanism();

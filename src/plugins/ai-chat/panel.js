@@ -793,6 +793,12 @@
     let currentSession = null;
     let currentStreamId = null;
     let isGenerating = false;
+    // Session that owns the currently running stream. Terminal chunks are matched
+    // against this so the composer unlocks even if the user switched sessions.
+    let generatingSessionId = null;
+    // Chunks that arrived for a session other than the one on screen, keyed by
+    // sessionId: { approvals: payload[], terminated: boolean }
+    const pendingLateChunks = new Map();
     let searchKeyword = '';
     let remoteModels = [];
     let activeModelTab = 'channel';
@@ -991,16 +997,25 @@
         item.innerHTML = `
           <span class="ai-popover-persona-icon">${escapeHtml(p.icon || '✨')}</span>
           <div class="ai-popover-persona-content">
-            <span class="ai-popover-persona-title">${escapeHtml(p.title)} <span style="font-weight:normal;opacity:0.6;font-size:10px;">(T: ${p.temperature ?? 0.7})</span></span>
+            <span class="ai-popover-persona-title">${escapeHtml(p.title)} <span style="font-weight:normal;opacity:0.6;font-size:10px;">(T: ${escapeHtml(p.temperature ?? 0.7)})</span></span>
             <span class="ai-popover-persona-desc">${escapeHtml(p.prompt || '')}</span>
           </div>
         `;
-        item.addEventListener('click', () => {
-          if (currentSession) {
-            currentSession.personaId = p.id;
-          }
-          updateActivePersonaPill();
+        item.addEventListener('click', async () => {
+          // A persona applies to a session; without one there is nothing to persist.
+          if (!currentSession) return;
           personaPopover.classList.add('hidden');
+          try {
+            const res = await ctx.call('set_session_persona', { sessionId: currentSession.id, personaId: p.id });
+            if (res && res.ok) {
+              if (res.activeSession) currentSession = res.activeSession;
+              updateActivePersonaPill();
+            } else {
+              alert(`切换人设失败: ${(res && res.error) || '未知错误'}`);
+            }
+          } catch (err) {
+            alert(`切换人设失败: ${(err && err.message) || err}`);
+          }
         });
         popoverPersonaList.appendChild(item);
       });
@@ -1008,6 +1023,7 @@
 
     btnTogglePersonaPicker.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (!currentSession) return; // no session to attach a persona to
       const isHidden = personaPopover.classList.toggle('hidden');
       if (!isHidden) {
         popoverPersonaSearch = '';
@@ -1044,13 +1060,14 @@
       renderPopoverPersonas();
     });
 
-    document.addEventListener('click', (e) => {
+    const onDocumentClickClosePersona = (e) => {
       if (!personaPopover.classList.contains('hidden')) {
         if (!e.target.closest('.ai-persona-picker-wrap')) {
           personaPopover.classList.add('hidden');
         }
       }
-    });
+    };
+    document.addEventListener('click', onDocumentClickClosePersona);
 
     function renderPersonas() {
       updateActivePersonaPill();
@@ -1093,6 +1110,9 @@
             updateHeader();
             renderMessages();
             renderSessionsList();
+            // Re-mount approval cards / generating state for chunks that
+            // arrived while this session was in the background.
+            restorePendingLateChunks();
           }
         });
 
@@ -1100,6 +1120,7 @@
           e.stopPropagation();
           const res = await ctx.call('deleteSession', { id: s.id });
           if (res && res.ok) {
+            pendingLateChunks.delete(s.id);
             sessions = res.sessions;
             const next = sessions.find(x => x.id === res.activeSessionId) || sessions[0] || null;
             if (next) {
@@ -1111,6 +1132,7 @@
             updateHeader();
             renderMessages();
             renderSessionsList();
+            restorePendingLateChunks();
           }
         });
 
@@ -1174,6 +1196,10 @@
     /* --- Clear Session ---------------------------------------------------- */
     btnClearSession.addEventListener('click', async () => {
       if (!currentSession || (currentSession.messages || []).length === 0) return;
+      if (isGenerating && generatingSessionId === currentSession.id) {
+        alert('正在生成中…');
+        return;
+      }
       if (confirm('确认清空当前对话的所有记录吗？')) {
         const res = await ctx.call('clearSession', { id: currentSession.id });
         if (res && res.ok) {
@@ -1375,6 +1401,10 @@
       const btnDel = toolbar.querySelector('.btn-tool-del');
       if (btnDel) {
         btnDel.addEventListener('click', async () => {
+          if (isGenerating && currentSession && generatingSessionId === currentSession.id) {
+            alert('正在生成中…');
+            return;
+          }
           const res = await ctx.call('deleteMessage', { sessionId: currentSession.id, messageId: msg.id });
           if (res && res.ok) {
             currentSession = res.session;
@@ -1468,6 +1498,9 @@
 
       const streamId = `stream_${Date.now()}`;
       currentStreamId = streamId;
+      generatingSessionId = currentSession.id;
+      const prevBuf = pendingLateChunks.get(currentSession.id);
+      if (prevBuf) prevBuf.terminated = false;
 
       const res = await ctx.call('sendMessage', {
         sessionId: currentSession.id,
@@ -1507,6 +1540,7 @@
     });
 
     chatInput.addEventListener('keydown', (e) => {
+      if (e.isComposing || e.keyCode === 229) return; // IME composition in progress
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         sendMessage();
@@ -1514,21 +1548,130 @@
     });
 
     /* --- Stream Chunk Listener via IPC ------------------------------------ */
-    ctx.onEvent('stream-chunk', payload => {
-      if (!payload || !currentSession || payload.sessionId !== currentSession.id) return;
-      const { chunk, messageId } = payload;
-      if (!chunk) return;
+    function getLateChunkBuf(sessionId) {
+      let buf = pendingLateChunks.get(sessionId);
+      if (!buf) {
+        buf = { approvals: [], terminated: false };
+        pendingLateChunks.set(sessionId, buf);
+      }
+      return buf;
+    }
 
-      let msgEl = messagesScroll.querySelector(`.ai-msg[data-id="${messageId}"]`);
-      if (!msgEl) {
-        // Message element not yet mounted, refresh messages
-        const targetMsg = (currentSession.messages || []).find(m => m.id === messageId);
-        if (targetMsg) {
-          msgEl = createMessageElement(targetMsg);
-          messagesScroll.appendChild(msgEl);
+    // Builds (once) and mounts the tool approval card. Shared by the live chunk
+    // path and the late-chunk restore path so buffered approvals can be
+    // re-rendered after a session switch. `onResolved` fires when the user
+    // answers the card (used to drop it from the pending-late-chunks buffer).
+    function appendApprovalCard(bubble, payload, chunk, onResolved) {
+      let card = bubble ? bubble.querySelector(`.ai-tool-approval[data-approval="${chunk.toolId}"]`) : null;
+      if (!card) {
+        card = document.createElement('div');
+        card.className = 'ai-tool-approval';
+        card.dataset.approval = chunk.toolId;
+        let argsPretty = chunk.args || '';
+        try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
+        card.innerHTML = `
+          <div class="ai-approval-head">
+            <span class="ai-approval-ico">🔐</span>
+            <span>请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong></span>
+          </div>
+          <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
+          <div class="ai-approval-actions">
+            <button type="button" class="ai-approval-btn allow">✓ 允许执行</button>
+            <button type="button" class="ai-approval-btn deny">✗ 拒绝</button>
+            <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
+          </div>
+        `;
+        if (bubble) {
+          const badge = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
+          if (badge) badge.insertAdjacentElement('afterend', card);
+          else bubble.appendChild(card);
         }
+        card.querySelectorAll('.ai-approval-btn').forEach(btn => {
+          btn.addEventListener('click', () => {
+            const approved = !btn.classList.contains('deny');
+            const alwaysAllow = btn.classList.contains('always');
+            card.querySelectorAll('.ai-approval-btn').forEach(b => { b.disabled = true; });
+            ctx.call('resolveToolApproval', {
+              streamId: payload.streamId || currentStreamId,
+              toolCallId: chunk.toolId,
+              approved,
+              alwaysAllow
+            });
+            if (typeof onResolved === 'function') onResolved();
+          });
+        });
+      }
+      return card;
+    }
+
+    // Called after switching back to a session: re-mount approval cards that
+    // arrived while another session was on screen, and clear stale generating
+    // UI if that session's stream already terminated while hidden.
+    function restorePendingLateChunks() {
+      if (!currentSession) return;
+      const buf = pendingLateChunks.get(currentSession.id);
+      if (!buf) return;
+
+      if (buf.terminated && generatingSessionId === currentSession.id) {
+        generatingSessionId = null;
+        if (isGenerating) setGeneratingState(false);
       }
 
+      buf.approvals.forEach(p => {
+        if (messagesScroll.querySelector(`.ai-tool-approval[data-approval="${p.chunk.toolId}"]`)) return;
+        const msgEl = messagesScroll.querySelector(`.ai-msg[data-id="${p.messageId}"]`);
+        const bubble = msgEl ? msgEl.querySelector('.ai-msg-bubble') : null;
+        const card = appendApprovalCard(bubble, p, p.chunk, () => {
+          const b = pendingLateChunks.get(p.sessionId);
+          if (b) b.approvals = b.approvals.filter(ap => ap.chunk.toolId !== p.chunk.toolId);
+        });
+        if (!bubble) {
+          // Originating message not in the list; show the card at the end.
+          messagesScroll.appendChild(card);
+        }
+      });
+      if (buf.approvals.length) scrollToBottom();
+    }
+
+    ctx.onEvent('stream-chunk', payload => {
+      if (!payload || !payload.chunk) return;
+      const { chunk, messageId } = payload;
+      const isTerminal = chunk.type === 'complete' || chunk.type === 'aborted' || chunk.type === 'error';
+
+      if (!currentSession || payload.sessionId !== currentSession.id) {
+        // The chunk belongs to a session that is not on screen. Buffer it so
+        // nothing is lost: the backend emits tool_approval_request exactly once
+        // and waits forever, and a terminal chunk must still release the
+        // composer lock of the session that is actually generating.
+        const buf = getLateChunkBuf(payload.sessionId);
+        if (chunk.type === 'tool_approval_request') buf.approvals.push(payload);
+        if (isTerminal) buf.terminated = true;
+        if (isTerminal && generatingSessionId === payload.sessionId) {
+          generatingSessionId = null;
+          if (isGenerating) setGeneratingState(false);
+        }
+        return;
+      }
+
+      if (isTerminal && generatingSessionId === payload.sessionId) generatingSessionId = null;
+
+      let msgEl = null;
+      if (messageId) {
+        msgEl = messagesScroll.querySelector(`.ai-msg[data-id="${messageId}"]`);
+        if (!msgEl) {
+          // Message element not yet mounted, refresh messages
+          const targetMsg = (currentSession.messages || []).find(m => m.id === messageId);
+          if (targetMsg) {
+            msgEl = createMessageElement(targetMsg);
+            messagesScroll.appendChild(msgEl);
+          }
+        }
+      } else if (chunk.type === 'mcp_error') {
+        // mcp_error chunks carry no messageId: attach the notice to the
+        // streaming assistant message if one is on screen.
+        const bubbles = messagesScroll.querySelectorAll('.ai-msg.assistant .ai-msg-bubble');
+        msgEl = bubbles.length ? bubbles[bubbles.length - 1].closest('.ai-msg') : null;
+      }
       if (!msgEl) return;
       const bubble = msgEl.querySelector('.ai-msg-bubble');
 
@@ -1592,43 +1735,19 @@
         scrollToBottom();
       } else if (chunk.type === 'tool_approval_request') {
         // Approval card: suspend execution until the user answers (tier: 每次确认/自动审核高危)
-        let card = bubble.querySelector(`.ai-tool-approval[data-approval="${chunk.toolId}"]`);
-        if (!card) {
-          card = document.createElement('div');
-          card.className = 'ai-tool-approval';
-          card.dataset.approval = chunk.toolId;
-          let argsPretty = chunk.args || '';
-          try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
-          card.innerHTML = `
-            <div class="ai-approval-head">
-              <span class="ai-approval-ico">🔐</span>
-              <span>请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong></span>
-            </div>
-            <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
-            <div class="ai-approval-actions">
-              <button type="button" class="ai-approval-btn allow">✓ 允许执行</button>
-              <button type="button" class="ai-approval-btn deny">✗ 拒绝</button>
-              <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
-            </div>
-          `;
-          const badge = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
-          if (badge) badge.insertAdjacentElement('afterend', card);
-          else bubble.appendChild(card);
-
-          card.querySelectorAll('.ai-approval-btn').forEach(btn => {
-            btn.addEventListener('click', () => {
-              const approved = !btn.classList.contains('deny');
-              const alwaysAllow = btn.classList.contains('always');
-              card.querySelectorAll('.ai-approval-btn').forEach(b => { b.disabled = true; });
-              ctx.call('resolveToolApproval', {
-                streamId: payload.streamId || currentStreamId,
-                toolCallId: chunk.toolId,
-                approved,
-                alwaysAllow
-              });
-            });
-          });
-        }
+        appendApprovalCard(bubble, payload, chunk, () => {
+          const buf = pendingLateChunks.get(payload.sessionId);
+          if (buf) buf.approvals = buf.approvals.filter(ap => ap.chunk.toolId !== chunk.toolId);
+        });
+        scrollToBottom();
+      } else if (chunk.type === 'mcp_error') {
+        // Backend-side MCP failure mid-stream: show a subdued inline notice.
+        const note = document.createElement('div');
+        note.style.color = 'var(--amber)';
+        note.style.marginTop = '6px';
+        note.style.fontSize = '11.5px';
+        note.textContent = `⚠️ MCP 工具异常: ${chunk.message || '未知错误'}`;
+        bubble.appendChild(note);
         scrollToBottom();
       } else if (chunk.type === 'tool_approval_result') {
         const card = bubble.querySelector(`.ai-tool-approval[data-approval="${chunk.toolId}"]`);
@@ -1753,7 +1872,7 @@
             <div class="ai-persona-card-info">
               <span class="ai-persona-card-icon">${escapeHtml(p.icon || '✨')}</span>
               <span class="ai-persona-card-title">${escapeHtml(p.title || '未命名')}</span>
-              <span class="ai-persona-card-temp">T: ${p.temperature ?? 0.7}</span>
+              <span class="ai-persona-card-temp">T: ${escapeHtml(p.temperature ?? 0.7)}</span>
             </div>
             <div class="ai-persona-card-btns">
               <button type="button" class="ai-persona-card-btn edit" data-id="${p.id}" title="编辑人设">✏️ 编辑</button>
@@ -2150,6 +2269,21 @@
     });
 
     btnImportSkillFile.addEventListener('click', () => inputSkillFile.click());
+    // f.text() always decodes UTF-8, which turns GBK-encoded .txt files into
+    // mojibake (U+FFFD). Try UTF-8 first; if it contains replacement
+    // characters, retry as GBK and prefer whichever decodes cleanly
+    // (UTF-8 wins ties). .md/.markdown are UTF-8 by convention.
+    async function readSkillFileText(f) {
+      if (!/\.txt$/i.test(f.name)) return f.text();
+      const buf = await f.arrayBuffer();
+      const utf8 = new TextDecoder('utf-8').decode(buf);
+      if (!utf8.includes('\uFFFD')) return utf8;
+      try {
+        const gbk = new TextDecoder('gbk').decode(buf);
+        if (!gbk.includes('\uFFFD')) return gbk;
+      } catch {}
+      return utf8;
+    }
     inputSkillFile.addEventListener('change', async () => {
       const files = [...(inputSkillFile.files || [])];
       inputSkillFile.value = '';
@@ -2158,7 +2292,7 @@
       try {
         const items = [];
         for (const f of files) {
-          items.push({ filename: f.name, content: await f.text() });
+          items.push({ filename: f.name, content: await readSkillFileText(f) });
         }
         const res = await ctx.call('importSkills', { items });
         if (res && res.ok) {
@@ -2415,6 +2549,18 @@
     cfgChannel.addEventListener('change', () => {
       const ch = PRESET_CHANNELS.find(x => x.id === cfgChannel.value);
       if (ch) {
+        // Remote models were fetched from the previous endpoint; drop them so
+        // the 在线拉取 tab never lists stale models after a channel switch.
+        if (remoteModels.length) {
+          remoteModels = [];
+          tabRemoteModels.classList.add('hidden');
+          if (activeModelTab === 'remote') {
+            activeModelTab = 'channel';
+            modelFilterTabs.querySelectorAll('.ai-filter-tab').forEach(t => {
+              t.classList.toggle('active', t.dataset.tab === activeModelTab);
+            });
+          }
+        }
         if (ch.baseUrl) cfgBaseUrl.value = ch.baseUrl;
         if (ch.protocol) cfgProtocol.value = ch.protocol;
         if (ch.defaultModel) cfgModel.value = ch.defaultModel;
@@ -2516,6 +2662,7 @@
     }).catch(() => {});
 
     return function cleanup() {
+      document.removeEventListener('click', onDocumentClickClosePersona);
       if (isGenerating && currentStreamId) {
         ctx.call('abortStream', { streamId: currentStreamId });
       }

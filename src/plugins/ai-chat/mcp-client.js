@@ -9,19 +9,42 @@ const { spawn } = require('child_process');
 const PROTOCOL_VERSION = '2024-11-05';
 const START_TIMEOUT = 20000;
 const RPC_TIMEOUT = 30000;
+const MAX_TOOL_RESULT_CHARS = 64000;
+const MCP_SERVER_SEG_MAX = 18;
+const MCP_TOOL_SEG_MAX = 30;
+
+/* Quote one token for a cmd.exe command line: wrap in double quotes when it
+   contains whitespace, a quote, or a cmd metacharacter (& | < > ^ parentheses),
+   escaping inner quotes as "" (cmd-style). */
+function cmdQuote(a) {
+  a = String(a);
+  if (a === '') return '""';
+  if (/[\s"&|<>^()]/.test(a)) return `"${a.replace(/"/g, '""')}"`;
+  return a;
+}
 
 /* Windows cannot exec .cmd shims (npx/npm/...) directly since Node 18.20,
-   so route them through cmd.exe with conservative quoting. */
+   so route them through cmd.exe. With windowsVerbatimArguments the argv is
+   passed verbatim, and with /S cmd.exe strips exactly the outer quote pair
+   of the command string, leaving per-token quoting intact:
+     cmd.exe /d /s /c ""C:\my tool\run.cmd" "arg one" "a&b""
+   (verified empirically: without the outer wrap cmd strips the first/last
+   token quotes instead and splits args at spaces; unquoted & is parsed as
+   a command separator by cmd). */
 function buildSpawnArgs(cfg) {
   const command = String(cfg.command || '').trim();
   const args = Array.isArray(cfg.args) ? cfg.args.map(String) : [];
   const wrapCmd = process.platform === 'win32' &&
     (/\.(cmd|bat)$/i.test(command) || ['npx', 'npm', 'pnpm', 'yarn', 'bunx'].includes(command));
   if (wrapCmd) {
-    const q = a => (/\s/.test(a) ? `"${a.replace(/"/g, '""')}"` : a);
-    return { file: 'cmd.exe', argv: ['/c', q(command), ...args.map(q)] };
+    const cmdline = [command, ...args].map(cmdQuote).join(' ');
+    return {
+      file: process.env.COMSPEC || 'cmd.exe',
+      argv: ['/d', '/s', '/c', `"${cmdline}"`],
+      spawnOpts: { windowsVerbatimArguments: true }
+    };
   }
-  return { file: command, argv: args };
+  return { file: command, argv: args, spawnOpts: {} };
 }
 
 function sanitizeToolSegment(s) {
@@ -29,12 +52,38 @@ function sanitizeToolSegment(s) {
   return cleaned || 'srv';
 }
 
-/* MCP tool definition (name/description/inputSchema) -> OpenAI function tool */
+/* MCP tool definition (name/description/inputSchema) -> OpenAI function tool.
+   OpenAI caps function names at 64 chars, so keep mcp__<server>__<tool> within
+   55: server segment <= 18, tool segment <= 30 (after sanitization). Two
+   distinct tools whose segments collide after truncation get deterministic
+   _2/_3 suffixes in first-seen (tools/list) order; the same tool object always
+   maps to the same name (pooled connections rebuild the table every turn). */
+const MCP_TOOL_NAME_BY_OBJ = new WeakMap(); // tool def object -> final name
+const MCP_TOOL_USED_NAMES = new Set();      // every issued final name
+
+function buildMcpToolName(serverName, toolName, toolObj) {
+  const cached = toolObj ? MCP_TOOL_NAME_BY_OBJ.get(toolObj) : undefined;
+  if (cached) return cached;
+  const srvSeg = sanitizeToolSegment(serverName).slice(0, MCP_SERVER_SEG_MAX);
+  const base = sanitizeToolSegment(toolName).slice(0, MCP_TOOL_SEG_MAX);
+  let name = `mcp__${srvSeg}__${base}`;
+  let n = 1;
+  while (MCP_TOOL_USED_NAMES.has(name)) {
+    n += 1;
+    const suffix = `_${n}`;
+    name = `mcp__${srvSeg}__${base.slice(0, Math.max(1, MCP_TOOL_SEG_MAX - suffix.length))}${suffix}`;
+  }
+  MCP_TOOL_USED_NAMES.add(name);
+  if (toolObj) MCP_TOOL_NAME_BY_OBJ.set(toolObj, name);
+  return name;
+}
+
 function toOpenAiTool(serverName, tool) {
+  const toolObj = (tool && typeof tool === 'object') ? tool : null;
   return {
     type: 'function',
     function: {
-      name: `mcp__${sanitizeToolSegment(serverName)}__${sanitizeToolSegment(tool.name)}`,
+      name: buildMcpToolName(serverName, tool && tool.name, toolObj),
       description: `[MCP:${serverName}] ${tool.description || tool.name || ''}`.trim(),
       parameters: (tool.inputSchema && typeof tool.inputSchema === 'object')
         ? tool.inputSchema
@@ -53,8 +102,11 @@ function formatToolResult(res) {
     else parts.push(JSON.stringify(item));
   }
   const text = parts.join('\n') || JSON.stringify(res);
-  if (res.isError) return { ok: false, error: text };
-  return { ok: true, result: text };
+  const capped = text.length > MAX_TOOL_RESULT_CHARS
+    ? text.slice(0, MAX_TOOL_RESULT_CHARS) + '…[截断]'
+    : text;
+  if (res.isError) return { ok: false, error: capped };
+  return { ok: true, result: capped };
 }
 
 class McpServerConnection {
@@ -78,7 +130,7 @@ class McpServerConnection {
   }
 
   async _startStdio() {
-    const { file, argv } = buildSpawnArgs(this.cfg);
+    const { file, argv, spawnOpts } = buildSpawnArgs(this.cfg);
     if (!file) throw new Error('MCP stdio 服务器缺少启动命令');
 
     const env = { ...process.env };
@@ -86,7 +138,7 @@ class McpServerConnection {
       if (k) env[k] = String(v);
     }
 
-    this.proc = spawn(file, argv, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+    this.proc = spawn(file, argv, { env, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...spawnOpts });
     this.proc.stdout.on('data', d => this._feed(d.toString('utf-8')));
     this.proc.stderr.on('data', d => {
       this.stderrTail = (this.stderrTail + d.toString('utf-8')).slice(-600);
@@ -117,9 +169,28 @@ class McpServerConnection {
 
   dispose() {
     this._failAll('连接已关闭');
-    if (this.proc) {
-      try { this.proc.kill(); } catch {}
-      this.proc = null;
+    const proc = this.proc;
+    this.proc = null;
+    this.exited = true;
+    if (!proc) return;
+    if (process.platform === 'win32') {
+      // On Windows the server usually runs as cmd.exe -> node grandchild;
+      // killing only cmd.exe orphans the grandchildren, so take down the
+      // whole process tree. taskkill is fire-and-forget here.
+      if (!proc.pid) { try { proc.kill(); } catch {} return; }
+      try {
+        const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'],
+          { windowsHide: true, stdio: 'ignore' });
+        killer.on('error', () => { try { proc.kill(); } catch {} });
+      } catch {
+        try { proc.kill(); } catch {}
+      }
+    } else {
+      // POSIX: polite SIGTERM first, SIGKILL after a short grace period.
+      try { proc.kill('SIGTERM'); } catch {}
+      const t = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);
+      t.unref?.();
+      proc.once('exit', () => clearTimeout(t));
     }
   }
 
@@ -200,7 +271,8 @@ class McpServerConnection {
     });
   }
 
-  async _sendHttp(payload) {
+  async _sendHttp(payload, opts) {
+    const { sessionRetry = false } = opts || {};
     const headers = {
       'Content-Type': 'application/json',
       'Accept': 'application/json, text/event-stream',
@@ -215,6 +287,13 @@ class McpServerConnection {
       const sid = res.headers.get('mcp-session-id');
       if (sid) this.sessionId = sid;
       if (!res.ok) {
+        // Server-side session state was lost (restart/expire): drop the stale
+        // id, redo the initialize handshake, and retry the request exactly once.
+        if (res.status === 404 && this.sessionId && !sessionRetry) {
+          this.sessionId = null;
+          await this._initialize();
+          return this._sendHttp(payload, { sessionRetry: true });
+        }
         let t = '';
         try { t = await res.text(); } catch {}
         throw new Error(`MCP HTTP ${res.status}: ${t.slice(0, 300) || res.statusText}`);
@@ -225,23 +304,108 @@ class McpServerConnection {
         return undefined;
       }
       const ctype = res.headers.get('content-type') || '';
-      const text = await res.text();
       if (ctype.includes('text/event-stream')) {
-        // streamable HTTP may answer SSE-style: use the last data: line holding this id
-        const lines = text.split(/\r?\n/).filter(l => l.startsWith('data:'));
-        const found = lines.map(l => { try { return JSON.parse(l.slice(5).trim()); } catch { return null; } })
-          .filter(m => m && m.id === payload.id);
-        const msg = found.length ? found[found.length - 1] : null;
-        if (!msg) throw new Error('MCP HTTP SSE 响应中未找到对应结果');
-        if (msg.error) throw new Error(msg.error.message || JSON.stringify(msg.error));
-        return msg.result;
+        return this._readSseResponse(res, ctrl, payload.id);
       }
+      const text = await res.text();
       const msg = JSON.parse(text);
       if (msg.error) throw new Error(msg.error.message || JSON.stringify(msg.error));
       return msg.result;
     } finally {
       clearTimeout(timer);
     }
+  }
+
+  /* Consume an SSE response incrementally: resolve as soon as the JSON-RPC
+     response whose id matches reqId arrives (spec-compliant servers keep the
+     stream open, so buffering res.text() would block until the 30s timeout).
+     Messages without the matching id (notifications) are ignored. After the
+     response is delivered the stream keeps draining in the background until
+     it ends or the request deadline passes, then it is released. */
+  async _readSseResponse(res, ctrl, reqId) {
+    const fallback = async () => {
+      // No streaming body available: buffered parse (last matching data line).
+      const text = await res.text();
+      const lines = text.split(/\r?\n/).filter(l => l.startsWith('data:'));
+      const found = lines.map(l => { try { return JSON.parse(l.slice(5).trim()); } catch { return null; } })
+        .filter(m => m && m.id === reqId);
+      const msg = found.length ? found[found.length - 1] : null;
+      if (!msg) throw new Error('MCP HTTP SSE 响应中未找到对应结果');
+      if (msg.error) throw new Error(msg.error.message || JSON.stringify(msg.error));
+      return msg.result;
+    };
+    if (!res.body || typeof res.body.getReader !== 'function') return fallback();
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    const deadline = Date.now() + RPC_TIMEOUT;
+    let buf = '';
+    let dataLines = [];
+    let result;
+    let failure = null;
+    let done = false;
+
+    const dispatchEvent = () => {
+      if (!dataLines.length) return;
+      const raw = dataLines.join('\n');
+      dataLines = [];
+      let msg;
+      try { msg = JSON.parse(raw); } catch { return; } // malformed/keepalive data
+      if (msg.id !== reqId) return;                    // notification -> ignore
+      if (msg.error) failure = new Error(msg.error.message || JSON.stringify(msg.error));
+      else result = msg.result;
+      done = true;
+    };
+
+    const handleChunk = chunk => {
+      buf += chunk;
+      let idx;
+      while ((idx = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, idx).replace(/\r$/, '');
+        buf = buf.slice(idx + 1);
+        if (line.startsWith('data:')) dataLines.push(line.slice(5).replace(/^ /, ''));
+        else if (line === '') dispatchEvent();
+        // event:/id:/retry: fields and SSE comments carry no JSON-RPC payload
+      }
+    };
+
+    // Returns 'resolved' (got the matching response), 'end' (stream closed)
+    // or 'deadline'/'error'. Never rejects.
+    const pump = async () => {
+      try {
+        while (Date.now() < deadline) {
+          const { value, done: streamDone } = await reader.read();
+          if (streamDone) { dispatchEvent(); return done ? 'resolved' : 'end'; }
+          handleChunk(decoder.decode(value, { stream: true }));
+          if (done) return 'resolved';
+        }
+        return done ? 'resolved' : 'deadline';
+      } catch {
+        return done ? 'resolved' : 'error';
+      }
+    };
+
+    const release = () => {
+      try { reader.cancel(); } catch {}
+      try { ctrl.abort(); } catch {}
+    };
+
+    let outcome = 'error';
+    try {
+      outcome = await pump();
+    } catch {}
+    if (!done) {
+      release();
+      throw failure || new Error('MCP HTTP SSE 响应中未找到对应结果');
+    }
+    if (outcome !== 'end') {
+      // Keep draining in the background (trailing notifications etc.) without
+      // blocking the caller; hard-stop at the request deadline.
+      const bail = setTimeout(release, Math.max(0, deadline - Date.now()));
+      bail.unref?.();
+      pump().catch(() => {}).finally(() => clearTimeout(bail));
+    }
+    return result;
   }
 
   /* ---- MCP API ------------------------------------------------------------ */

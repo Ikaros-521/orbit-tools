@@ -7,7 +7,7 @@ const { streamCompletion, syncCompletion, fetchRemoteModels } = require('./proto
 const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = require('./agent-tools');
 const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
 const { parseSkillMarkdown, resolveSkillSourceUrl } = require('./skills-util');
-const { LOCAL_TOOL_NAMES, LOCAL_TOOLS_DEFINITIONS, executeLocalTool } = require('./local-tools');
+const { LOCAL_TOOL_NAMES, LOCAL_TOOLS_DEFINITIONS, executeLocalTool, killRunningCommands } = require('./local-tools');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -73,6 +73,59 @@ const DEFAULT_PERSONAS = [
 
 const genId = (prefix = 'id') => `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
 
+/* Tool results replayed to the API must stay far below the context window;
+   the tools themselves may return much larger payloads. */
+const TOOL_RESULT_CONTEXT_BUDGET = 24 * 1024;
+const clipToolContent = s => {
+  const str = String(s ?? '');
+  return str.length > TOOL_RESULT_CONTEXT_BUDGET ? str.slice(0, TOOL_RESULT_CONTEXT_BUDGET) + '\n…[工具结果过长，已截断]' : str;
+};
+
+/* Build the API message list from stored history with two invariants:
+   1. an assistant message carrying tool_calls always travels together with
+      its role:'tool' responses (splitting the pair across the context-window
+      boundary makes OpenAI reject the whole request with 400);
+   2. orphan tool messages (whose assistant message was deleted/cut) are dropped.
+   Stored assistant messages use the camelCase `toolCalls` key; the wire
+   format is snake_case `tool_calls`. */
+const buildBoundedContext = (msgs, max) => {
+  const units = [];
+  for (const m of msgs) {
+    const toolCalls = m.tool_calls || m.toolCalls;
+    if (m.role === 'tool') {
+      const last = units[units.length - 1];
+      if (last && last.kind === 'assistant') {
+        last.toolMsgs.push({
+          role: 'tool',
+          content: m.content || '',
+          tool_call_id: m.tool_call_id,
+          ...(m.name ? { name: m.name } : {})
+        });
+      }
+      continue; // orphaned tool response — drop
+    }
+    if (m.role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length > 0) {
+      units.push({ kind: 'assistant', msg: { role: 'assistant', content: m.content || '', tool_calls: toolCalls }, toolMsgs: [] });
+    } else {
+      units.push({ kind: 'plain', msg: { role: m.role, content: m.content || '' } });
+    }
+  }
+  const kept = [];
+  let count = 0;
+  for (let i = units.length - 1; i >= 0; i--) {
+    const size = units[i].kind === 'assistant' ? 1 + units[i].toolMsgs.length : 1;
+    if (count + size > max) break;
+    count += size;
+    kept.unshift(units[i]);
+  }
+  const flat = [];
+  for (const u of kept) {
+    flat.push(u.msg);
+    if (u.kind === 'assistant') flat.push(...u.toolMsgs);
+  }
+  return flat;
+};
+
 const DEFAULT_SKILLS = [
   {
     id: 'skill-workflow-design',
@@ -101,6 +154,7 @@ module.exports = {
     let mcpServers = Array.isArray(rawData.mcpServers) ? rawData.mcpServers : [];
 
     const activeStreams = new Map(); // streamId -> AbortController
+    const streamBySession = new Map(); // sessionId -> streamId (guards re-entry & destructive IPC)
     const pendingApprovals = new Map(); // `${streamId}::${toolCallId}` -> { resolve, toolName }
     const mcpConns = new Map(); // serverId -> { conn, tools, error }
 
@@ -248,6 +302,7 @@ module.exports = {
     });
 
     ctx.ipc.handle('deleteSession', args => {
+      if (streamBySession.has(args.id)) return { ok: false, error: '该会话正在生成中，请先停止' };
       sessions = sessions.filter(s => s.id !== args.id);
       if (sessions.length === 0) {
         const first = {
@@ -271,6 +326,7 @@ module.exports = {
     ctx.ipc.handle('clearSession', args => {
       const s = findSession(args.id);
       if (!s) return { ok: false, error: '会话不存在' };
+      if (streamBySession.has(args.id)) return { ok: false, error: '该会话正在生成中，请先停止' };
       s.messages = [];
       s.updatedAt = Date.now();
       s.totalTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
@@ -281,6 +337,7 @@ module.exports = {
     ctx.ipc.handle('deleteMessage', args => {
       const s = findSession(args.sessionId);
       if (!s) return { ok: false, error: '会话不存在' };
+      if (streamBySession.has(args.sessionId)) return { ok: false, error: '该会话正在生成中，请先停止' };
       const idx = s.messages.findIndex(m => m.id === args.messageId);
       if (idx < 0) return { ok: false, error: '消息未找到' };
 
@@ -310,6 +367,7 @@ module.exports = {
         const controller = activeStreams.get(streamId);
         controller.abort();
         denyPendingApprovals(streamId, 'aborted');
+        killRunningCommands(streamId); // stop in-flight local commands' whole process tree
         activeStreams.delete(streamId);
         return { ok: true, aborted: true };
       }
@@ -334,6 +392,20 @@ module.exports = {
       save();
       return { ok: true, alwaysAllowTools: [] };
     });
+
+    // Persist a persona switch on an existing session (renderer footer pill)
+    const setSessionPersonaHandler = args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      const pid = String((args && args.personaId) || '').trim();
+      if (!personas.some(p => p.id === pid)) return { ok: false, error: '人设不存在' };
+      s.personaId = pid;
+      s.updatedAt = Date.now();
+      save();
+      return { ok: true, activeSession: s };
+    };
+    ctx.ipc.handle('setSessionPersona', setSessionPersonaHandler);
+    ctx.ipc.handle('set_session_persona', setSessionPersonaHandler); // renderer alias
 
     ctx.ipc.handle('setSessionWorkDir', args => {
       const s = findSession(args && args.sessionId);
@@ -363,19 +435,24 @@ module.exports = {
       for (const srv of mcpServers) {
         if (!srv || srv.enabled === false) continue;
         let entry = mcpConns.get(srv.id);
+        if (entry && entry.conn.exited) disposeMcpConn(srv.id); // dead process -> fresh init on next use
+        entry = mcpConns.get(srv.id);
         if (!entry) {
-          entry = { conn: new McpServerConnection(srv), tools: [], error: null };
+          entry = { conn: new McpServerConnection(srv), tools: [], error: null, initPromise: null };
           mcpConns.set(srv.id, entry);
-          try {
+          entry.initPromise = (async () => {
             await entry.conn.start();
             entry.tools = await entry.conn.listTools();
-          } catch (err) {
-            entry.error = err.message || String(err);
+          })().catch(err => {
             try { entry.conn.dispose(); } catch {}
-          }
+            mcpConns.delete(srv.id); // evict so the next call retries a fresh start
+            return { error: err.message || String(err) };
+          });
         }
-        if (entry.error) {
-          statuses.push({ id: srv.id, name: srv.name, error: entry.error });
+        // Concurrent callers share the in-flight init instead of reading an empty tool list
+        const initResult = entry.initPromise ? await entry.initPromise : null;
+        if (!mcpConns.has(srv.id)) {
+          statuses.push({ id: srv.id, name: srv.name, error: (initResult && initResult.error) || 'MCP 服务器初始化失败' });
           continue;
         }
         for (const t of entry.tools) {
@@ -397,7 +474,7 @@ module.exports = {
     };
 
     // Unified agent tool dispatcher: skills tools + MCP routing + legacy built-ins
-    const dispatchAgentTool = async (name, rawArgs, mcpRoutes, workDir) => {
+    const dispatchAgentTool = async (name, rawArgs, mcpRoutes, workDir, streamId) => {
       const parseArgs = () => {
         try { return typeof rawArgs === 'string' ? JSON.parse(rawArgs) : (rawArgs || {}); } catch { return {}; }
       };
@@ -419,7 +496,7 @@ module.exports = {
         }
       }
       if (LOCAL_TOOL_NAMES.has(name)) {
-        return executeLocalTool(name, parseArgs(), { workDir: workDir || os.homedir() });
+        return executeLocalTool(name, parseArgs(), { workDir: workDir || os.homedir(), streamId });
       }
       return executeAgentTool(name, rawArgs, ctx);
     };
@@ -444,6 +521,7 @@ module.exports = {
       };
       if (rec.transport === 'stdio' && !rec.command) return { ok: false, error: 'stdio 服务器需要填写启动命令' };
       if (rec.transport === 'http' && !rec.url) return { ok: false, error: 'HTTP 服务器需要填写 URL' };
+      if (mcpServers.some(x => x.name === rec.name && x.id !== id)) return { ok: false, error: `已存在同名服务器「${rec.name}」，请更换名称` };
       if (idx >= 0) mcpServers[idx] = rec; else mcpServers.push(rec);
       disposeMcpConn(id); // reconnect with the new config on next use
       save();
@@ -461,20 +539,17 @@ module.exports = {
 
     ctx.ipc.handle('testMcpServer', async args => {
       const s = (args && args.server) || args || {};
+      // Always a throwaway connection: pooling the form-under-test under its
+      // server id would serve unsaved config to later chats if the user cancels.
       const conn = new McpServerConnection(s);
       try {
         await conn.start();
         const tools = await conn.listTools();
-        if (s.id) { // keep the verified connection for lazy reuse
-          disposeMcpConn(s.id);
-          mcpConns.set(s.id, { conn, tools, error: null });
-        } else {
-          conn.dispose();
-        }
         return { ok: true, toolCount: tools.length, tools: tools.map(t => t.name) };
       } catch (err) {
-        conn.dispose();
         return { ok: false, error: err.message || String(err) };
+      } finally {
+        try { conn.dispose(); } catch {}
       }
     });
 
@@ -611,6 +686,7 @@ module.exports = {
 
       const session = findSession(sessionId);
       if (!session) return { ok: false, error: '会话不存在' };
+      if (streamBySession.has(sessionId)) return { ok: false, error: '该会话正在生成中，请先停止或等待完成' };
 
       // If user edits an existing message, truncate everything after it
       if (editMessageId) {
@@ -658,26 +734,21 @@ module.exports = {
       }
 
       const maxContext = Math.max(2, Number(config.maxContextMessages) || 16);
-      // Grab preceding context messages (excluding current placeholder)
+      // Grab preceding context messages (excluding current placeholder), keeping
+      // assistant tool_calls grouped with their tool responses across the boundary
       const contextMsgs = session.messages.slice(0, -1);
-      const boundedMsgs = contextMsgs.slice(-maxContext);
+      const boundedMsgs = buildBoundedContext(contextMsgs, maxContext);
 
       const requestMessages = [];
       if (systemContent) {
         requestMessages.push({ role: 'system', content: systemContent });
       }
-      for (const m of boundedMsgs) {
-        requestMessages.push({
-          role: m.role,
-          content: m.content || '',
-          ...(m.tool_call_id ? { tool_call_id: m.tool_call_id } : {}),
-          ...(m.tool_calls ? { tool_calls: m.tool_calls } : {})
-        });
-      }
+      requestMessages.push(...boundedMsgs);
 
       // Start stream
       const controller = new AbortController();
       activeStreams.set(streamId, controller);
+      streamBySession.set(sessionId, streamId);
 
       const emitChunk = chunk => {
         ctx.send('stream-chunk', { streamId, sessionId, messageId: assistantMsg.id, chunk });
@@ -687,6 +758,7 @@ module.exports = {
         let accumulatedContent = '';
         let accumulatedReasoning = '';
         let currentToolCalls = [];
+        let toolPhaseEntered = false; // tool execution started this turn -> fallback must not re-run
 
         const primaryModel = modelOverride || config.model || 'gpt-4o-mini';
         const fallbackModel = (config.fallbackModel && config.fallbackModel.trim()) || '';
@@ -701,7 +773,7 @@ module.exports = {
             mcpRoutes = rt.routes;
             agentToolDefs = rt.defs.length > 0 ? [...agentToolDefs, ...rt.defs] : agentToolDefs;
             for (const st of rt.statuses) {
-              emitChunk({ type: 'mcp_error', server: st.name, error: st.error });
+              emitChunk({ type: 'mcp_error', server: st.name, error: st.error, message: `[MCP] ${st.name}: ${st.error}` });
             }
           } catch { /* MCP unavailable — continue with built-in tools only */ }
         }
@@ -710,6 +782,13 @@ module.exports = {
           accumulatedContent = '';
           accumulatedReasoning = '';
           currentToolCalls = [];
+          if (isFallback) {
+            // Drop the failed primary attempt's partials so they are never
+            // mistaken for the fallback model's output
+            assistantMsg.content = '';
+            assistantMsg.reasoning = '';
+            assistantMsg.usage = null;
+          }
 
           const reqOpts = {
             protocol: config.protocol || 'openai-chat',
@@ -744,7 +823,7 @@ module.exports = {
                 if (tc.function && tc.function.name) currentToolCalls[idx].function.name += tc.function.name;
                 if (tc.function && tc.function.arguments) currentToolCalls[idx].function.arguments += tc.function.arguments;
               }
-              emitChunk({ type: 'tool_calls', toolCalls: currentToolCalls });
+              emitChunk({ type: 'tool_calls', toolCalls: currentToolCalls.filter(Boolean) });
             } else if (event.type === 'usage' || event.type === 'usage_delta') {
               const u = event.usage;
               assistantMsg.usage = {
@@ -758,8 +837,22 @@ module.exports = {
             }
           }, controller.signal);
 
+          // Finalize the tool-call table: compact sparse slots from index-based
+          // delta accumulation, drop nameless/duplicate-id entries (a repeated
+          // id would deadlock the approval map), and never execute twice.
+          currentToolCalls = currentToolCalls.filter(Boolean).filter(tc => tc && tc.function && tc.function.name);
+          {
+            const seenIds = new Set();
+            currentToolCalls = currentToolCalls.filter(tc => {
+              if (seenIds.has(tc.id)) return false;
+              seenIds.add(tc.id);
+              return true;
+            });
+          }
+
           // If tool calls were generated by model, execute them (gated by the approval tier)!
           if (currentToolCalls.length > 0 && enableAgent) {
+            toolPhaseEntered = true; // block model fallback: tools must not re-run on another model
             assistantMsg.toolCalls = currentToolCalls;
             assistantMsg.toolStatus = {};
             emitChunk({ type: 'tool_exec_start', toolCalls: currentToolCalls });
@@ -770,6 +863,7 @@ module.exports = {
               emitChunk({ type: 'tool_approval_request', toolId: tc.id, toolName: tc.function.name, args: tc.function.arguments });
             });
 
+            const turnToolMsgs = []; // this turn's tool responses, in call order
             for (const tc of currentToolCalls) {
               const toolName = tc.function.name;
               const toolArgs = tc.function.arguments;
@@ -794,33 +888,38 @@ module.exports = {
               assistantMsg.toolStatus[tc.id] = approved ? (permission === 'ask' ? 'approved' : 'auto') : 'denied';
 
               const result = approved
-                ? await dispatchAgentTool(toolName, toolArgs, mcpRoutes, agentWorkDir)
+                ? await dispatchAgentTool(toolName, toolArgs, mcpRoutes, agentWorkDir, streamId)
                 : { ok: false, denied: true, error: '用户拒绝执行该工具调用，请改用纯文本回答或调整方案' };
 
               emitChunk({ type: 'tool_approval_result', toolId: tc.id, approved, asked: permission === 'ask' });
               emitChunk({ type: 'tool_result', toolId: tc.id, toolName, result });
 
               // Append tool response to conversation for continuation
-              session.messages.push({
+              const toolMsg = {
                 id: genId('msg_tool'),
                 role: 'tool',
                 tool_call_id: tc.id,
                 name: toolName,
                 content: typeof result === 'object' ? JSON.stringify(result) : String(result),
                 timestamp: Date.now()
-              });
+              };
+              session.messages.push(toolMsg);
+              turnToolMsgs.push(toolMsg);
             }
 
-            // Continue inference with tool output
+            // Continue inference with tool output. Pair each response with its
+            // own call (collected in execution order) instead of re-filtering
+            // session history, which mispairs if anything interleaves.
+            const prevUsage = assistantMsg.usage ? { ...assistantMsg.usage } : null;
             const followUpMsgs = [...requestMessages, {
               role: 'assistant',
               content: accumulatedContent || null,
               tool_calls: currentToolCalls
-            }, ...session.messages.filter(m => m.role === 'tool').slice(-currentToolCalls.length).map(m => ({
+            }, ...turnToolMsgs.map(m => ({
               role: 'tool',
               tool_call_id: m.tool_call_id,
               name: m.name,
-              content: m.content
+              content: clipToolContent(m.content)
             }))];
 
             let followUpContent = '';
@@ -837,6 +936,16 @@ module.exports = {
                 accumulatedReasoning += event.delta;
                 assistantMsg.reasoning = accumulatedReasoning;
                 emitChunk({ type: 'reasoning', delta: event.delta, reasoning: accumulatedReasoning });
+              } else if (event.type === 'usage' || event.type === 'usage_delta') {
+                // The follow-up is a second billed round; add it to round one
+                const u = event.usage || {};
+                const sum = (a, b) => (a || 0) + (b || 0);
+                assistantMsg.usage = {
+                  promptTokens: sum(prevUsage && prevUsage.promptTokens, u.promptTokens),
+                  completionTokens: sum(prevUsage && prevUsage.completionTokens, u.completionTokens),
+                  totalTokens: (prevUsage && prevUsage.totalTokens ? prevUsage.totalTokens : 0) + (u.totalTokens || sum(prevUsage && prevUsage.promptTokens, u.promptTokens) + sum(prevUsage && prevUsage.completionTokens, u.completionTokens))
+                };
+                emitChunk({ type: 'usage', usage: assistantMsg.usage });
               } else if (event.type === 'done') {
                 emitChunk({ type: 'done' });
               }
@@ -849,7 +958,10 @@ module.exports = {
             await runStream(primaryModel, false);
           } catch (primaryErr) {
             if (primaryErr.name === 'AbortError') throw primaryErr;
-            if (fallbackModel && fallbackModel !== primaryModel) {
+            // Never re-run the turn on a fallback model once tools executed:
+            // the fallback replays the original request and would re-issue
+            // (and re-execute) the same tool calls.
+            if (fallbackModel && fallbackModel !== primaryModel && !toolPhaseEntered) {
               assistantMsg.fallbackFrom = primaryModel;
               emitChunk({
                 type: 'fallback',
@@ -873,6 +985,13 @@ module.exports = {
 
         } catch (err) {
           if (err.name === 'AbortError') {
+            // Keep history consistent: an assistant message may only advertise
+            // tool calls that actually produced a tool response, otherwise the
+            // next request carries orphaned tool_calls and the API 400s.
+            if (Array.isArray(assistantMsg.toolCalls)) {
+              const answered = new Set(session.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id));
+              assistantMsg.toolCalls = assistantMsg.toolCalls.filter(tc => answered.has(tc.id));
+            }
             emitChunk({ type: 'aborted', message: '已中断生成' });
           } else {
             assistantMsg.error = err.message;
@@ -880,7 +999,9 @@ module.exports = {
           }
         } finally {
           denyPendingApprovals(streamId, 'aborted');
+          killRunningCommands(streamId);
           activeStreams.delete(streamId);
+          streamBySession.delete(sessionId);
           session.updatedAt = Date.now();
           save();
           emitChunk({ type: 'complete', message: assistantMsg, sessionTotalTokens: session.totalTokens });
@@ -928,13 +1049,25 @@ module.exports = {
         ]
       };
 
+      // A stalled provider must not stall the whole workflow run
+      const withTimeout = (promise, ms) => {
+        let timer = null;
+        return Promise.race([
+          promise,
+          new Promise((_, reject) => {
+            timer = setTimeout(() => reject(new Error(`AI 请求超时 (${Math.round(ms / 1000)}s)`)), ms);
+            if (timer.unref) timer.unref();
+          })
+        ]).finally(() => { if (timer) clearTimeout(timer); });
+      };
+
       let res;
       try {
-        res = await syncCompletion(reqOpts);
+        res = await withTimeout(syncCompletion(reqOpts), 180000);
       } catch (err) {
         const fallback = nodeCfg.fallbackModel || config.fallbackModel;
         if (fallback && fallback !== reqOpts.model) {
-          res = await syncCompletion({ ...reqOpts, model: fallback });
+          res = await withTimeout(syncCompletion({ ...reqOpts, model: fallback }), 180000);
           res.fallbackFrom = reqOpts.model;
         } else {
           throw err;
@@ -950,6 +1083,15 @@ module.exports = {
     });
 
     disposeAll = () => {
+      // Deactivate/disable/rescan must not leave streams running or approvals
+      // permanently unresolvable (the IPC handlers are about to disappear)
+      for (const [streamId, controller] of [...activeStreams]) {
+        try { controller.abort(); } catch {}
+        denyPendingApprovals(streamId, 'aborted');
+        killRunningCommands(streamId);
+      }
+      activeStreams.clear();
+      streamBySession.clear();
       for (const id of [...mcpConns.keys()]) disposeMcpConn(id);
     };
   },

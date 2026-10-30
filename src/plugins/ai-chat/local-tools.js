@@ -6,9 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { exec } = require('child_process');
+const { spawn } = require('child_process');
 
-const MAX_READ_CHARS = 200 * 1024;
+const MAX_READ_CHARS = 64 * 1024;
 const MAX_WRITE_CHARS = 1024 * 1024;
 const MAX_CMD_OUT = 15 * 1024;
 const DEFAULT_CMD_TIMEOUT = 30000;
@@ -105,6 +105,70 @@ function truncate(s, n) {
   return str.length > n ? str.slice(0, n) + `\n…[已截断，完整长度 ${str.length} 字符]` : str;
 }
 
+/* --- run_command: process-tree lifecycle & console codepage decoding ------ */
+
+const runningCommands = new Map(); // streamId -> Set<child process>
+
+const unregisterCommand = (streamId, child) => {
+  const set = runningCommands.get(streamId);
+  if (!set) return;
+  set.delete(child);
+  if (set.size === 0) runningCommands.delete(streamId);
+};
+
+// Kill every in-flight command belonging to a stream (used on user abort)
+const killRunningCommands = streamId => {
+  const set = runningCommands.get(streamId);
+  if (!set) return;
+  for (const child of set) {
+    try {
+      if (process.platform === 'win32' && child.pid) {
+        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+      } else {
+        child.kill('SIGKILL');
+      }
+    } catch {}
+  }
+  runningCommands.delete(streamId);
+};
+
+// cmd.exe emits output in the OEM codepage (CP936 on zh-CN), not UTF-8.
+let oemCodepagePromise = null;
+const detectOemCodepage = () => {
+  if (process.platform !== 'win32') return Promise.resolve(65001);
+  if (!oemCodepagePromise) {
+    oemCodepagePromise = new Promise(resolve => {
+      const probe = spawn('cmd.exe', ['/d', '/c', 'chcp'], { windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
+      let out = '';
+      probe.stdout.on('data', d => { out += d; });
+      probe.on('error', () => resolve(65001));
+      probe.on('close', () => {
+        const m = out.match(/(\d+)\s*\.?\s*$/m);
+        resolve(m ? Number(m[1]) : 65001);
+      });
+    });
+  }
+  return oemCodepagePromise;
+};
+
+const CP_DECODER_LABELS = {
+  936: 'gbk', 950: 'big5', 932: 'shift-jis', 949: 'euc-kr', 874: 'windows-874', 866: 'ibm866',
+  1250: 'windows-1250', 1251: 'windows-1251', 1252: 'windows-1252', 1253: 'windows-1253',
+  1254: 'windows-1254', 1255: 'windows-1255', 1256: 'windows-1256', 1257: 'windows-1257',
+  1258: 'windows-1258'
+};
+
+const decodeCommandOutput = (buf, codepage) => {
+  if (!buf || !buf.length) return '';
+  if (codepage && codepage !== 65001) {
+    const label = CP_DECODER_LABELS[codepage];
+    if (label) {
+      try { return new TextDecoder(label).decode(buf); } catch { /* fall through to utf8 */ }
+    }
+  }
+  return buf.toString('utf8');
+};
+
 async function executeLocalTool(name, args, runtime) {
   const workDir = (runtime && runtime.workDir) || os.homedir();
   args = args || {};
@@ -162,7 +226,8 @@ async function executeLocalTool(name, args, runtime) {
       let truncated = false;
 
       const walk = (dir, depth) => {
-        if (results.length >= maxResults || depth > 8 || scanned > 5000) { truncated = truncated || results.length >= maxResults; return; }
+        if (results.length >= maxResults) return;
+        if (depth > 8 || scanned > 5000) { truncated = true; return; }
         let entries;
         try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
         for (const e of entries) {
@@ -191,15 +256,65 @@ async function executeLocalTool(name, args, runtime) {
       const command = String(args.command || '').trim();
       if (!command) return { ok: false, error: 'command 不能为空' };
       const timeout = Math.min(120000, Math.max(3000, Number(args.timeout_ms) || DEFAULT_CMD_TIMEOUT));
+      const streamId = (runtime && runtime.streamId) || null;
+      const codepage = await detectOemCodepage();
+      const isWin = process.platform === 'win32';
       return await new Promise(resolve => {
-        exec(command, { cwd: workDir, timeout, maxBuffer: 2 * 1024 * 1024, windowsHide: true, encoding: 'utf8' }, (err, stdout, stderr) => {
-          if (err) {
+        // stdin 'ignore' so stdin-reading children get EOF instead of stalling;
+        // raw buffers so output can be transcoded from the OEM codepage.
+        const child = isWin
+          ? spawn('cmd.exe', ['/d', '/s', '/c', command], { cwd: workDir, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'pipe'] })
+          : spawn('/bin/sh', ['-c', command], { cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'] });
+        if (streamId) {
+          if (!runningCommands.has(streamId)) runningCommands.set(streamId, new Set());
+          runningCommands.get(streamId).add(child);
+        }
+        const CAP = 2 * 1024 * 1024;
+        const out = [];
+        const errBuf = [];
+        let outLen = 0;
+        let errLen = 0;
+        let timedOut = false;
+        child.stdout.on('data', d => { if (outLen < CAP) { out.push(d); outLen += d.length; } });
+        child.stderr.on('data', d => { if (errLen < CAP) { errBuf.push(d); errLen += d.length; } });
+        const timer = setTimeout(() => {
+          timedOut = true;
+          try {
+            if (isWin && child.pid) {
+              // cmd /c leaves grandchildren alive after child.kill(); taskkill /T takes the whole tree
+              spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+            } else {
+              child.kill('SIGTERM');
+              setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref?.();
+            }
+          } catch {}
+        }, timeout);
+        if (timer.unref) timer.unref();
+        child.on('error', err => {
+          clearTimeout(timer);
+          if (streamId) unregisterCommand(streamId, child);
+          resolve({ ok: false, error: `命令启动失败: ${err.message}` });
+        });
+        child.on('close', code => {
+          clearTimeout(timer);
+          if (streamId) unregisterCommand(streamId, child);
+          const stdout = decodeCommandOutput(Buffer.concat(out), codepage);
+          const stderr = decodeCommandOutput(Buffer.concat(errBuf), codepage);
+          if (timedOut) {
             resolve({
               ok: false,
-              exitCode: err.code ?? null,
-              timedOut: !!err.killed,
+              exitCode: code ?? null,
+              timedOut: true,
               stdout: truncate(stdout, MAX_CMD_OUT),
-              stderr: truncate(stderr || err.message || '', MAX_CMD_OUT)
+              stderr: truncate(stderr || '命令执行超时，已强制结束进程树', MAX_CMD_OUT)
+            });
+          } else if (code !== 0) {
+            resolve({
+              ok: false,
+              exitCode: code ?? null,
+              timedOut: false,
+              stdout: truncate(stdout, MAX_CMD_OUT),
+              stderr: truncate(stderr || `命令退出码 ${code}`, MAX_CMD_OUT)
             });
           } else {
             resolve({ ok: true, exitCode: 0, stdout: truncate(stdout, MAX_CMD_OUT), stderr: truncate(stderr, MAX_CMD_OUT) });
@@ -216,5 +331,6 @@ async function executeLocalTool(name, args, runtime) {
 module.exports = {
   LOCAL_TOOL_NAMES,
   LOCAL_TOOLS_DEFINITIONS,
-  executeLocalTool
+  executeLocalTool,
+  killRunningCommands
 };

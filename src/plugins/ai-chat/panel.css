@@ -1922,6 +1922,7 @@
 .ai-form-group.hidden,
 .ai-personas-list.hidden,
 .ai-ext-import-result.hidden,
+.ai-pagination.hidden,
 input.hidden {
   display: none;
 }
