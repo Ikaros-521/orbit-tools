@@ -97,9 +97,16 @@ class PluginManager {
       let entries = [];
       try { entries = fs.readdirSync(root, { withFileTypes: true }); } catch { /* no dir yet */ }
       for (const ent of entries) {
-        if (!ent.isDirectory()) continue;
         // dot-folders / node_modules aren't plugin attempts — don't report them
         if (ent.name.startsWith('.') || ent.name === 'node_modules') continue;
+        // Real folder, or a symlink/junction to one — dev installs link a
+        // plugin folder into the user dir, and Node reports junctions as
+        // symlinks, so the raw dirent type alone would skip them.
+        let isDir = ent.isDirectory();
+        if (!isDir && ent.isSymbolicLink()) {
+          try { isDir = fs.statSync(path.join(root, ent.name)).isDirectory(); } catch { /* broken link */ }
+        }
+        if (!isDir) continue;
         let manifest;
         try {
           manifest = JSON.parse(fs.readFileSync(path.join(root, ent.name, 'plugin.json'), 'utf8'));
