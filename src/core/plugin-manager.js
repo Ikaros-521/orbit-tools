@@ -6,6 +6,7 @@
    and rescan tear it down completely. */
 const fs = require('fs');
 const path = require('path');
+const EventEmitter = require('events');
 const { BrowserWindow } = require('electron');
 const { CapabilityRouter } = require('./capabilities');
 
@@ -17,8 +18,9 @@ const i18n = v => {
   return { zh: '', en: '' };
 };
 
-class PluginManager {
+class PluginManager extends EventEmitter {
   constructor({ userDataDir, config, getHostWindow }) {
+    super();
     this.builtinRoot = path.join(__dirname, '..', 'plugins');
     this.defaultUserRoot = path.join(userDataDir, 'plugins');
     const customUserDir = config && config.data && config.data.userPluginsDir;
@@ -320,6 +322,7 @@ class PluginManager {
 
   // Backend -> every renderer that cares about this plugin (host + its own windows).
   broadcast(id, channel, payload) {
+    this.emit('plugin-event', { id, channel, payload });
     const host = this.getHostWindow();
     if (host && !host.isDestroyed()) {
       host.webContents.send(`plugin-event:${id}`, { channel, payload });
@@ -371,6 +374,13 @@ class PluginManager {
          palettes drive. The desktop pet's file-drop uses this to become an
          entry point into the rest of the toolbox. */
       callPlugin: (id, method, args) => this.call(String(id), String(method), args),
+      onPluginEvent: (targetId, fn) => {
+        const handler = ev => {
+          if (ev.id === targetId && typeof fn === 'function') fn({ channel: ev.channel, payload: ev.payload });
+        };
+        this.on('plugin-event', handler);
+        return () => this.removeListener('plugin-event', handler);
+      },
       openPluginPanel: (id, payload) => {
         const host = this.getHostWindow();
         if (!host || host.isDestroyed()) return false;

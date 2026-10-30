@@ -1,11 +1,21 @@
-/* memo panel internals — sidebar + VS Code-flavoured editor column.
+/* memo panel internals — sidebar + editor / todo / calendar column.
    All colours flow through the host light-dark() tokens. */
 .memo-root { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
 
 /* --- sidebar -------------------------------------------------------------- */
-.memo-side { width: 248px; flex: 0 0 248px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+.memo-side { width: 260px; flex: 0 0 260px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
+.memo-nav-tabs { display: flex; padding: 10px 10px 6px; gap: 4px; border-bottom: 1px solid var(--line); }
+.memo-nav-tab {
+  flex: 1; appearance: none; font: inherit; font-size: 11.5px; font-weight: 500; cursor: pointer;
+  background: transparent; border: 1px solid transparent; border-radius: var(--r-sm);
+  padding: 5px 4px; display: inline-flex; align-items: center; justify-content: center; gap: 4px; color: var(--ink-dim);
+}
+.memo-nav-tab:hover { background: var(--inset); color: var(--ink); }
+.memo-nav-tab.on { background: var(--amber-soft); color: var(--amber); border-color: light-dark(rgba(185, 106, 0, .25), rgba(255, 171, 46, .3)); font-weight: 600; }
+.memo-nav-badge { font-size: 10px; font-weight: 700; background: var(--amber); color: #fff; border-radius: 999px; padding: 0 5px; height: 16px; line-height: 16px; min-width: 16px; text-align: center; }
+
 .memo-side-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 12px 6px; }
-.memo-side-title { font-size: 11px; letter-spacing: .18em; color: var(--ink-faint); text-transform: uppercase; }
+.memo-side-title { font-size: 11px; letter-spacing: .15em; color: var(--ink-faint); text-transform: uppercase; }
 .memo-side-title b { color: var(--ink-dim); font-weight: 600; margin-left: 4px; }
 .memo-search-wrap { padding: 0 10px 8px; }
 .memo-search {
@@ -39,7 +49,11 @@
 .memo-item.armed .memo-item-del { opacity: 1; }
 
 /* --- main column ----------------------------------------------------------- */
-.memo-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; }
+.memo-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; position: relative; }
+.memo-view-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.memo-view-pane.hidden { display: none !important; }
+
+/* --- notes view ----------------------------------------------------------- */
 .memo-toolbar { display: flex; align-items: center; gap: 10px; padding: 10px 14px 0; }
 .memo-title {
   flex: 1; min-width: 0; font: inherit; font-size: 15px; font-weight: 600; color: var(--ink);
@@ -60,7 +74,7 @@
 .memo-fmt:hover { color: var(--ink); border-color: var(--line-strong); background: var(--inset); }
 .memo-save-state { margin-left: auto; font-size: 11px; color: var(--ink-faint); letter-spacing: .05em; }
 
-/* --- editor / preview split -------------------------------------------------- */
+/* editor / preview split */
 .memo-editor-area { flex: 1 1 auto; min-height: 0; display: flex; gap: 0; }
 .memo-editor-area[data-mode="edit"] .memo-preview { display: none; }
 .memo-editor-area[data-mode="preview"] .memo-editor { display: none; }
@@ -78,7 +92,7 @@
 
 .memo-preview { flex: 1 1 50%; min-width: 0; overflow-y: auto; padding: 14px 20px 40px; user-select: text; -webkit-user-select: text; }
 
-/* --- status bar ---------------------------------------------------------------- */
+/* status bar */
 .memo-statusbar {
   display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
   border-top: 1px solid var(--line); padding: 4px 14px;
@@ -90,6 +104,103 @@
 .memo-savedot { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); }
 .memo-savedot.ok { background: var(--green); }
 .memo-savedot.bad { background: var(--red); }
+
+/* --- Todo List View -------------------------------------------------------- */
+.memo-todo-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 16px; }
+.memo-todo-card {
+  background: var(--inset); border: 1px solid var(--line); border-radius: var(--r-md, 10px);
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+}
+.memo-todo-input-row { display: flex; align-items: center; gap: 8px; }
+.memo-todo-add-input {
+  flex: 1; font: inherit; font-size: 13.5px; color: var(--ink);
+  background: transparent; border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 7px 12px; outline: none;
+}
+.memo-todo-add-input:focus { border-color: var(--amber); background: var(--bg); }
+.memo-todo-add-input::placeholder { color: var(--ink-faint); }
+
+.memo-todo-opts-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12px; color: var(--ink-dim); }
+.memo-todo-opt-label { display: flex; align-items: center; gap: 4px; }
+.memo-todo-date-input, .memo-todo-time-input, .memo-todo-pri-select {
+  font: inherit; font-size: 12px; color: var(--ink); background: var(--bg);
+  border: 1px solid var(--line); border-radius: var(--r-sm); padding: 3px 6px; outline: none;
+}
+
+.memo-todo-groups { display: flex; flex-direction: column; gap: 16px; }
+.memo-todo-group { display: flex; flex-direction: column; gap: 6px; }
+.memo-todo-group-head {
+  display: flex; align-items: center; justify-content: space-between;
+  font-size: 11.5px; font-weight: 600; color: var(--ink-faint); letter-spacing: .08em; text-transform: uppercase;
+  padding: 0 4px;
+}
+.memo-todo-items { display: flex; flex-direction: column; gap: 4px; }
+.memo-todo-empty { font-size: 12px; color: var(--ink-faint); padding: 14px 8px; text-align: center; }
+
+.memo-todo-item {
+  display: flex; align-items: center; gap: 10px; padding: 8px 10px;
+  background: var(--inset); border: 1px solid var(--line); border-radius: var(--r-sm);
+  transition: all .15s ease;
+}
+.memo-todo-item:hover { border-color: var(--line-strong); background: var(--bg); }
+.memo-todo-item.done { opacity: .65; background: transparent; }
+.memo-todo-chk { width: 16px; height: 16px; accent-color: var(--amber); cursor: pointer; flex: 0 0 16px; }
+.memo-todo-title { flex: 1; min-width: 0; font-size: 13px; color: var(--ink); word-break: break-all; }
+.memo-todo-item.done .memo-todo-title { text-decoration: line-through; color: var(--ink-dim); }
+
+.memo-todo-meta { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; flex: 0 0 auto; }
+.memo-todo-tag {
+  font-size: 10.5px; border-radius: 999px; padding: 1px 7px;
+  border: 1px solid var(--line); color: var(--ink-dim); background: var(--inset);
+}
+.memo-todo-tag.today { border-color: var(--amber); color: var(--amber); font-weight: 600; }
+.memo-todo-tag.overdue { border-color: var(--red); color: var(--red); }
+.memo-todo-tag.alarm { border-color: var(--amber); color: var(--amber); display: inline-flex; align-items: center; gap: 3px; }
+.memo-todo-tag.alarm.reminded { border-color: var(--ink-faint); color: var(--ink-faint); opacity: .7; }
+.memo-todo-tag.pri-1 { border-color: #f59e0b; color: #f59e0b; }
+.memo-todo-tag.pri-2 { border-color: var(--red); color: var(--red); font-weight: 600; }
+
+.memo-todo-del { opacity: 0; cursor: pointer; font-size: 12px; padding: 2px 4px; color: var(--ink-faint); }
+.memo-todo-item:hover .memo-todo-del { opacity: .8; }
+.memo-todo-del:hover { opacity: 1; color: var(--red); }
+
+/* --- Calendar View --------------------------------------------------------- */
+.memo-cal-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 16px; }
+.memo-cal-card {
+  background: var(--inset); border: 1px solid var(--line); border-radius: var(--r-md, 10px);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.memo-cal-head { display: flex; align-items: center; justify-content: space-between; }
+.memo-cal-month-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+.memo-cal-nav { display: flex; align-items: center; gap: 6px; }
+
+.memo-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.memo-cal-weekhead {
+  text-align: center; font-size: 11px; font-weight: 600; color: var(--ink-faint);
+  padding: 4px 0 6px; text-transform: uppercase;
+}
+.memo-cal-cell {
+  appearance: none; font: inherit; text-align: center; cursor: pointer;
+  background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm);
+  padding: 8px 4px; display: flex; flex-direction: column; align-items: center; gap: 4px;
+  position: relative; min-height: 52px; transition: all .12s ease;
+}
+.memo-cal-cell:hover { border-color: var(--amber); }
+.memo-cal-cell.other-month { opacity: .3; }
+.memo-cal-cell.today { border-color: var(--amber); background: var(--amber-soft); }
+.memo-cal-cell.today .memo-cal-num { font-weight: 700; color: var(--amber); }
+.memo-cal-cell.selected { outline: 2px solid var(--amber); border-color: transparent; }
+.memo-cal-num { font-size: 13px; color: var(--ink); }
+.memo-cal-dots { display: flex; align-items: center; gap: 3px; min-height: 6px; }
+.memo-cal-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+.memo-cal-dot.pri-2 { background: var(--red); }
+.memo-cal-badge { font-size: 9px; font-weight: 700; color: var(--ink-dim); line-height: 1; }
+
+.memo-cal-daylist-card {
+  background: var(--inset); border: 1px solid var(--line); border-radius: var(--r-md, 10px);
+  padding: 14px 16px; display: flex; flex-direction: column; gap: 12px;
+}
+.memo-cal-daylist-title { font-size: 14px; font-weight: 700; color: var(--ink); display: flex; align-items: center; gap: 8px; }
 
 /* --- rendered markdown ------------------------------------------------------- */
 .memo-md { font-size: 13.5px; line-height: 1.75; }
@@ -113,7 +224,7 @@
 .memo-md li { margin: .25em 0; }
 .memo-md li > p { margin: .15em 0; }
 .memo-md .memo-task { display: inline-flex; align-items: center; gap: 7px; }
-.memo-md .memo-task input { accent-color: var(--amber); }
+.memo-md .memo-task input { accent-color: var(--amber); cursor: pointer; }
 .memo-md code {
   font-family: var(--font-mono); font-size: .92em;
   background: var(--inset); border: 1px solid var(--line);
