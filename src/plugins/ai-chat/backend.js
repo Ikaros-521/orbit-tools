@@ -6,7 +6,7 @@
 const { streamCompletion, syncCompletion, fetchRemoteModels } = require('./protocols');
 const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = require('./agent-tools');
 const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
-const { parseSkillMarkdown, resolveSkillSourceUrl } = require('./skills-util');
+const { parseSkillMarkdown, resolveSkillSourceUrl, pickSkillEntries, pickLocalSkillFiles } = require('./skills-util');
 const { LOCAL_TOOL_NAMES, LOCAL_TOOLS_DEFINITIONS, executeLocalTool, killRunningCommands } = require('./local-tools');
 const os = require('os');
 const fs = require('fs');
@@ -584,85 +584,154 @@ module.exports = {
     const upsertImportedSkills = items => {
       let imported = 0;
       let skipped = 0;
+      const names = [];
       for (const it of items) {
         const parsed = parseSkillMarkdown((it && it.filename) || (it && it.name) || '', (it && it.content) || '');
-        if (!parsed.content) continue;
+        if (!parsed.content || parsed.content.length > 512 * 1024) continue;
         if (skills.some(s => s.name === parsed.name)) { skipped++; continue; } // don't clobber user edits
-        skills.push({ id: genId('skill'), name: parsed.name, desc: parsed.desc, content: parsed.content });
+        const rec = { id: genId('skill'), name: parsed.name, desc: parsed.desc, content: parsed.content };
+        if (it && it.source) rec.source = it.source;
+        skills.push(rec);
+        names.push(parsed.name);
         imported++;
       }
       if (imported > 0) save();
-      return { imported, skipped };
+      return { imported, skipped, names };
     };
 
     ctx.ipc.handle('importSkills', args => {
       const items = Array.isArray(args && args.items) ? args.items : [];
       if (!items.length) return { ok: false, error: '没有可导入的技能内容' };
-      const { imported, skipped } = upsertImportedSkills(items);
-      return { ok: true, imported, skipped, skills };
+      const { imported, skipped, names } = upsertImportedSkills(items);
+      return { ok: true, imported, skipped, names, skills };
     });
+
+    // pure path-grouping shared with tools/test-ai-skills.js (panel picks which
+    // File objects to read; the rule lives in skills-util.js)
+    ctx.ipc.handle('pickLocalSkillFiles', args => {
+      const paths = Array.isArray(args && args.paths) ? args.paths : [];
+      return { ok: true, ...pickLocalSkillFiles(paths) };
+    });
+
+    // Overridable for tests (tools/test-ai-skills.js mocks the GitHub API).
+    const GH_API_BASE = process.env.ORBIT_GH_API_BASE || 'https://api.github.com';
+    const GH_RAW_BASE = process.env.ORBIT_GH_RAW_BASE || 'https://raw.githubusercontent.com';
+    const MAX_SKILL_FILES = 60;
+    // raw.githubusercontent.com is unreachable on some networks (connection
+    // reset); once a raw fetch fails, the rest of the session downloads via
+    // the contents API instead (same host as the tree scan, so it works
+    // wherever the scan worked)
+    let ghRawUnavailable = false;
+
+    const ghJson = async url => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const res = await fetch(url, {
+          signal: ctrl.signal,
+          headers: { 'User-Agent': 'Orbit-Toolbox-AI/1.0', 'Accept': 'application/vnd.github+json' }
+        });
+        if (!res.ok) {
+          let t = '';
+          try { t = await res.text(); } catch {}
+          throw new Error(`GitHub API ${res.status}: ${t.slice(0, 200) || res.statusText}`);
+        }
+        return await res.json();
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    const getText = async (url, headers) => {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 15000);
+      try {
+        const res = await fetch(url, { signal: ctrl.signal, headers });
+        if (!res.ok) throw new Error(`下载失败 [${res.status}] ${res.statusText}`);
+        const text = await res.text();
+        if (text.length > 512 * 1024) throw new Error('文件过大 (>512KB)，已取消导入');
+        return text;
+      } finally {
+        clearTimeout(timer);
+      }
+    };
+
+    // GitHub file download: raw CDN first (no API quota), contents API as
+    // fallback (Accept: raw returns the file body on api.github.com)
+    const fetchGhFile = async (gh, p) => {
+      if (!ghRawUnavailable) {
+        try {
+          return await getText(`${GH_RAW_BASE}/${gh.owner}/${gh.repo}/${gh.branch}/${p}`, { 'User-Agent': 'Orbit-Toolbox-AI/1.0' });
+        } catch (err) {
+          if (err.name === 'AbortError') throw err;
+          ghRawUnavailable = true;
+        }
+      }
+      return getText(
+        `${GH_API_BASE}/repos/${gh.owner}/${gh.repo}/contents/${p}?ref=${encodeURIComponent(gh.branch)}`,
+        { 'User-Agent': 'Orbit-Toolbox-AI/1.0', 'Accept': 'application/vnd.github.raw' }
+      );
+    };
 
     ctx.ipc.handle('importSkillFromUrl', async args => {
       const src = resolveSkillSourceUrl(args && args.url);
       if (src.kind === 'invalid') return { ok: false, error: src.error };
-
-      const fetchText = async url => {
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 15000);
-        try {
-          const res = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'Orbit-Toolbox-AI/1.0' } });
-          if (!res.ok) throw new Error(`下载失败 [${res.status}] ${res.statusText}`);
-          const text = await res.text();
-          if (text.length > 512 * 1024) throw new Error('文件过大 (>512KB)，已取消导入');
-          return text;
-        } finally {
-          clearTimeout(timer);
-        }
-      };
 
       try {
         if (src.kind === 'file') {
           if (!/\.(md|markdown|txt)$/i.test(src.filename || '')) {
             return { ok: false, error: '仅支持导入 Markdown / 文本文件' };
           }
-          const content = await fetchText(src.rawUrl);
-          const { imported, skipped } = upsertImportedSkills([{ filename: src.filename, content }]);
-          return { ok: true, imported, skipped, total: 1, skills };
+          let content;
+          let sourceUrl = src.rawUrl;
+          if (src.gh) {
+            content = await fetchGhFile(src.gh, src.gh.path);
+            sourceUrl = `https://github.com/${src.gh.owner}/${src.gh.repo}/blob/${src.gh.branch}/${src.gh.path}`;
+          } else {
+            content = await getText(src.rawUrl, { 'User-Agent': 'Orbit-Toolbox-AI/1.0' });
+          }
+          const { imported, skipped, names } = upsertImportedSkills([{ filename: src.filename, source: sourceUrl, content }]);
+          return { ok: true, imported, skipped, names, total: 1, skills };
         }
 
-        // folder: list .md entries via the GitHub contents API, then import each
-        const api = `https://api.github.com/repos/${src.owner}/${src.repo}/contents/${src.path}${src.branch ? `?ref=${encodeURIComponent(src.branch)}` : ''}`;
-        const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 15000);
-        let entries;
-        try {
-          const res = await fetch(api, {
-            signal: ctrl.signal,
-            headers: { 'User-Agent': 'Orbit-Toolbox-AI/1.0', 'Accept': 'application/vnd.github+json' }
-          });
-          if (!res.ok) {
-            let t = '';
-            try { t = await res.text(); } catch {}
-            throw new Error(`GitHub API ${res.status}: ${t.slice(0, 200) || res.statusText}`);
-          }
-          entries = await res.json();
-        } finally {
-          clearTimeout(timer);
+        // folder: recursive tree scan; import every SKILL.md (agent-skill
+        // convention: one skill per directory). Docs like README are support
+        // material and never become skills.
+        let branch = src.branch;
+        if (!branch) {
+          const repo = await ghJson(`${GH_API_BASE}/repos/${src.owner}/${src.repo}`);
+          branch = repo && repo.default_branch;
         }
-        if (!Array.isArray(entries)) {
-          return { ok: false, error: '该链接指向单个文件而非目录 (请使用目录或仓库主页链接批量导入)' };
+        if (!branch) return { ok: false, error: '无法确定该仓库的默认分支' };
+
+        const tree = await ghJson(`${GH_API_BASE}/repos/${src.owner}/${src.repo}/git/trees/${encodeURIComponent(branch)}?recursive=1`);
+        if (!tree || !Array.isArray(tree.tree)) return { ok: false, error: 'GitHub 未返回可用的目录结构' };
+
+        const prefix = src.path ? `${src.path.replace(/\/+$/, '')}/` : '';
+        const allEntries = pickSkillEntries(tree.tree.filter(e => e && e.type === 'blob').map(e => e.path))
+          .filter(e => e.path.startsWith(prefix));
+        const overflow = Math.max(0, allEntries.length - MAX_SKILL_FILES);
+        const selected = allEntries.slice(0, MAX_SKILL_FILES);
+        if (!selected.length) {
+          return {
+            ok: false,
+            error: `该${src.path ? '目录' : '仓库'}下没有找到 SKILL.md。标准技能仓库的每个技能位于独立子目录（<技能名>/SKILL.md）；要导入单个文档请改用 blob 文件链接`
+          };
         }
-        const mdFiles = entries.filter(e => e && e.type === 'file' && /\.(md|markdown|txt)$/i.test(e.name || ''));
-        if (!mdFiles.length) return { ok: false, error: '目录中没有可导入的 .md / .txt 文件' };
 
         const items = [];
-        for (const f of mdFiles) {
+        let failed = 0;
+        for (const e of selected) {
           try {
-            items.push({ filename: f.name, content: await fetchText(f.download_url) });
-          } catch { /* skip unreachable file */ }
+            items.push({
+              filename: e.path,
+              source: `https://github.com/${src.owner}/${src.repo}/blob/${branch}/${e.path}`,
+              content: await fetchGhFile({ owner: src.owner, repo: src.repo, branch }, e.path)
+            });
+          } catch { failed++; } // unreachable single file: count it, keep going
         }
-        const { imported, skipped } = upsertImportedSkills(items);
-        return { ok: true, imported, skipped, total: mdFiles.length, skills };
+        const { imported, skipped, names } = upsertImportedSkills(items);
+        return { ok: true, imported, skipped, failed, overflow, names, total: selected.length, truncated: !!tree.truncated, skills };
       } catch (err) {
         return { ok: false, error: err.name === 'AbortError' ? '下载超时，请检查网络后重试' : (err.message || String(err)) };
       }

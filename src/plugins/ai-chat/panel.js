@@ -583,7 +583,7 @@
                 <div class="ai-ext-head">
                   <div class="ai-ext-head-txt">
                     <span class="ai-ext-title">🧠 技能 (Skills)</span>
-                    <span class="ai-ext-hint">任务级指令包：Agent 通过 list_skills / read_skill 工具按需加载并遵循执行</span>
+                    <span class="ai-ext-hint">任务级指令包（标准结构：&lt;技能名&gt;/SKILL.md）：Agent 通过 list_skills / read_skill 工具按需加载并遵循执行</span>
                   </div>
                   <div class="ai-personas-actions">
                     <button type="button" class="ai-btn-text-action" id="btnResetSkills" title="恢复内置默认技能">🔄 恢复默认</button>
@@ -592,10 +592,12 @@
                 </div>
                 <!-- 技能导入工具栏：GitHub 下载 / 本地文件 -->
                 <div class="ai-skill-import-row">
-                  <input type="text" class="ai-form-input ai-skill-url-input" id="inputSkillUrl" placeholder="⬇ 粘贴 GitHub 技能链接 (blob 文件 / tree 目录 / 仓库主页) 或任意 .md 地址…" autocomplete="off">
-                  <button type="button" class="ai-edit-btn" id="btnImportSkillUrl" title="从 GitHub 或任意 URL 下载技能">⬇ 下载导入</button>
+                  <input type="text" class="ai-form-input ai-skill-url-input" id="inputSkillUrl" placeholder="⬇ 粘贴 GitHub 技能仓库 / 目录链接（递归导入其中全部 SKILL.md）或任意 .md 文件地址…" autocomplete="off">
+                  <button type="button" class="ai-edit-btn" id="btnImportSkillUrl" title="仓库/目录链接会递归查找 SKILL.md（每个 SKILL.md 导入为一个技能，README 等文档不导入）">⬇ 下载导入</button>
                   <button type="button" class="ai-edit-btn" id="btnImportSkillFile" title="选择本地 .md 文件导入">📂 本地导入</button>
                   <input type="file" id="inputSkillFile" class="hidden" accept=".md,.markdown,.txt" multiple>
+                  <button type="button" class="ai-edit-btn" id="btnImportSkillFolder" title="选择文件夹：递归导入其中所有 SKILL.md（没有 SKILL.md 时才导入普通 .md 文档）">📁 文件夹导入</button>
+                  <input type="file" id="inputSkillFolder" class="hidden" webkitdirectory>
                 </div>
                 <div class="ai-ext-import-result hidden" id="skillImportResult"></div>
                 <div class="ai-personas-search-row">
@@ -780,6 +782,8 @@
     const btnImportSkillUrl = el.querySelector('#btnImportSkillUrl');
     const btnImportSkillFile = el.querySelector('#btnImportSkillFile');
     const inputSkillFile = el.querySelector('#inputSkillFile');
+    const btnImportSkillFolder = el.querySelector('#btnImportSkillFolder');
+    const inputSkillFolder = el.querySelector('#inputSkillFolder');
     const skillImportResult = el.querySelector('#skillImportResult');
     const inputSearchSkills = el.querySelector('#inputSearchSkills');
     const btnPrevSkillPage = el.querySelector('#btnPrevSkillPage');
@@ -2184,7 +2188,7 @@
           <div class="ai-mcp-card-head">
             <span class="ai-mcp-ico">🧠</span>
             <div class="ai-mcp-card-info">
-              <span class="ai-mcp-name">${escapeHtml(sk.name)}</span>
+              <span class="ai-mcp-name" title="${escapeHtml(sk.source || '内置 / 手动创建')}">${escapeHtml(sk.name)}</span>
               <span class="ai-mcp-target" title="${escapeHtml(sk.desc || '')}">${escapeHtml(sk.desc || '(未设置简介)')}</span>
             </div>
             <div class="ai-persona-card-btns">
@@ -2225,6 +2229,17 @@
       }
     }
 
+    // one-line summary shared by URL / file / folder imports
+    function describeImportResult(prefix, res) {
+      let t = `✓ ${prefix}：新增 ${res.imported} 个`;
+      if (Array.isArray(res.names) && res.names.length) t += `（${res.names.join('、')}）`;
+      if (res.skipped) t += `，跳过同名 ${res.skipped} 个`;
+      if (res.failed) t += `，下载失败 ${res.failed} 个`;
+      if (res.overflow) t += `，超出数量上限 ${res.overflow} 个未下载`;
+      if (res.truncated) t += '（仓库过大，扫描结果可能不完整）';
+      return t;
+    }
+
     inputSearchSkills.addEventListener('input', () => {
       skillSearchKeyword = inputSearchSkills.value;
       skillCurrentPage = 1;
@@ -2258,7 +2273,7 @@
           skills = res.skills;
           skillCurrentPage = 1;
           renderSkillsList();
-          showSkillImportResult(`✓ 导入完成：新增 ${res.imported} 个${res.skipped ? `，跳过同名 ${res.skipped} 个` : ''}`, 'ok');
+          showSkillImportResult(describeImportResult('导入完成', res), 'ok');
           if (res.imported > 0) inputSkillUrl.value = '';
         } else {
           showSkillImportResult(`✗ ${(res && res.error) || '导入失败'}`, 'err');
@@ -2299,12 +2314,52 @@
           skills = res.skills;
           skillCurrentPage = 1;
           renderSkillsList();
-          showSkillImportResult(`✓ 本地导入完成：新增 ${res.imported} 个${res.skipped ? `，跳过同名 ${res.skipped} 个` : ''}`, 'ok');
+          showSkillImportResult(describeImportResult('本地导入完成', res), 'ok');
         } else {
           showSkillImportResult(`✗ ${(res && res.error) || '导入失败'}`, 'err');
         }
       } catch (err) {
         showSkillImportResult(`✗ 读取文件失败: ${err.message || err}`, 'err');
+      }
+    });
+
+    // folder pick: group by path first (SKILL.md dirs win; plain docs only as
+    // fallback), then read just the chosen files
+    btnImportSkillFolder.addEventListener('click', () => inputSkillFolder.click());
+    inputSkillFolder.addEventListener('change', async () => {
+      const files = [...(inputSkillFolder.files || [])];
+      inputSkillFolder.value = '';
+      if (!files.length) return;
+      try {
+        const mdFiles = files.filter(f => /\.(md|markdown|txt)$/i.test(f.name));
+        if (!mdFiles.length) {
+          showSkillImportResult('✗ 所选文件夹中没有 .md / .txt 文件', 'err');
+          return;
+        }
+        const byPath = new Map(mdFiles.map(f => [f.webkitRelativePath || f.name, f]));
+        const pick = await ctx.call('pickLocalSkillFiles', { paths: [...byPath.keys()] });
+        const chosen = (pick && pick.skills && pick.skills.length) ? pick.skills : (pick && pick.fallback) || [];
+        if (!chosen.length) {
+          showSkillImportResult('✗ 未找到 SKILL.md（标准技能为 <技能名>/SKILL.md 结构），也没有可导入的普通 .md 文档', 'err');
+          return;
+        }
+        showSkillImportResult(`📂 读取 ${chosen.length} 个文件中…`, '');
+        const items = [];
+        for (const p of chosen) {
+          const f = byPath.get(p);
+          if (f) items.push({ filename: p, content: await readSkillFileText(f) });
+        }
+        const res = await ctx.call('importSkills', { items });
+        if (res && res.ok) {
+          skills = res.skills;
+          skillCurrentPage = 1;
+          renderSkillsList();
+          showSkillImportResult(describeImportResult(pick.skills.length ? '文件夹技能导入完成' : '文件夹导入完成', res), 'ok');
+        } else {
+          showSkillImportResult(`✗ ${(res && res.error) || '导入失败'}`, 'err');
+        }
+      } catch (err) {
+        showSkillImportResult(`✗ 读取文件夹失败: ${err.message || err}`, 'err');
       }
     });
 
