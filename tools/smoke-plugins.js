@@ -69,6 +69,8 @@ app.whenReady().then(async () => {
   if (!blocked(await fetchStatus('plugin://codec-lab/%2e%2e/%2e%2e/main.js'))) throw new Error('path traversal not blocked');
   if (!blocked(await fetchStatus('plugin://codec-lab/%2e%2e%5c%2e%2e%5cmain.js'))) throw new Error('backslash traversal not blocked');
   if (await fetchStatus('plugin://nope/panel.js') !== 404) throw new Error('unknown plugin should 404');
+  // external asset roots (@alias) must 404 unless the plugin registered them
+  if (await fetchStatus('plugin://codec-lab/@models/x.moc3') !== 404) throw new Error('unregistered asset root should 404');
   console.log('plugin:// protocol OK');
 
   for (const p of found) {

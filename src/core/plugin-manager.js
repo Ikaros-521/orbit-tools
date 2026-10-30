@@ -34,6 +34,7 @@ class PluginManager {
     this.getHostWindow = getHostWindow;
     this.plugins = new Map();  // id -> record {id, root, source, manifest, enabled}
     this.active = new Map();   // id -> {mod, handlers:Map, windows:Set, data}
+    this.extraRoots = new Map(); // "id/alias" -> absolute dir served as plugin://id/@alias/
     this.loadErrors = new Map();
     this.capabilities = new CapabilityRouter(this);
   }
@@ -255,6 +256,9 @@ class PluginManager {
     for (const win of [...state.windows]) { if (!win.isDestroyed()) win.destroy(); }
     state.windows.clear();
     state.handlers.clear();
+    for (const key of [...this.extraRoots.keys()]) {
+      if (key.startsWith(`${id}/`)) this.extraRoots.delete(key);
+    }
     this.active.delete(id);
   }
 
@@ -347,6 +351,16 @@ class PluginManager {
       root: p.root,
       getHostWindow: () => this.getHostWindow(),
       url: rel => `plugin://${p.id}/${String(rel).replace(/^\/+/, '')}`,
+      /* Register a plugin-owned external asset dir served as
+         plugin://<id>/@<alias>/... — user assets (Live2D models, imported
+         packs) stay OUTSIDE the plugin folder. Cleared on deactivate. */
+      addAssetRoot: (alias, dir) => {
+        if (!/^[a-z][a-z0-9-]*$/.test(String(alias))) throw new Error('bad asset root alias');
+        if (!dir || typeof dir !== 'string') throw new Error('asset root dir required');
+        this.extraRoots.set(`${p.id}/${alias}`, path.resolve(dir));
+        return true;
+      },
+      removeAssetRoot: alias => this.extraRoots.delete(`${p.id}/${alias}`),
       send: (channel, payload) => this.broadcast(p.id, channel, payload),
       workflows: this.workflowManager || null,
       ipc: {
