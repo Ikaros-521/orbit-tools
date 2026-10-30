@@ -540,6 +540,10 @@ class WorkflowManager {
     this.config = config;
     this.pluginManager = pluginManager;
     this.onEvent = opts.onEvent || null;
+    /* Side listeners (e.g. the desktop pet reacting to run start/finish).
+       Separate from onEvent so the renderer console mirror stays the single
+       sink it always was; subscribe returns a disposer. */
+    this._bus = new Set();
     this.clipboardPollMs = Number(opts.clipboardPollMs) || 900;
     this.seedDefaults = opts.seedDefaults !== false;
     this.runner = new WorkflowRunner(pluginManager, {
@@ -601,7 +605,18 @@ class WorkflowManager {
   async run(id, initialEnvelope) {
     const wf = this.list().find(x => x.id === id);
     if (!wf) throw new Error(`工作流 "${id}" 不存在`);
-    return this.runner.execute(wf, initialEnvelope);
+    // run-start/run-finish: in-process milestones for subscribers (pet reacts
+    // to these); the auto path keeps its separate 'auto-run' console mirror.
+    this.emit({ event: 'run-start', trigger: 'manual', id: wf.id, name: wf.name });
+    let res;
+    try {
+      res = await this.runner.execute(wf, initialEnvelope);
+    } catch (err) {
+      this.emit({ event: 'run-finish', trigger: 'manual', id: wf.id, name: wf.name, ok: false, error: String(err && err.message || err) });
+      throw err;
+    }
+    this.emit({ event: 'run-finish', trigger: 'manual', id: wf.id, name: wf.name, ok: !!res.ok, error: res.error || null, finalOutput: res.finalOutput || null });
+    return res;
   }
 
   /* --- clipboard auto-trigger ----------------------------------------------
@@ -701,11 +716,13 @@ class WorkflowManager {
         }
       }
       let res;
+      this.emit({ event: 'run-start', trigger: 'clipboard', id: wf.id, name: wf.name });
       try {
         res = await this.runner.execute(wf, envelope);
       } catch (err) {
         res = { ok: false, error: String(err && err.message || err), logs: [] };
       }
+      this.emit({ event: 'run-finish', trigger: 'clipboard', id: wf.id, name: wf.name, ok: !!res.ok, error: res.error || null, finalOutput: res.finalOutput || null });
       this.emit({
         event: 'auto-run',
         trigger: 'clipboard',
@@ -724,6 +741,17 @@ class WorkflowManager {
     if (typeof this.onEvent === 'function') {
       try { this.onEvent(payload); } catch { /* listener's own problem */ }
     }
+    for (const fn of this._bus) {
+      try { fn(payload); } catch { /* listener's own problem */ }
+    }
+  }
+
+  /* In-process subscription: fn receives every emitted workflow event.
+     Returns an unsubscribe function (plugin deactivate must call it). */
+  onWorkflowEvent(fn) {
+    if (typeof fn !== 'function') return () => {};
+    this._bus.add(fn);
+    return () => this._bus.delete(fn);
   }
 }
 

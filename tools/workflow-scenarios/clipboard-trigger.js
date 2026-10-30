@@ -22,16 +22,16 @@ module.exports = {
         });
 
         clipboard.writeText(`plain-${stamp}`);
-        await waitFor('任意文本工作流自动运行', () => events.some(e => e.id === 'wf-any'));
+        await waitFor('任意文本工作流自动运行', () => events.some(e => e.id === 'wf-any' && e.event === 'auto-run'));
         await sleep(400); // 给 json-only 足够的"不该触发"窗口
-        if (events.some(e => e.id === 'wf-json-only')) fail('纯文本不应触发 JSON 专属工作流');
-        const anyEvt = events.find(e => e.id === 'wf-any');
+        if (events.some(e => e.id === 'wf-json-only' && e.event !== 'auto-skip')) fail('纯文本不应触发 JSON 专属工作流');
+        const anyEvt = events.find(e => e.id === 'wf-any' && e.event === 'auto-run');
         if (anyEvt.detectedType !== 'text/plain') fail(`应识别为 text/plain，实际 ${anyEvt.detectedType}`);
         if (!anyEvt.ok) fail(`任意文本工作流应成功: ${anyEvt.error}`);
 
         clipboard.writeText(`{"n":${stamp}}`);
-        await waitFor('JSON 专属工作流自动运行', () => events.some(e => e.id === 'wf-json-only'));
-        const jsonEvt = events.find(e => e.id === 'wf-json-only');
+        await waitFor('JSON 专属工作流自动运行', () => events.some(e => e.id === 'wf-json-only' && e.event === 'auto-run'));
+        const jsonEvt = events.find(e => e.id === 'wf-json-only' && e.event === 'auto-run');
         if (jsonEvt.detectedType !== 'application/json') fail(`应识别为 application/json，实际 ${jsonEvt.detectedType}`);
       },
     },
@@ -50,12 +50,12 @@ module.exports = {
         });
 
         clipboard.writeText(`{"s":${stamp},"minified":true}`);
-        await waitFor('格式化工作流自动运行', () => events.some(e => e.id === 'wf-fmt'));
+        await waitFor('格式化工作流自动运行', () => events.some(e => e.id === 'wf-fmt' && e.event === 'auto-run'));
         await waitFor('格式化结果写回剪贴板', () => clipboard.readText().includes('\n  '));
 
-        const before = events.filter(e => e.id === 'wf-fmt').length;
+        const before = events.filter(e => e.id === 'wf-fmt' && e.event === 'auto-run').length;
         await sleep(1000); // 数个轮询周期，若防循环失效这里会反复触发
-        const after = events.filter(e => e.id === 'wf-fmt').length;
+        const after = events.filter(e => e.id === 'wf-fmt' && e.event === 'auto-run').length;
         if (after !== before) fail(`写回剪贴板引发了重复触发 (${before} → ${after})`);
       },
     },
@@ -70,7 +70,7 @@ module.exports = {
 
         clipboard.writeText(`should-not-trigger-${stamp}`);
         await sleep(800); // 超过多个轮询周期
-        if (events.some(e => e.id === 'wf-off')) fail('禁用工作流被自动触发了');
+        if (events.some(e => e.id === 'wf-off' && e.event === 'auto-run')) fail('禁用工作流被自动触发了');
 
         // 重新启用后应恢复触发（验证 watcher 按保存状态动态启停）
         wfManager.save({
@@ -78,7 +78,7 @@ module.exports = {
           nodes: [{ id: 'n1', type: 'trigger/clipboard', title: '监听', config: { type: 'any' } }], edges: [],
         });
         clipboard.writeText(`now-trigger-${stamp}`);
-        await waitFor('启用后工作流自动运行', () => events.some(e => e.id === 'wf-off'));
+        await waitFor('启用后工作流自动运行', () => events.some(e => e.id === 'wf-off' && e.event === 'auto-run'));
       },
     },
     {
