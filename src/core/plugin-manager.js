@@ -376,7 +376,16 @@ class PluginManager {
         if (!host || host.isDestroyed()) return false;
         this.bringToForeground(host);
         if (host.webContents && !host.webContents.isDestroyed()) {
-          host.webContents.send('navigate-to', { pluginId: String(id), payload: payload || null });
+          const nav = { view: 'panel', pluginId: String(id), payload: payload || null };
+          if (typeof host.webContents.isLoading === 'function' && host.webContents.isLoading()) {
+            host.webContents.once('did-finish-load', () => {
+              if (!host.isDestroyed() && host.webContents && !host.webContents.isDestroyed()) {
+                host.webContents.send('navigate-to', nav);
+              }
+            });
+          } else {
+            host.webContents.send('navigate-to', nav);
+          }
         }
         return true;
       },

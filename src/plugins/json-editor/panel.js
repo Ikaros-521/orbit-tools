@@ -980,9 +980,10 @@
     // Initial setup: support incoming pipeline payload or standard sample
     if (ctx && ctx.payload && (typeof ctx.payload.value === 'string' || typeof ctx.payload === 'string')) {
       const incoming = typeof ctx.payload === 'string' ? ctx.payload : ctx.payload.value;
+      const fileLabel = (ctx.payload && ctx.payload.name) ? `「${ctx.payload.name}」` : (isZh ? '传输数据' : 'pipeline data');
       ta.value = incoming;
       try { ta.value = formatJson(incoming, 2); } catch { /* keep raw */ }
-      showToast(isZh ? '✓ 已载入管道传输数据' : 'Pipeline data loaded');
+      showToast(isZh ? `✓ 已载入${fileLabel}` : `Loaded ${fileLabel}`);
     } else {
       ta.value = SAMPLES.standard;
     }

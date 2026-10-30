@@ -243,6 +243,19 @@ app.whenReady().then(async () => {
   }
   console.log('codec-lab openPanel host routing OK');
 
+  // verify cross-plugin openPluginPanel routing with view: 'panel'
+  const memoP = manager.plugins.get('memo');
+  const memoState = manager.active.get('memo');
+  if (memoP && memoState) {
+    const ctx = manager.makeContext(memoP, memoState);
+    const opened = ctx.openPluginPanel('json-editor', { type: 'application/json', value: '{"test":1}' });
+    if (!opened) throw new Error('openPluginPanel failed');
+    if (mockReceivedChannel !== 'navigate-to' || !mockReceivedPayload || mockReceivedPayload.view !== 'panel' || mockReceivedPayload.pluginId !== 'json-editor') {
+      throw new Error('openPluginPanel did not dispatch correct navigate-to payload: ' + JSON.stringify(mockReceivedPayload));
+    }
+    console.log('cross-plugin openPluginPanel routing OK');
+  }
+
   // verify capabilities detection & smart peek
   const tsRes = manager.detectSmartPeek('1710000000');
   if (!tsRes || tsRes.pluginId !== 'codec-lab' || tsRes.type !== 'text/timestamp') {

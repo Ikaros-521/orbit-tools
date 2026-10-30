@@ -2708,7 +2708,7 @@ if (window.host.onOpenPlugin) {
 if (window.host.onNavigateTo) {
   window.host.onNavigateTo(opts => {
     if (!opts) return;
-    if (opts.view === 'panel' && opts.pluginId) {
+    if ((opts.view === 'panel' || (!opts.view && opts.pluginId)) && opts.pluginId) {
       openPlugin(opts.pluginId, { payload: opts.payload });
     } else if (opts.view === 'workflows') {
       closePanel();
