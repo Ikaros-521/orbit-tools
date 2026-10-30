@@ -388,6 +388,9 @@
     const cntToday = el.querySelector('.memo-cnt-today');
     const cntPending = el.querySelector('.memo-cnt-pending');
     const cntDone = el.querySelector('.memo-cnt-done');
+    const groupToday = el.querySelector('.memo-group-today');
+    const groupPending = el.querySelector('.memo-group-pending');
+    const groupDone = el.querySelector('.memo-group-done');
 
     // Calendar elements
     const calMonthTitle = el.querySelector('.memo-cal-month-title');
@@ -405,6 +408,7 @@
     let activeId = null;
     let prefs = {};
     let query = '';
+    let todoFilter = 'all';
     let dirty = false;
     let saveTimer = null;
     let lastSavedAt = 0;
@@ -738,7 +742,18 @@
       } else {
         listDone.forEach(t => itemsDone.appendChild(createTodoItemEl(t)));
       }
+
+      // sidebar view filter: all / today / done
+      groupToday.style.display = todoFilter === 'all' || todoFilter === 'today' ? '' : 'none';
+      groupPending.style.display = todoFilter === 'all' ? '' : 'none';
+      groupDone.style.display = todoFilter === 'all' || todoFilter === 'done' ? '' : 'none';
     }
+
+    el.querySelectorAll('.memo-todo-filter-btn').forEach(btn => btn.addEventListener('click', () => {
+      todoFilter = btn.dataset.filter;
+      el.querySelectorAll('.memo-todo-filter-btn').forEach(b => b.classList.toggle('on', b === btn));
+      renderTodos();
+    }));
 
     async function addTodoFromInput() {
       const title = todoAddInput.value.trim();
@@ -871,45 +886,213 @@
     });
 
     /* --- Formatter Tools ---------------------------------------------------- */
-    function wrapSelection(before, after) {
-      const start = editor.selectionStart;
-      const end = editor.selectionEnd;
-      const val = editor.value;
-      const sel = val.slice(start, end);
-      editor.value = val.slice(0, start) + before + sel + after + val.slice(end);
-      editor.selectionStart = start + before.length;
-      editor.selectionEnd = end + before.length;
+    function setRange(start, end) {
       editor.focus();
+      editor.setSelectionRange(start, end);
+      updateStats();
+    }
+
+    /* wrap (or unwrap, when exactly surrounded) the selection */
+    function wrapSelection(before, after, placeholder) {
+      const s = editor.selectionStart;
+      const e = editor.selectionEnd;
+      const val = editor.value;
+      const sel = val.slice(s, e) || placeholder || '';
+      if (s >= before.length && e <= val.length - after.length &&
+          val.slice(s - before.length, s) === before && val.slice(e, e + after.length) === after &&
+          val.slice(s - before.length, e + after.length) === before + val.slice(s, e) + after) {
+        // unwrap the identical wrapping already present
+        const inner = val.slice(s, e);
+        editor.value = val.slice(0, s - before.length) + inner + val.slice(e + after.length);
+        setRange(s - before.length, e - before.length);
+      } else {
+        editor.value = val.slice(0, s) + before + sel + after + val.slice(e);
+        setRange(s + before.length, s + before.length + sel.length);
+      }
       triggerSave();
       updatePreview();
-      updateStats();
+    }
+
+    /* toggle a per-line prefix (headings / quote / lists) over the selection */
+    function toggleLinePrefix(prefixFn) {
+      const s = editor.selectionStart;
+      const e = editor.selectionEnd;
+      const val = editor.value;
+      const ls = val.lastIndexOf('\n', s - 1) + 1;
+      let le = val.indexOf('\n', e);
+      if (le === -1) le = val.length;
+      const block = val.slice(ls, le) || '';
+      const lines = block.split('\n');
+      const { prefix } = prefixFn(lines[0] || '');
+      const all = lines.every(l => l.startsWith(prefix));
+      const next = lines.map(l => (all ? l.slice(prefix.length) : prefix + l.replace(/^(#{1,6}\s|>\s|[-*+]\s|\d+\.\s)/, '')));
+      editor.value = val.slice(0, ls) + next.join('\n') + val.slice(le);
+      setRange(ls, ls + next.join('\n').length);
+      triggerSave();
+      updatePreview();
+    }
+
+    function insertBlock(text) {
+      const s = editor.selectionStart;
+      const val = editor.value;
+      const pre = s > 0 && val[s - 1] !== '\n' ? '\n\n' : '';
+      editor.value = val.slice(0, s) + pre + text + val.slice(editor.selectionEnd);
+      setRange(s + pre.length + text.length, s + pre.length + text.length);
+      triggerSave();
+      updatePreview();
+    }
+
+    function handleTab(e) {
+      e.preventDefault();
+      const s = editor.selectionStart;
+      const epos = editor.selectionEnd;
+      const val = editor.value;
+      if (s !== epos || e.shiftKey) {
+        // indent / outdent whole lines
+        const ls = val.lastIndexOf('\n', s - 1) + 1;
+        let le = val.indexOf('\n', epos);
+        if (le === -1) le = val.length;
+        const lines = val.slice(ls, le).split('\n');
+        const next = lines.map(l => (e.shiftKey ? l.replace(/^ {1,2}/, '') : '  ' + l));
+        editor.value = val.slice(0, ls) + next.join('\n') + val.slice(le);
+        setRange(ls, ls + next.join('\n').length);
+      } else if (e.shiftKey) {
+        const ls = val.lastIndexOf('\n', s - 1) + 1;
+        const removed = val.slice(ls, s).match(/ {1,2}$/);
+        if (removed) {
+          editor.value = val.slice(0, s - removed[0].length) + val.slice(s);
+          setRange(s - removed[0].length, s - removed[0].length);
+        }
+      } else {
+        editor.value = val.slice(0, s) + '  ' + val.slice(s);
+        setRange(s + 2, s + 2);
+      }
+      triggerSave();
+      updatePreview();
+    }
+
+    /* Enter continues lists (- / * / 1. / - [ ]) like mainstream editors;
+       an empty item terminates the list instead */
+    function handleEnter(e) {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const s = editor.selectionStart;
+      if (s !== editor.selectionEnd) return;
+      const val = editor.value;
+      const ls = val.lastIndexOf('\n', s - 1) + 1;
+      const line = val.slice(ls, s);
+      const m = /^(\s*)([-*+]|(\d+)\.)\s+(\[( |x|X)\]\s+)?(.*)$/.exec(line);
+      if (!m) return;
+      if (!m[6].trim()) {
+        // empty item → remove the marker and break out of the list
+        e.preventDefault();
+        editor.value = val.slice(0, ls) + val.slice(s);
+        setRange(ls, ls);
+      } else {
+        e.preventDefault();
+        const marker = m[3] ? `${Number(m[3]) + 1}.` : m[2];
+        const task = m[5] !== undefined ? '[ ] ' : '';
+        const ins = '\n' + m[1] + marker + ' ' + task;
+        editor.value = val.slice(0, s) + ins + val.slice(s);
+        setRange(s + ins.length, s + ins.length);
+      }
+      triggerSave();
+      updatePreview();
+    }
+
+    const TOOLBAR_DT = isZh
+      ? '| 列一 | 列二 |\n| ---- | ---- |\n|  |  |'
+      : '| col1 | col2 |\n| ---- | ---- |\n|  |  |';
+
+    function localNow(zh) {
+      const d = new Date();
+      return zh
+        ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${pad(d.getHours())}:${pad(d.getMinutes())}`
+        : d.toISOString().replace('T', ' ').slice(0, 16);
     }
 
     tools.addEventListener('click', e => {
       const btn = e.target.closest('.memo-fmt');
-      if (!btn) return;
-      const fmt = btn.dataset.fmt;
-      if (fmt === 'bold') wrapSelection('**', '**');
-      else if (fmt === 'italic') wrapSelection('*', '*');
-      else if (fmt === 'strike') wrapSelection('~~', '~~');
-      else if (fmt === 'code') wrapSelection('`', '`');
-      else if (fmt === 'link') wrapSelection('[', '](https://)');
-      else if (fmt === 'quote') wrapSelection('> ', '');
-      else if (fmt === 'ul') wrapSelection('- ', '');
-      else if (fmt === 'ol') wrapSelection('1. ', '');
-      else if (fmt === 'task') wrapSelection('- [ ] ', '');
-      else if (fmt === 'table') {
-        wrapSelection('\n| 标题1 | 标题2 |\n| --- | --- |\n| 内容1 | 内容2 |\n', '');
-      } else if (fmt === 'date') {
-        const now = new Date();
-        wrapSelection(now.toLocaleString(), '');
+      if (!btn || tools.classList.contains('disabled')) return;
+      editor.focus();
+      switch (btn.dataset.fmt) {
+        case 'bold': wrapSelection('**', '**'); break;
+        case 'italic': wrapSelection('*', '*'); break;
+        case 'strike': wrapSelection('~~', '~~'); break;
+        case 'code': wrapSelection('`', '`'); break;
+        case 'link': wrapSelection('[', '](https://)', L('链接文字', 'link text')); break;
+        case 'h': toggleLinePrefix(l => ({ prefix: /^#{1,5}\s/.test(l) ? '#'.repeat(l.match(/^#+/)[0].length + 1) + ' ' : '# ' })); break;
+        case 'quote': toggleLinePrefix(() => ({ prefix: '> ' })); break;
+        case 'ul': toggleLinePrefix(() => ({ prefix: '- ' })); break;
+        case 'ol': toggleLinePrefix(() => ({ prefix: '1. ' })); break;
+        case 'task': wrapSelection('- [ ] ', '', L('待办事项', 'todo item')); break;
+        case 'table': insertBlock(TOOLBAR_DT); break;
+        case 'date': insertBlock(localNow(isZh)); break;
       }
     });
+
+    /* split-view scroll sync + external links through the host shell */
+    let syncScroll = false;
+    editor.addEventListener('scroll', () => {
+      if (!syncScroll || modeSeg.dataset.mode !== 'split') return;
+      const er = editor.scrollHeight - editor.clientHeight;
+      const pr = preview.scrollHeight - preview.clientHeight;
+      if (er > 0 && pr > 0) preview.scrollTop = editor.scrollTop / er * pr;
+    });
+    preview.addEventListener('click', e => {
+      const a = e.target.closest('a[data-ext]');
+      if (a) { e.preventDefault(); ctx.openExternal(a.href); }
+    });
+
+    /* --- View Mode (edit / split / preview) ---------------------------------- */
+    function setMode(mode) {
+      modeSeg.dataset.mode = mode;
+      prefs.viewMode = mode;
+      ctx.call('setPrefs', { viewMode: mode }).catch(() => {});
+      modeSeg.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.mode === mode)));
+      editorArea.dataset.mode = mode;
+      syncScroll = mode === 'split';
+      if (mode === 'edit') editor.focus();
+    }
+    modeSeg.addEventListener('click', e => {
+      const b = e.target.closest('button[data-mode]');
+      if (b) setMode(b.dataset.mode);
+    });
+
+    /* --- New note / search / Ctrl+N ------------------------------------------ */
+    async function newNote() {
+      const res = await ctx.call('create', {}).catch(() => null);
+      if (res && res.ok) {
+        notes = res.notes;
+        activeId = res.activeId;
+        renderList();
+        loadActiveNote();
+        editor.focus();
+      }
+    }
+    el.querySelector('.memo-new').addEventListener('click', newNote);
+    el.addEventListener('keydown', e => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'n') {
+        e.preventDefault();
+        newNote();
+      }
+    });
+    searchInput.addEventListener('input', () => { query = searchInput.value; renderList(); });
 
     editor.addEventListener('input', () => {
       triggerSave();
       updatePreview();
       updateStats();
+    });
+    editor.addEventListener('keydown', e => {
+      if (e.key === 'Tab') handleTab(e);
+      else if (e.key === 'Enter') handleEnter(e);
+      else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'b') { e.preventDefault(); wrapSelection('**', '**'); }
+      else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'i') { e.preventDefault(); wrapSelection('*', '*'); }
+      else if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        dirty = true;
+        flushSave();
+      }
     });
     titleInput.addEventListener('input', () => { triggerSave(); });
     editor.addEventListener('keyup', updateStats);
@@ -924,9 +1107,19 @@
         activeId = res.activeId;
         prefs = res.prefs || {};
       }
+      // pipeline payload ("发送到备忘录") lands as a brand-new note
+      const pv = ctx.payload && typeof ctx.payload.value === 'string' && ctx.payload.value.trim() ? ctx.payload.value : '';
+      if (pv) {
+        const r = await ctx.call('create', { content: pv }).catch(() => null);
+        if (r && r.ok) {
+          notes = r.notes;
+          activeId = r.activeId;
+        }
+      }
       renderList();
       loadActiveNote();
       renderTodos();
+      setMode(['edit', 'split', 'preview'].includes(prefs.viewMode) ? prefs.viewMode : 'split');
 
       // If opened via desktop-pet or palette with payload view
       if (ctx.payload && ctx.payload.view === 'calendar') {
