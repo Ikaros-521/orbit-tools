@@ -4,7 +4,7 @@
    - http:  streamable HTTP — JSON-RPC via POST, JSON or SSE-encoded responses
    Zero external dependencies. */
 
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const PROTOCOL_VERSION = '2024-11-05';
 const START_TIMEOUT = 20000;
@@ -167,7 +167,13 @@ class McpServerConnection {
     await this._notify('notifications/initialized');
   }
 
-  dispose() {
+  /* Tear down the connection and take the server process down.
+     sync=true is REQUIRED on shutdown paths (will-quit → deactivateAll):
+     a fire-and-forget taskkill races the app's own exit — the cmd.exe
+     wrapper dies together with the parent before taskkill can enumerate
+     the tree, orphaning the real server grandchild (measured: 5/5 quit
+     attempts left an orphan). sync blocks until the tree kill completed. */
+  dispose(sync = false) {
     this._failAll('连接已关闭');
     const proc = this.proc;
     this.proc = null;
@@ -176,8 +182,18 @@ class McpServerConnection {
     if (process.platform === 'win32') {
       // On Windows the server usually runs as cmd.exe -> node grandchild;
       // killing only cmd.exe orphans the grandchildren, so take down the
-      // whole process tree. taskkill is fire-and-forget here.
+      // whole process tree.
       if (!proc.pid) { try { proc.kill(); } catch {} return; }
+      if (sync) {
+        let killed = false;
+        try {
+          const r = spawnSync('taskkill', ['/pid', String(proc.pid), '/T', '/F'],
+            { windowsHide: true, stdio: 'ignore' });
+          killed = !r.error && r.status === 0;
+        } catch {}
+        if (!killed) { try { proc.kill(); } catch {} }
+        return;
+      }
       try {
         const killer = spawn('taskkill', ['/pid', String(proc.pid), '/T', '/F'],
           { windowsHide: true, stdio: 'ignore' });
@@ -186,6 +202,14 @@ class McpServerConnection {
         try { proc.kill(); } catch {}
       }
     } else {
+      if (sync) {
+        // POSIX shutdown has the same race: the deferred SIGKILL below never
+        // fires once the app is exiting. Term + short grace + kill.
+        try { proc.kill('SIGTERM'); } catch {}
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 300);
+        try { proc.kill('SIGKILL'); } catch {}
+        return;
+      }
       // POSIX: polite SIGTERM first, SIGKILL after a short grace period.
       try { proc.kill('SIGTERM'); } catch {}
       const t = setTimeout(() => { try { proc.kill('SIGKILL'); } catch {} }, 2000);

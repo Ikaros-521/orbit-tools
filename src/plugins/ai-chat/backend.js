@@ -8,6 +8,7 @@ const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = req
 const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
 const { parseSkillMarkdown, resolveSkillSourceUrl, pickSkillEntries, pickLocalSkillFiles } = require('./skills-util');
 const { LOCAL_TOOL_NAMES, LOCAL_TOOLS_DEFINITIONS, executeLocalTool, killRunningCommands } = require('./local-tools');
+const { dialog } = require('electron');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -162,6 +163,20 @@ module.exports = {
       ctx.data.set({ config, personas, sessions, activeSessionId, skills, mcpServers });
     };
 
+    // Resolve a user-supplied work dir (relative paths anchor at the user home); '' = unset -> default home
+    const validateWorkDir = raw => {
+      const dir = String(raw || '').trim().replace(/^"|"$/g, '');
+      if (!dir) return { ok: true, dir: '' };
+      let resolved;
+      try {
+        resolved = path.resolve(os.homedir(), dir);
+        if (!fs.statSync(resolved).isDirectory()) return { ok: false, error: '路径不是目录' };
+      } catch {
+        return { ok: false, error: `目录不存在或无法访问: ${resolved || dir}` };
+      }
+      return { ok: true, dir: resolved };
+    };
+
     // Ensure at least one session exists
     if (sessions.length === 0) {
       const first = {
@@ -208,7 +223,13 @@ module.exports = {
     });
 
     ctx.ipc.handle('saveConfig', args => {
-      config = { ...config, ...(args || {}) };
+      const patch = { ...(args || {}) };
+      if ('agentWorkDir' in patch) {
+        const v = validateWorkDir(patch.agentWorkDir);
+        if (!v.ok) return { ok: false, error: v.error };
+        patch.agentWorkDir = v.dir;
+      }
+      config = { ...config, ...patch };
       save();
       return { ok: true, config };
     });
@@ -309,6 +330,7 @@ module.exports = {
           id: genId('sess'),
           title: '新对话',
           personaId: 'general',
+          workDir: config.agentWorkDir || os.homedir(),
           createdAt: Date.now(),
           updatedAt: Date.now(),
           totalTokens: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -410,20 +432,27 @@ module.exports = {
     ctx.ipc.handle('setSessionWorkDir', args => {
       const s = findSession(args && args.sessionId);
       if (!s) return { ok: false, error: '会话不存在' };
-      const dir = String((args && args.dir) || '').trim();
-      if (!dir) return { ok: false, error: '路径不能为空' };
-      let resolved;
-      try {
-        resolved = path.resolve(dir);
-        const st = fs.statSync(resolved);
-        if (!st.isDirectory()) return { ok: false, error: '路径不是目录' };
-      } catch {
-        return { ok: false, error: `目录不存在或无法访问: ${resolved || dir}` };
-      }
-      s.workDir = resolved;
+      const v = validateWorkDir(args && args.dir);
+      if (!v.ok) return { ok: false, error: v.error };
+      s.workDir = v.dir; // '' clears the per-session override -> falls back to the configured default
       s.updatedAt = Date.now();
       save();
-      return { ok: true, workDir: resolved };
+      return { ok: true, workDir: v.dir };
+    });
+
+    // Native folder picker for the Agent working directory (renderer cannot open OS dialogs)
+    ctx.ipc.handle('chooseAgentWorkDir', async args => {
+      const start = (args && args.current)
+        || config.agentWorkDir
+        || os.homedir();
+      const parent = ctx.getHostWindow ? ctx.getHostWindow() : null;
+      const r = await dialog.showOpenDialog(parent && !parent.isDestroyed() ? parent : null, {
+        title: '选择 Agent 工作目录',
+        defaultPath: fs.existsSync(start) ? start : os.homedir(),
+        properties: ['openDirectory', 'createDirectory'],
+      });
+      if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
+      return { ok: true, dir: r.filePaths[0] };
     });
 
     /* --- MCP runtime: pooled connections + merged tool table ---------------- */
@@ -465,10 +494,10 @@ module.exports = {
       return { defs, routes, statuses };
     };
 
-    const disposeMcpConn = id => {
+    const disposeMcpConn = (id, sync) => {
       const entry = mcpConns.get(id);
       if (entry) {
-        try { entry.conn.dispose(); } catch {}
+        try { entry.conn.dispose(!!sync); } catch {}
         mcpConns.delete(id);
       }
     };
@@ -1153,15 +1182,18 @@ module.exports = {
 
     disposeAll = () => {
       // Deactivate/disable/rescan must not leave streams running or approvals
-      // permanently unresolvable (the IPC handlers are about to disappear)
+      // permanently unresolvable (the IPC handlers are about to disappear).
+      // Kills are sync: this runs from will-quit, and fire-and-forget
+      // taskkill loses the race with app teardown (orphaned MCP node.exe /
+      // shell grandchildren — measured 5/5 before the fix).
       for (const [streamId, controller] of [...activeStreams]) {
         try { controller.abort(); } catch {}
         denyPendingApprovals(streamId, 'aborted');
-        killRunningCommands(streamId);
+        killRunningCommands(streamId, true);
       }
       activeStreams.clear();
       streamBySession.clear();
-      for (const id of [...mcpConns.keys()]) disposeMcpConn(id);
+      for (const id of [...mcpConns.keys()]) disposeMcpConn(id, true);
     };
   },
 

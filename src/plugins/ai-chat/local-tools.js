@@ -6,7 +6,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
 
 const MAX_READ_CHARS = 64 * 1024;
 const MAX_WRITE_CHARS = 1024 * 1024;
@@ -116,14 +116,22 @@ const unregisterCommand = (streamId, child) => {
   if (set.size === 0) runningCommands.delete(streamId);
 };
 
-// Kill every in-flight command belonging to a stream (used on user abort)
-const killRunningCommands = streamId => {
+// Kill every in-flight command belonging to a stream.
+// sync=true is REQUIRED when the caller is an app-shutdown path: a
+// fire-and-forget taskkill loses the race with the parent exiting — the
+// cmd.exe wrapper dies before taskkill enumerates it, orphaning command
+// grandchildren. User-abort callers can stay async.
+const killRunningCommands = (streamId, sync = false) => {
   const set = runningCommands.get(streamId);
   if (!set) return;
   for (const child of set) {
     try {
       if (process.platform === 'win32' && child.pid) {
-        spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        if (sync) {
+          spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+        } else {
+          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+        }
       } else {
         child.kill('SIGKILL');
       }
