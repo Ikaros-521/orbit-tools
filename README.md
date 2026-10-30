@@ -1,12 +1,34 @@
-# Orbit Toolbox · 轨道工具箱
+<h1 align="center">Orbit Toolbox · 轨道工具箱</h1>
 
-uTools 风格的**插件化开发工具箱**。常用小工具封装成可插拔的插件：按需启用 / 禁用，全局热键一键呼出，往目录里丢一个文件夹就是安装。
+<p align="center">
+  <a href="https://github.com/Ikaros-521/orbit-tools/stargazers"><img src="https://img.shields.io/github/stars/Ikaros-521/orbit-tools?style=flat-square&logo=github&label=stars" alt="GitHub Stars"></a>
+  <a href="https://github.com/Ikaros-521/orbit-tools/network/members"><img src="https://img.shields.io/github/forks/Ikaros-521/orbit-tools?style=flat-square&logo=github&label=forks" alt="GitHub Forks"></a>
+  <a href="https://github.com/Ikaros-521/orbit-tools/issues"><img src="https://img.shields.io/github/issues/Ikaros-521/orbit-tools?style=flat-square&label=issues" alt="GitHub Issues"></a>
+  <a href="https://github.com/Ikaros-521/orbit-tools/releases"><img src="https://img.shields.io/github/v/release/Ikaros-521/orbit-tools?style=flat-square&label=release" alt="Latest Release"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/Ikaros-521/orbit-tools?style=flat-square&label=license" alt="License"></a>
+</p>
 
-A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or disable it on demand, summon anything with a global hotkey, and install a new tool by dropping a folder into a directory.
+<p align="center">
+  <img src="https://img.shields.io/badge/Electron-33-2f3241?style=flat-square&logo=electron&logoColor=47848F" alt="Electron">
+  <img src="https://img.shields.io/badge/JavaScript-ES2024-f7df1e?style=flat-square&logo=javascript&logoColor=black" alt="JavaScript">
+  <img src="https://img.shields.io/badge/Node.js-crypto_/_net-339933?style=flat-square&logo=node.js&logoColor=white" alt="Node.js">
+  <img src="https://img.shields.io/badge/HTML5-原生-e34f26?style=flat-square&logo=html5&logoColor=white" alt="HTML5">
+  <img src="https://img.shields.io/badge/CSS3-原生-1572b6?style=flat-square&logo=css3&logoColor=white" alt="CSS3">
+  <img src="https://img.shields.io/badge/无框架×无打包器-contextIsolation%20%2B%20sandbox-8A2BE2?style=flat-square" alt="No Framework / No Bundler">
+</p>
 
-基于 [antigravity-launcher](https://github.com/Ikaros-521/antigravity-launcher) 的架构经验重写：纯 Electron、无前端框架、无打包器，`contextIsolation + sandbox` 全开。
+<p align="center">
+  uTools 风格的<b>插件化开发工具箱</b>：常用小工具封装成可插拔的插件 —— 按需启用 / 禁用，全局热键一键呼出，往目录里丢一个文件夹就是安装。<br>
+  A uTools-style pluggable developer toolbox. Every tool is a plugin — enable or disable it on demand, summon anything with a global hotkey, and install a new tool by dropping a folder into a directory.
+</p>
 
-<img width="2810" height="1653" alt="image" src="https://github.com/user-attachments/assets/2eeb16a2-a9ed-4de0-815a-d08721a8f7af" />
+<p align="center">
+  基于 <a href="https://github.com/Ikaros-521/antigravity-launcher">antigravity-launcher</a> 的架构经验重写：纯 Electron、无前端框架、无打包器，<code>contextIsolation + sandbox</code> 全开。
+</p>
+
+<p align="center">
+  <img width="2810" height="1653" alt="Orbit Toolbox 界面截图" src="https://github.com/user-attachments/assets/2eeb16a2-a9ed-4de0-815a-d08721a8f7af" />
+</p>
 
 
 ## 内置插件
