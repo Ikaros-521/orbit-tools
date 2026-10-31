@@ -2,10 +2,10 @@
   "id": "ai-chat",
   "name": { "zh": "AI 对话", "en": "AI Chat" },
   "desc": {
-    "zh": "本地 Agent 助手：文件读写/搜索与 shell 命令执行 (工作目录制)、审批档位（每次确认/自动审核/完全访问）、技能 Skills 与 MCP 服务器接入、思维等级、多协议 (OpenAI/Responses/Claude) 与工作流自动生成",
-    "en": "Local agent assistant: filesystem & shell tools with working directory, approval tiers, skills & MCP servers, thinking levels, multi-protocol chat, and workflow generation"
+    "zh": "本地 Agent 助手：多轮工具循环 (grep 定位/精确编辑/命令执行)、任务规划清单、跨会话长期记忆 (自动召回+记忆库管理)、审批档位（每次确认/自动审核/完全访问）、技能 Skills 与 MCP 服务器接入、思维等级、多协议 (OpenAI/Responses/Claude) 与工作流自动生成",
+    "en": "Local agent assistant: multi-round tool loop (grep/edit/run), task planning list, cross-session memory with auto-recall, approval tiers, skills & MCP servers, thinking levels, multi-protocol chat, and workflow generation"
   },
-  "version": "1.3.0",
+  "version": "1.4.0",
   "category": "dev",
   "author": "Ikaros-521",
   "keywords": ["ai", "chat", "gpt", "deepseek", "claude", "llm", "agent", "cot", "openai", "mcp", "skills", "对话", "模型", "思维链", "工作流"],

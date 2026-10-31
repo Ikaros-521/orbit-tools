@@ -17,8 +17,17 @@ const AGENT_TOOL_META = {
   list_dir: { risk: 'low', label: '列出本地目录' },
   read_file: { risk: 'low', label: '读取本地文件' },
   search_files: { risk: 'low', label: '搜索本地文件' },
+  grep_search: { risk: 'low', label: '搜索文件内容' },
   write_file: { risk: 'high', label: '写入本地文件' },
-  run_command: { risk: 'high', label: '执行系统命令' }
+  edit_file: { risk: 'high', label: '修改本地文件' },
+  run_command: { risk: 'high', label: '执行系统命令' },
+  // Harness capabilities (memory.js / task-tools.js): the agent's own
+  // notebook & plan — reads and writes are low-risk, deletions are high.
+  memory_write: { risk: 'low', label: '写入长期记忆' },
+  memory_search: { risk: 'low', label: '检索长期记忆' },
+  memory_list: { risk: 'low', label: '列出长期记忆' },
+  memory_delete: { risk: 'high', label: '删除长期记忆' },
+  update_task_list: { risk: 'low', label: '更新任务清单' }
   // MCP tools (mcp__server__tool) are dynamic and default to high-risk
   // in resolveToolPermission — they ask in 'ask' and 'auto' tiers.
 };

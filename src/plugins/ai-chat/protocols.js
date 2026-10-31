@@ -195,11 +195,29 @@ const OpenAIResponsesAdapter = {
       ...(opts.headers || {})
     };
 
-    // Convert messages to Responses API input format
-    const input = (opts.messages || []).map(m => ({
-      role: m.role || 'user',
-      content: typeof m.content === 'string' ? m.content : JSON.stringify(m.content)
-    }));
+    // Convert messages to Responses API input items. Tool dialogue (assistant
+    // tool_calls + role:'tool' responses, OpenAI-chat shape) maps to typed
+    // items (function_call / function_call_output) — without this the agent
+    // loop's follow-up rounds would silently drop all tool context.
+    const input = [];
+    for (const m of (opts.messages || [])) {
+      const contentText = typeof m.content === 'string' ? m.content : (m.content ? JSON.stringify(m.content) : '');
+      if (m.role === 'tool' && m.tool_call_id) {
+        input.push({ type: 'function_call_output', call_id: m.tool_call_id, output: contentText || '' });
+      } else if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+        if (contentText) input.push({ role: 'assistant', content: contentText });
+        for (const tc of m.tool_calls) {
+          input.push({
+            type: 'function_call',
+            call_id: tc.id,
+            name: tc.function ? tc.function.name : '',
+            arguments: (tc.function && tc.function.arguments) || '{}'
+          });
+        }
+      } else {
+        input.push({ role: m.role || 'user', content: contentText });
+      }
+    }
 
     const body = {
       model: opts.model || 'gpt-4o',
@@ -393,9 +411,32 @@ const ClaudeMessagesAdapter = {
     let systemPrompt = '';
     const messages = [];
 
+    // Tool dialogue arrives in OpenAI-chat shape (assistant.tool_calls +
+    // role:'tool' responses). Claude needs tool_use blocks on the assistant
+    // turn and tool_result blocks inside a user turn; consecutive tool
+    // responses merge into a single user message, as the API requires.
     for (const m of (opts.messages || [])) {
       if (m.role === 'system') {
         systemPrompt += (systemPrompt ? '\n\n' : '') + m.content;
+      } else if (m.role === 'tool' && m.tool_call_id) {
+        const last = messages[messages.length - 1];
+        if (last && last.role === 'user' && Array.isArray(last.content) && last.content[0] && last.content[0].type === 'tool_result') {
+          last.content.push({ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content || '' });
+        } else {
+          messages.push({
+            role: 'user',
+            content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content || '' }]
+          });
+        }
+      } else if (m.role === 'assistant' && Array.isArray(m.tool_calls) && m.tool_calls.length > 0) {
+        const blocks = [];
+        if (m.content) blocks.push({ type: 'text', text: m.content });
+        for (const tc of m.tool_calls) {
+          let inputObj = {};
+          try { inputObj = JSON.parse((tc.function && tc.function.arguments) || '{}'); } catch { inputObj = {}; }
+          blocks.push({ type: 'tool_use', id: tc.id, name: tc.function ? tc.function.name : '', input: inputObj });
+        }
+        messages.push({ role: 'assistant', content: blocks });
       } else {
         messages.push({
           role: m.role === 'assistant' ? 'assistant' : 'user',

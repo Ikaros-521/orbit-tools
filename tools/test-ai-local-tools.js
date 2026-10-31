@@ -128,14 +128,21 @@ async function main() {
   let lastTurnRequestMessages = null;
   let failNextFollowUp = false;
   let emitToolCallsNext = false;
+  let withToolsCalls = 0;
+  let failOnWithToolsCount = 0; // throw when the Nth with-tools call arrives (post-tool round of the loop)
   protocols.streamCompletion = async (opts, onChunk) => {
     const hasTools = Array.isArray(opts.tools) && opts.tools.some(Boolean);
     if (!hasTools) {
-      // follow-up inference round (tools are disabled there)
+      // tool-free final round (round budget exhausted)
       if (failNextFollowUp) { failNextFollowUp = false; throw new Error('simulated follow-up failure'); }
       onChunk({ type: 'content', delta: ' 继续回答' });
       onChunk({ type: 'done' });
       return;
+    }
+    withToolsCalls++;
+    if (failOnWithToolsCount && withToolsCalls === failOnWithToolsCount) {
+      failOnWithToolsCount = 0;
+      throw new Error('simulated follow-up failure');
     }
     if (opts.tools.some(t => t.function && t.function.name === 'read_file')) {
       sawLocalToolDefs = true;
@@ -284,7 +291,10 @@ async function main() {
     const { ctx: ctx4, chunks: chunks4 } = mkCtx(store4);
     backend.activate(ctx4);
     emitToolCallsNext = true;
-    failNextFollowUp = true;
+    // Round 1 emits the tool call, round 2 (the loop's post-tool continuation,
+    // which keeps tools enabled) fails: the error must surface and the
+    // fallback model must NOT replay the already-executed tool call.
+    failOnWithToolsCount = withToolsCalls + 2;
     await ctx4.call('sendMessage', { sessionId: 's4', content: 'run', enableAgent: true, enableReasoning: false, agentApprovalMode: 'auto' });
     await waitFor(() => chunks4.some(c => c.type === 'complete'));
     const toolResults = chunks4.filter(c => c.type === 'tool_result');

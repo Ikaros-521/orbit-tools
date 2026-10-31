@@ -13,7 +13,7 @@ const MAX_WRITE_CHARS = 1024 * 1024;
 const MAX_CMD_OUT = 15 * 1024;
 const DEFAULT_CMD_TIMEOUT = 30000;
 
-const LOCAL_TOOL_NAMES = new Set(['list_dir', 'read_file', 'write_file', 'search_files', 'run_command']);
+const LOCAL_TOOL_NAMES = new Set(['list_dir', 'read_file', 'write_file', 'edit_file', 'search_files', 'grep_search', 'run_command']);
 
 const LOCAL_TOOLS_DEFINITIONS = [
   {
@@ -74,6 +74,42 @@ const LOCAL_TOOLS_DEFINITIONS = [
           contains: { type: 'string', description: '可选：文件内容需包含的文本' },
           max_results: { type: 'number', description: '最多返回条数 (默认 50，上限 200)' }
         }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'edit_file',
+      description: '对本地文本文件做精确字符串替换（改代码首选，避免整文件重写）。old_text 必须与文件内容完全一致（含缩进）；默认要求在文件中唯一出现，多处替换需显式 replace_all。高危操作，需用户审批。',
+      parameters: {
+        type: 'object',
+        properties: {
+          path: { type: 'string', description: '文件路径' },
+          old_text: { type: 'string', description: '要被替换的原文（逐字符精确匹配，含空白与缩进）' },
+          new_text: { type: 'string', description: '替换后的新文本（删除内容则传空字符串）' },
+          replace_all: { type: 'boolean', description: 'old_text 出现多次时是否全部替换（默认 false，多处且未开启时报错）' }
+        },
+        required: ['path', 'old_text', 'new_text']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'grep_search',
+      description: '在目录中按内容搜索文件（类似 grep）：正则或纯文本，返回 文件:行号:该行内容。自动跳过 node_modules/.git 等目录与二进制文件。定位代码/配置时优先使用。',
+      parameters: {
+        type: 'object',
+        properties: {
+          pattern: { type: 'string', description: '搜索模式：正则表达式或纯文本' },
+          dir: { type: 'string', description: '搜索起始目录，默认工作目录' },
+          glob: { type: 'string', description: '文件名通配符过滤，如 "*.js"、"*.md"，默认 "*"' },
+          is_regex: { type: 'boolean', description: 'pattern 是否为正则（默认 false，纯文本匹配）' },
+          ignore_case: { type: 'boolean', description: '忽略大小写（默认 false）' },
+          max_results: { type: 'number', description: '最多返回匹配条数 (默认 50，上限 200)' }
+        },
+        required: ['pattern']
       }
     }
   },
@@ -222,6 +258,52 @@ async function executeLocalTool(name, args, runtime) {
       return { ok: true, path: target, bytes: Buffer.byteLength(content), mode: args.mode === 'append' ? 'append' : 'overwrite' };
     }
 
+    if (name === 'edit_file') {
+      const target = resolveWorkPath(args.path, workDir);
+      const oldText = String(args.old_text ?? '');
+      const newText = String(args.new_text ?? '');
+      if (!oldText) return { ok: false, error: 'old_text 不能为空' };
+      if (oldText === newText) return { ok: false, error: 'old_text 与 new_text 相同，无需修改' };
+      let st;
+      try { st = fs.statSync(target); } catch { return { ok: false, error: `文件不存在: ${target}` }; }
+      if (st.isDirectory()) return { ok: false, error: '目标是目录' };
+      if (st.size > 2 * 1024 * 1024) return { ok: false, error: `文件过大 (${st.size} bytes，上限 2MB)` };
+      const text = fs.readFileSync(target, 'utf8');
+      if (text.includes('\u0000')) return { ok: false, error: '疑似二进制文件，无法作为文本编辑' };
+
+      // Count non-overlapping occurrences of old_text
+      const occurrences = [];
+      let pos = text.indexOf(oldText);
+      while (pos !== -1) {
+        occurrences.push(pos);
+        pos = text.indexOf(oldText, pos + oldText.length);
+      }
+      if (occurrences.length === 0) {
+        return { ok: false, error: 'old_text 在文件中未找到（需逐字符精确匹配，注意缩进与空白；可先用 read_file 核对原文）' };
+      }
+      if (occurrences.length > 1 && !args.replace_all) {
+        return { ok: false, error: `old_text 出现 ${occurrences.length} 处，为避免误改请扩大上下文使其唯一，或设置 replace_all: true` };
+      }
+
+      const updated = args.replace_all
+        ? text.split(oldText).join(newText)
+        : text.slice(0, occurrences[0]) + newText + text.slice(occurrences[0] + oldText.length);
+      fs.writeFileSync(target, updated, 'utf8');
+
+      // Preview: a few lines around the first replacement site
+      const head = updated.slice(0, occurrences[0] + newText.length);
+      const startLine = Math.max(0, head.split(/\r?\n/).length - 4);
+      const allLines = updated.split(/\r?\n/);
+      const previewLines = allLines.slice(startLine, startLine + 7);
+      const preview = previewLines.map((l, i) => `${startLine + i + 1}| ${l}`).join('\n');
+      return {
+        ok: true,
+        path: target,
+        replacements: args.replace_all ? occurrences.length : 1,
+        preview
+      };
+    }
+
     if (name === 'search_files') {
       const root = resolveWorkPath(args.dir || '.', workDir);
       const glob = String(args.glob || '*');
@@ -258,6 +340,61 @@ async function executeLocalTool(name, args, runtime) {
       };
       walk(root, 0);
       return { ok: true, root, matched: results.length, truncated, files: results };
+    }
+
+    if (name === 'grep_search') {
+      const pattern = String(args.pattern || '');
+      if (!pattern) return { ok: false, error: 'pattern 不能为空' };
+      const root = resolveWorkPath(args.dir || '.', workDir);
+      const glob = String(args.glob || '*');
+      const maxResults = Math.min(200, Math.max(1, Number(args.max_results) || 50));
+      const flags = args.ignore_case ? 'gi' : 'g';
+      let re;
+      try {
+        re = new RegExp(args.is_regex ? pattern : pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), flags);
+      } catch (err) {
+        return { ok: false, error: `正则无效: ${err.message}` };
+      }
+      const globRe = new RegExp('^' + glob.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
+      const SKIP = new Set(['node_modules', '.git', '__pycache__', 'dist', 'build', '.cache', 'target']);
+      const matches = [];
+      const filesWithHits = new Set();
+      let scannedFiles = 0;
+      let truncated = false;
+
+      const walk = dir => {
+        if (matches.length >= maxResults) { truncated = true; return; }
+        let entries;
+        try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+        for (const e of entries) {
+          if (matches.length >= maxResults) { truncated = true; break; }
+          const full = path.join(dir, e.name);
+          if (e.isDirectory()) {
+            if (!SKIP.has(e.name) && !e.name.startsWith('.')) walk(full);
+            continue;
+          }
+          if (!e.isFile() || !globRe.test(e.name)) continue;
+          scannedFiles++;
+          let text;
+          try {
+            const st = fs.statSync(full);
+            if (st.size > 1024 * 1024) continue; // 1MB content cap per file
+            const buf = fs.readFileSync(full);
+            if (buf.subarray(0, 4096).includes(0)) continue; // binary
+            text = buf.toString('utf8');
+          } catch { continue; }
+          const lines = text.split(/\r?\n/);
+          for (let i = 0; i < lines.length; i++) {
+            re.lastIndex = 0;
+            if (!re.test(lines[i])) continue;
+            matches.push({ file: path.relative(root, full), line: i + 1, text: lines[i].length > 200 ? lines[i].slice(0, 200) + '…' : lines[i] });
+            filesWithHits.add(full);
+            if (matches.length >= maxResults) { truncated = true; break; }
+          }
+        }
+      };
+      walk(root);
+      return { ok: true, root, pattern, matched: matches.length, filesMatched: filesWithHits.size, scannedFiles, truncated, matches };
     }
 
     if (name === 'run_command') {

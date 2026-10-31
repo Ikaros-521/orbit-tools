@@ -8,6 +8,11 @@ const { AGENT_TOOLS_DEFINITIONS, resolveToolPermission, executeAgentTool } = req
 const { McpServerConnection, toOpenAiTool, formatToolResult } = require('./mcp-client');
 const { parseSkillMarkdown, resolveSkillSourceUrl, pickSkillEntries, pickLocalSkillFiles } = require('./skills-util');
 const { LOCAL_TOOL_NAMES, LOCAL_TOOLS_DEFINITIONS, executeLocalTool, killRunningCommands } = require('./local-tools');
+const {
+  MEMORY_TOOLS_DEFINITIONS, normalizeMemoryRecord, searchMemories,
+  formatMemoriesForPrompt, executeMemoryTool
+} = require('./memory');
+const { TASK_TOOLS_DEFINITIONS, normalizeTaskList, summarizeTaskProgress, formatTaskListForPrompt } = require('./task-tools');
 const { dialog } = require('electron');
 const os = require('os');
 const fs = require('fs');
@@ -28,6 +33,8 @@ const DEFAULT_CONFIG = {
   enableAgent: true,
   // Agent approval tiers: 'ask' (每次确认) | 'auto' (自动审核，低风险直跑) | 'full' (完全访问)
   agentApprovalMode: 'ask',
+  // Max tool-call rounds per turn before forcing a tool-free final answer
+  agentMaxRounds: 8,
   // Thinking level when reasoning is on: 'auto' (不传参，跟随模型默认) | 'low' | 'medium' | 'high'
   thinkingLevel: 'auto',
   // Default working directory for the local assistant (empty -> user home)
@@ -142,6 +149,8 @@ const DEFAULT_SKILLS = [
   }
 ];
 
+const MEMORY_TOOL_NAMES = new Set(MEMORY_TOOLS_DEFINITIONS.map(d => d.function.name));
+
 let disposeAll = null;
 
 module.exports = {
@@ -153,6 +162,9 @@ module.exports = {
     let activeSessionId = rawData.activeSessionId || null;
     let skills = Array.isArray(rawData.skills) && rawData.skills.length > 0 ? rawData.skills : [...DEFAULT_SKILLS];
     let mcpServers = Array.isArray(rawData.mcpServers) ? rawData.mcpServers : [];
+    let memories = (Array.isArray(rawData.memories) ? rawData.memories : [])
+      .map(normalizeMemoryRecord)
+      .filter(Boolean);
 
     const activeStreams = new Map(); // streamId -> AbortController
     const streamBySession = new Map(); // sessionId -> streamId (guards re-entry & destructive IPC)
@@ -160,7 +172,7 @@ module.exports = {
     const mcpConns = new Map(); // serverId -> { conn, tools, error }
 
     const save = () => {
-      ctx.data.set({ config, personas, sessions, activeSessionId, skills, mcpServers });
+      ctx.data.set({ config, personas, sessions, activeSessionId, skills, mcpServers, memories });
     };
 
     // Resolve a user-supplied work dir (relative paths anchor at the user home); '' = unset -> default home
@@ -209,6 +221,7 @@ module.exports = {
         personas,
         skills,
         mcpServers,
+        memories: [...memories].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)),
         sessions: sessions.map(s => ({
           id: s.id,
           title: s.title,
@@ -503,8 +516,11 @@ module.exports = {
       }
     };
 
-    // Unified agent tool dispatcher: skills tools + MCP routing + legacy built-ins
-    const dispatchAgentTool = async (name, rawArgs, mcpRoutes, workDir, streamId) => {
+    // Unified agent tool dispatcher: skills/memory/task tools + MCP routing +
+    // local file tools + legacy built-ins. rt = { mcpRoutes, workDir, streamId,
+    // session, emit } — emit streams live chunks (task list updates) with the
+    // active stream/session context.
+    const dispatchAgentTool = async (name, rawArgs, rt) => {
       const parseArgs = () => {
         try { return typeof rawArgs === 'string' ? JSON.parse(rawArgs) : (rawArgs || {}); } catch { return {}; }
       };
@@ -516,7 +532,21 @@ module.exports = {
         if (!skill) return { ok: false, error: `技能不存在，请先调用 list_skills 获取可用列表` };
         return { ok: true, skill_id: skill.id, content: skill.content };
       }
-      const route = mcpRoutes && mcpRoutes.get(name);
+      if (MEMORY_TOOL_NAMES.has(name)) {
+        return executeMemoryTool(name, parseArgs(), { memories, save, scope: rt.workDir || 'global' });
+      }
+      if (name === 'update_task_list') {
+        const norm = normalizeTaskList(parseArgs().tasks);
+        if (!norm.ok) return norm;
+        if (rt.session) {
+          rt.session.taskList = norm.tasks;
+          rt.session.updatedAt = Date.now();
+          save();
+        }
+        if (rt.emit) rt.emit({ type: 'task_list', tasks: norm.tasks });
+        return { ok: true, taskCount: norm.tasks.length, progress: summarizeTaskProgress(norm.tasks) };
+      }
+      const route = rt.mcpRoutes && rt.mcpRoutes.get(name);
       if (route) {
         try {
           const res = await route.conn.callTool(route.origName, parseArgs());
@@ -526,7 +556,7 @@ module.exports = {
         }
       }
       if (LOCAL_TOOL_NAMES.has(name)) {
-        return executeLocalTool(name, parseArgs(), { workDir: workDir || os.homedir(), streamId });
+        return executeLocalTool(name, parseArgs(), { workDir: rt.workDir || os.homedir(), streamId: rt.streamId });
       }
       return executeAgentTool(name, rawArgs, ctx);
     };
@@ -767,6 +797,59 @@ module.exports = {
       }
     });
 
+    /* --- Memory library & task list management (UI) ------------------------ */
+
+    ctx.ipc.handle('listMemories', () => ({
+      ok: true,
+      memories: [...memories].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0))
+    }));
+
+    ctx.ipc.handle('saveMemory', args => {
+      const m = (args && args.memory) || args || {};
+      const content = String(m.content || '').trim();
+      if (!content) return { ok: false, error: '记忆内容不能为空' };
+      if (content.length > 2000) return { ok: false, error: '记忆内容过长 (上限 2000 字符)' };
+      let scope = String(m.scope || 'global').trim() || 'global';
+      if (scope !== 'global') {
+        const v = validateWorkDir(scope);
+        if (!v.ok) return { ok: false, error: `项目作用域无效: ${v.error}` };
+        scope = v.dir;
+      }
+      const id = m.id ? String(m.id) : genId('mem');
+      const idx = memories.findIndex(x => x.id === id);
+      const rec = normalizeMemoryRecord({
+        id,
+        content,
+        type: m.type,
+        scope,
+        source: 'user',
+        createdAt: idx >= 0 ? memories[idx].createdAt : Date.now(),
+        updatedAt: Date.now()
+      });
+      if (idx >= 0) memories[idx] = rec; else memories.push(rec);
+      save();
+      return { ok: true, memory: rec, memories: [...memories].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)) };
+    });
+
+    ctx.ipc.handle('deleteMemory', args => {
+      const id = args && (args.id || args.memoryId);
+      if (!id) return { ok: false, error: '缺少记忆 ID' };
+      const before = memories.length;
+      memories = memories.filter(m => m.id !== id);
+      if (memories.length === before) return { ok: false, error: '记忆不存在' };
+      save();
+      return { ok: true, memories: [...memories].sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0)) };
+    });
+
+    ctx.ipc.handle('clearTaskList', args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      s.taskList = null;
+      s.updatedAt = Date.now();
+      save();
+      return { ok: true, session: s };
+    });
+
     /* --- Chat Message Dispatch & Stream ----------------------------------- */
 
     ctx.ipc.handle('sendMessage', async args => {
@@ -829,7 +912,22 @@ module.exports = {
       const agentWorkDir = session.workDir || config.agentWorkDir || os.homedir();
       let systemContent = persona ? persona.prompt : '';
       if (enableAgent) {
-        systemContent += `\n\n[本地助手环境] 工作目录: ${agentWorkDir}。你拥有本地能力：list_dir / read_file / search_files 操作文件系统，write_file 写入文件，run_command 在工作目录执行 shell 命令 (Windows 为 cmd)；相对路径一律基于工作目录解析。写文件与执行命令属高危操作，需用户审批。`;
+        systemContent += `\n\n[本地 Agent 环境] 工作目录: ${agentWorkDir}。相对路径一律基于工作目录解析。你可以连续多轮调用工具：每轮工具结果会回传给你，基于结果继续推理或再次调用工具，直到任务完成给出最终回答。\n[可用工具] 文件: list_dir / read_file / grep_search / edit_file / write_file / search_files；执行: run_command (Windows 为 cmd)；长期记忆: memory_write / memory_search / memory_list / memory_delete；任务规划: update_task_list；技能: list_skills / read_skill；以及已连接的 MCP 工具。\n[工作准则]\n1. 多步骤任务（约 3 步以上）先调用 update_task_list 制定计划，随进度即时更新状态（同一时刻仅一项 in_progress）。\n2. 修改已有文件：grep_search / search_files 定位 → read_file 读取上下文 → edit_file 精确替换（old_text 须与原文逐字符一致）；write_file 仅用于新建文件或整体重写。\n3. 改动后如可验证，用 run_command 运行测试/构建确认结果。\n4. 值得跨会话记住的信息（用户偏好与习惯、项目约定、用户纠正的反馈）用 memory_write 保存；仅本次会话有意义的细节不要入库。\n5. 写文件与执行命令属高危操作，需用户审批。`;
+
+        // Recall relevant long-term memories (global + this project's scope)
+        const recalled = searchMemories(
+          memories,
+          `${userMsg.content} ${session.title || ''}`,
+          { scope: agentWorkDir, limit: 6 }
+        );
+        const memBlock = formatMemoriesForPrompt(recalled);
+        if (memBlock) systemContent += `\n\n${memBlock}`;
+
+        // Re-inject the live task plan so it survives context bounding
+        if (Array.isArray(session.taskList) && session.taskList.length > 0
+          && session.taskList.some(t => t.status !== 'completed')) {
+          systemContent += `\n\n${formatTaskListForPrompt(session.taskList)}`;
+        }
       }
 
       const maxContext = Math.max(2, Number(config.maxContextMessages) || 16);
@@ -862,10 +960,15 @@ module.exports = {
         const primaryModel = modelOverride || config.model || 'gpt-4o-mini';
         const fallbackModel = (config.fallbackModel && config.fallbackModel.trim()) || '';
 
-        // Agent tool table: built-ins + local assistant tools + live MCP tools
+        // Agent tool table: built-ins + local/memory/task tools + live MCP tools
         // (chat must never block on MCP failure)
         let mcpRoutes = new Map();
-        let agentToolDefs = [...AGENT_TOOLS_DEFINITIONS, ...LOCAL_TOOLS_DEFINITIONS];
+        let agentToolDefs = [
+          ...AGENT_TOOLS_DEFINITIONS,
+          ...LOCAL_TOOLS_DEFINITIONS,
+          ...MEMORY_TOOLS_DEFINITIONS,
+          ...TASK_TOOLS_DEFINITIONS
+        ];
         if (enableAgent) {
           try {
             const rt = await getMcpRuntime();
@@ -876,6 +979,12 @@ module.exports = {
             }
           } catch { /* MCP unavailable — continue with built-in tools only */ }
         }
+
+        // Suspend tool execution until the renderer answers resolveToolApproval
+        const requestApproval = tc => new Promise(resolve => {
+          pendingApprovals.set(`${streamId}::${tc.id}`, { resolve, toolName: tc.function.name });
+          emitChunk({ type: 'tool_approval_request', toolId: tc.id, toolName: tc.function.name, args: tc.function.arguments });
+        });
 
         const runStream = async (targetModel, isFallback = false) => {
           accumulatedContent = '';
@@ -889,7 +998,7 @@ module.exports = {
             assistantMsg.usage = null;
           }
 
-          const reqOpts = {
+          const baseOpts = {
             protocol: config.protocol || 'openai-chat',
             baseUrl: config.baseUrl || 'https://api.openai.com/v1',
             apiKey: config.apiKey || '',
@@ -898,72 +1007,113 @@ module.exports = {
             maxTokens: config.maxTokens || 4096,
             enableReasoning: !!enableReasoning,
             thinkingBudget: config.thinkingBudget || 2048,
-            thinkingLevel: enableReasoning ? (thinkingLevel || 'auto') : 'auto',
-            messages: requestMessages,
-            tools: enableAgent ? agentToolDefs : null
+            thinkingLevel: enableReasoning ? (thinkingLevel || 'auto') : 'auto'
           };
 
-          await streamCompletion(reqOpts, async event => {
-            if (event.type === 'content') {
-              accumulatedContent += event.delta;
-              assistantMsg.content = accumulatedContent;
-              emitChunk({ type: 'content', delta: event.delta, content: accumulatedContent });
-            } else if (event.type === 'reasoning') {
-              accumulatedReasoning += event.delta;
-              assistantMsg.reasoning = accumulatedReasoning;
-              emitChunk({ type: 'reasoning', delta: event.delta, reasoning: accumulatedReasoning });
-            } else if (event.type === 'tool_calls') {
-              // Assemble tool call deltas
-              for (const tc of event.delta) {
-                const idx = tc.index ?? 0;
-                if (!currentToolCalls[idx]) {
-                  currentToolCalls[idx] = { id: tc.id || `tc_${idx}`, type: 'function', function: { name: '', arguments: '' } };
+          const maxRounds = Math.min(40, Math.max(1, Number(config.agentMaxRounds) || 8));
+          const conversation = [...requestMessages]; // working context for this turn
+          const executedIds = new Set(); // tool-call ids answered this turn (cross-round dedup)
+          let round = 0;
+
+          while (true) {
+            const allowTools = enableAgent && round < maxRounds;
+            let roundContent = '';
+            let roundUsage = null;
+            const roundToolCalls = [];
+
+            await streamCompletion({
+              ...baseOpts,
+              messages: conversation,
+              tools: allowTools ? agentToolDefs : null
+            }, event => {
+              if (event.type === 'content') {
+                roundContent += event.delta;
+                assistantMsg.content = accumulatedContent
+                  ? accumulatedContent + '\n\n' + roundContent
+                  : roundContent;
+                emitChunk({ type: 'content', delta: event.delta, content: assistantMsg.content });
+              } else if (event.type === 'reasoning') {
+                accumulatedReasoning += event.delta;
+                assistantMsg.reasoning = accumulatedReasoning;
+                emitChunk({ type: 'reasoning', delta: event.delta, reasoning: accumulatedReasoning });
+              } else if (event.type === 'tool_calls') {
+                // Assemble tool call deltas
+                for (const tc of event.delta) {
+                  const idx = tc.index ?? 0;
+                  if (!roundToolCalls[idx]) {
+                    roundToolCalls[idx] = { id: tc.id || `tc_${idx}`, type: 'function', function: { name: '', arguments: '' } };
+                  }
+                  if (tc.function && tc.function.name) roundToolCalls[idx].function.name += tc.function.name;
+                  if (tc.function && tc.function.arguments) roundToolCalls[idx].function.arguments += tc.function.arguments;
                 }
-                if (tc.function && tc.function.name) currentToolCalls[idx].function.name += tc.function.name;
-                if (tc.function && tc.function.arguments) currentToolCalls[idx].function.arguments += tc.function.arguments;
+                emitChunk({ type: 'tool_calls', toolCalls: roundToolCalls.filter(Boolean) });
+              } else if (event.type === 'usage' || event.type === 'usage_delta') {
+                // Usage events replace-within-round (Claude streams prompt
+                // tokens in message_start, completion tokens in message_delta)
+                const u = event.usage || {};
+                roundUsage = {
+                  promptTokens: u.promptTokens || (roundUsage ? roundUsage.promptTokens : 0),
+                  completionTokens: u.completionTokens || (roundUsage ? roundUsage.completionTokens : 0),
+                  totalTokens: u.totalTokens || (((roundUsage ? roundUsage.promptTokens : 0) + (u.promptTokens || 0)) + (u.completionTokens || 0))
+                };
+              } else if (event.type === 'done') {
+                emitChunk({ type: 'done' });
               }
-              emitChunk({ type: 'tool_calls', toolCalls: currentToolCalls.filter(Boolean) });
-            } else if (event.type === 'usage' || event.type === 'usage_delta') {
-              const u = event.usage;
+            }, controller.signal);
+
+            // Each round is billed separately; sum into the turn total
+            if (roundUsage) {
+              const prev = assistantMsg.usage || { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
               assistantMsg.usage = {
-                promptTokens: u.promptTokens || (assistantMsg.usage ? assistantMsg.usage.promptTokens : 0),
-                completionTokens: u.completionTokens || (assistantMsg.usage ? assistantMsg.usage.completionTokens : 0),
-                totalTokens: u.totalTokens || ((assistantMsg.usage ? assistantMsg.usage.promptTokens : 0) + (u.completionTokens || 0))
+                promptTokens: (prev.promptTokens || 0) + (roundUsage.promptTokens || 0),
+                completionTokens: (prev.completionTokens || 0) + (roundUsage.completionTokens || 0),
+                totalTokens: (prev.totalTokens || 0) + (roundUsage.totalTokens || ((roundUsage.promptTokens || 0) + (roundUsage.completionTokens || 0)))
               };
               emitChunk({ type: 'usage', usage: assistantMsg.usage });
-            } else if (event.type === 'done') {
-              emitChunk({ type: 'done' });
             }
-          }, controller.signal);
 
-          // Finalize the tool-call table: compact sparse slots from index-based
-          // delta accumulation, drop nameless/duplicate-id entries (a repeated
-          // id would deadlock the approval map), and never execute twice.
-          currentToolCalls = currentToolCalls.filter(Boolean).filter(tc => tc && tc.function && tc.function.name);
-          {
-            const seenIds = new Set();
-            currentToolCalls = currentToolCalls.filter(tc => {
-              if (seenIds.has(tc.id)) return false;
-              seenIds.add(tc.id);
-              return true;
-            });
-          }
+            // Finalize this round's tool-call table: compact sparse slots from
+            // index-based delta accumulation, drop nameless/duplicate-id entries
+            // (a repeated id would deadlock the approval map).
+            let toolCalls = roundToolCalls.filter(Boolean).filter(tc => tc && tc.function && tc.function.name);
+            {
+              const seenIds = new Set();
+              toolCalls = toolCalls.filter(tc => {
+                if (seenIds.has(tc.id)) return false;
+                seenIds.add(tc.id);
+                return true;
+              });
+            }
 
-          // If tool calls were generated by model, execute them (gated by the approval tier)!
-          if (currentToolCalls.length > 0 && enableAgent) {
+            // No (more) tool calls -> the model's content is the final answer.
+            // A round that ran WITHOUT the tools parameter ignores hallucinated
+            // tool calls entirely — executing them would break the round budget
+            // and loop forever on a misbehaving model.
+            if (toolCalls.length === 0 || !enableAgent || !allowTools) {
+              accumulatedContent = assistantMsg.content || '';
+              return;
+            }
+
+            // --- tool phase for this round -----------------------------------
             toolPhaseEntered = true; // block model fallback: tools must not re-run on another model
-            assistantMsg.toolCalls = currentToolCalls;
-            assistantMsg.toolStatus = {};
-            emitChunk({ type: 'tool_exec_start', toolCalls: currentToolCalls });
+            // Reused ids across rounds would break the 1:1 call↔response pairing
+            // (approval map + wire format); rewrite them to fresh unique ids.
+            for (const tc of toolCalls) {
+              if (executedIds.has(tc.id)) {
+                let nid = `${tc.id}_r${round}_${executedIds.size}`;
+                while (executedIds.has(nid)) nid += 'x';
+                tc.id = nid;
+              }
+              executedIds.add(tc.id);
+            }
+            assistantMsg.toolCalls = [...(assistantMsg.toolCalls || []), ...toolCalls];
+            assistantMsg.toolStatus = assistantMsg.toolStatus || {};
+            currentToolCalls = assistantMsg.toolCalls;
+            emitChunk({ type: 'tool_exec_start', toolCalls });
 
-            // Suspend tool execution until the renderer answers resolveToolApproval
-            const requestApproval = tc => new Promise(resolve => {
-              pendingApprovals.set(`${streamId}::${tc.id}`, { resolve, toolName: tc.function.name });
-              emitChunk({ type: 'tool_approval_request', toolId: tc.id, toolName: tc.function.name, args: tc.function.arguments });
-            });
+            conversation.push({ role: 'assistant', content: roundContent || null, tool_calls: toolCalls });
 
-            const turnToolMsgs = []; // this turn's tool responses, in call order
-            for (const tc of currentToolCalls) {
+            for (const tc of toolCalls) {
               const toolName = tc.function.name;
               const toolArgs = tc.function.arguments;
 
@@ -987,68 +1137,42 @@ module.exports = {
               assistantMsg.toolStatus[tc.id] = approved ? (permission === 'ask' ? 'approved' : 'auto') : 'denied';
 
               const result = approved
-                ? await dispatchAgentTool(toolName, toolArgs, mcpRoutes, agentWorkDir, streamId)
+                ? await dispatchAgentTool(toolName, toolArgs, {
+                  mcpRoutes, workDir: agentWorkDir, streamId, session, emit: emitChunk
+                })
                 : { ok: false, denied: true, error: '用户拒绝执行该工具调用，请改用纯文本回答或调整方案' };
 
               emitChunk({ type: 'tool_approval_result', toolId: tc.id, approved, asked: permission === 'ask' });
               emitChunk({ type: 'tool_result', toolId: tc.id, toolName, result });
 
-              // Append tool response to conversation for continuation
-              const toolMsg = {
+              // Append tool response to the session (persistence) and to the
+              // working conversation (continuation), in execution order.
+              const content = typeof result === 'object' ? JSON.stringify(result) : String(result);
+              session.messages.push({
                 id: genId('msg_tool'),
                 role: 'tool',
                 tool_call_id: tc.id,
                 name: toolName,
-                content: typeof result === 'object' ? JSON.stringify(result) : String(result),
+                content,
                 timestamp: Date.now()
-              };
-              session.messages.push(toolMsg);
-              turnToolMsgs.push(toolMsg);
+              });
+              conversation.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                name: toolName,
+                content: clipToolContent(content)
+              });
             }
 
-            // Continue inference with tool output. Pair each response with its
-            // own call (collected in execution order) instead of re-filtering
-            // session history, which mispairs if anything interleaves.
-            const prevUsage = assistantMsg.usage ? { ...assistantMsg.usage } : null;
-            const followUpMsgs = [...requestMessages, {
-              role: 'assistant',
-              content: accumulatedContent || null,
-              tool_calls: currentToolCalls
-            }, ...turnToolMsgs.map(m => ({
-              role: 'tool',
-              tool_call_id: m.tool_call_id,
-              name: m.name,
-              content: clipToolContent(m.content)
-            }))];
-
-            let followUpContent = '';
-            await streamCompletion({
-              ...reqOpts,
-              messages: followUpMsgs,
-              tools: null // avoid endless tool recursion
-            }, event => {
-              if (event.type === 'content') {
-                followUpContent += event.delta;
-                assistantMsg.content = (accumulatedContent ? accumulatedContent + '\n\n' : '') + followUpContent;
-                emitChunk({ type: 'content', delta: event.delta, content: assistantMsg.content });
-              } else if (event.type === 'reasoning') {
-                accumulatedReasoning += event.delta;
-                assistantMsg.reasoning = accumulatedReasoning;
-                emitChunk({ type: 'reasoning', delta: event.delta, reasoning: accumulatedReasoning });
-              } else if (event.type === 'usage' || event.type === 'usage_delta') {
-                // The follow-up is a second billed round; add it to round one
-                const u = event.usage || {};
-                const sum = (a, b) => (a || 0) + (b || 0);
-                assistantMsg.usage = {
-                  promptTokens: sum(prevUsage && prevUsage.promptTokens, u.promptTokens),
-                  completionTokens: sum(prevUsage && prevUsage.completionTokens, u.completionTokens),
-                  totalTokens: (prevUsage && prevUsage.totalTokens ? prevUsage.totalTokens : 0) + (u.totalTokens || sum(prevUsage && prevUsage.promptTokens, u.promptTokens) + sum(prevUsage && prevUsage.completionTokens, u.completionTokens))
-                };
-                emitChunk({ type: 'usage', usage: assistantMsg.usage });
-              } else if (event.type === 'done') {
-                emitChunk({ type: 'done' });
-              }
-            }, controller.signal);
+            round++;
+            accumulatedContent = assistantMsg.content || '';
+            if (round >= maxRounds) {
+              // Tool budget exhausted: force a tool-free final answer
+              conversation.push({
+                role: 'user',
+                content: '[系统提示] 已达到本轮任务的工具调用上限，请立即基于已获得的信息给出最终回答，不要再调用工具。'
+              });
+            }
           }
         };
 

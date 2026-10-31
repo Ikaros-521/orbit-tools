@@ -2149,6 +2149,13 @@ input.hidden {
   font-family: var(--font-display);
 }
 
+.ai-ext-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .ai-form-textarea {
   width: 100%;
   background: var(--inset);
@@ -2256,3 +2263,156 @@ input.hidden {
   margin-bottom: 8px;
 }
 
+
+/* --- Agent task plan card (session-scoped, live-updated) ------------------ */
+
+.ai-task-card {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  font-size: 12.5px;
+}
+
+.ai-task-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ai-task-card-title {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-task-card-progress {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  background: var(--panel-hi);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 1px 7px;
+}
+
+.ai-task-card-clear {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+}
+
+.ai-task-card-clear:hover {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+.ai-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ai-task-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  color: var(--ink-dim);
+  line-height: 1.45;
+}
+
+.ai-task-item.in_progress {
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.ai-task-item.completed {
+  color: var(--ink-faint);
+  text-decoration: line-through;
+  text-decoration-color: var(--ink-faint);
+}
+
+.ai-task-item .ai-task-ico {
+  flex: none;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* --- Memory library (settings tab) ---------------------------------------- */
+
+.ai-memory-count {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  margin-right: 8px;
+  align-self: center;
+}
+
+.ai-memory-card {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 9px 12px;
+  margin-bottom: 8px;
+}
+
+.ai-memory-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.ai-memory-scope {
+  font-size: 11px;
+  color: var(--amber);
+  background: var(--amber-soft);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-memory-type {
+  font-size: 11px;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+}
+
+.ai-memory-src {
+  font-size: 11px;
+  cursor: default;
+}
+
+.ai-memory-actions {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+
+.ai-memory-content {
+  font-size: 12.5px;
+  color: var(--ink);
+  line-height: 1.5;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.ai-memory-meta {
+  margin-top: 5px;
+  font-size: 11px;
+  color: var(--ink-faint);
+  font-family: var(--font-mono);
+}

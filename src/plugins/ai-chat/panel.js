@@ -365,6 +365,7 @@
             <div class="ai-modal-nav-tabs" id="settingsNavTabs">
               <button type="button" class="ai-modal-nav-tab active" data-tab="model" id="tabNavModel">⚙️ 模型与渠道</button>
               <button type="button" class="ai-modal-nav-tab" data-tab="personas" id="tabNavPersonas">🎭 人设卡片管理</button>
+              <button type="button" class="ai-modal-nav-tab" data-tab="memory" id="tabNavMemory">🧠 记忆库</button>
               <button type="button" class="ai-modal-nav-tab" data-tab="ext" id="tabNavExt">🧩 MCP 与技能</button>
             </div>
 
@@ -447,6 +448,12 @@
               </div>
 
               <div class="ai-form-group">
+                <label class="ai-form-label">Agent 工具调用轮数上限 (Max Tool Rounds)</label>
+                <input type="number" class="ai-form-input" id="cfgAgentMaxRounds" min="1" max="40" value="8">
+                <span class="ai-form-hint">每次回复中允许「模型调用工具 → 拿到结果继续」的最大循环轮数，超出后强制以纯文本收尾</span>
+              </div>
+
+              <div class="ai-form-group">
                 <label class="ai-form-label">Agent 默认工作目录</label>
                 <div class="ai-workdir-row">
                   <input type="text" class="ai-form-input ai-workdir-input" id="cfgAgentWorkDir" placeholder="留空 = 当前用户目录 (C:\\Users\\…)">
@@ -454,6 +461,53 @@
                 </div>
                 <span class="ai-form-hint">本地助手读写文件与执行命令的根目录，新建会话默认使用；相对路径基于此解析。会话顶栏 📁 可单独覆盖</span>
               </div>
+            </div>
+
+            <!-- 板块 3: 记忆库管理 -->
+            <div class="ai-modal-body ai-tab-pane hidden" id="paneMemorySettings">
+              <div class="ai-personas-header">
+                <div class="ai-personas-search-row">
+                  <input type="text" class="ai-form-input ai-persona-search-input" id="inputSearchMemories" placeholder="🔍 搜索记忆内容…" autocomplete="off">
+                </div>
+                <div class="ai-personas-actions">
+                  <span class="ai-memory-count" id="memoryCountBadge">0 条</span>
+                  <button type="button" class="ai-edit-btn primary" id="btnCreateMemory">+ 新建记忆</button>
+                </div>
+              </div>
+              <span class="ai-form-hint" style="margin-bottom:8px">跨会话长期记忆：发送消息时自动召回相关条目注入上下文；Agent 也会通过 memory_write 自主沉淀用户偏好与项目约定</span>
+
+              <!-- 记忆编辑面板 -->
+              <div class="ai-ext-editor hidden" id="memoryEditPanel">
+                <div class="ai-ext-editor-head">
+                  <span id="memoryEditTitle">新建记忆</span>
+                  <button type="button" class="ai-modal-close" id="btnCloseMemoryEdit">×</button>
+                </div>
+                <div class="ai-form-group">
+                  <label class="ai-form-label">记忆内容</label>
+                  <textarea class="ai-form-textarea" id="inputMemoryContent" rows="3" placeholder="一句话自包含的记忆，例如：用户偏好用 pnpm 管理依赖、仓库构建命令是 npm run dist…"></textarea>
+                </div>
+                <div class="ai-form-group">
+                  <label class="ai-form-label">作用域</label>
+                  <select class="ai-form-select" id="selectMemoryScope">
+                    <option value="global">全局（所有会话生效）</option>
+                    <option value="project">仅当前会话工作目录的项目</option>
+                  </select>
+                </div>
+                <div class="ai-form-group">
+                  <label class="ai-form-label">类型</label>
+                  <select class="ai-form-select" id="selectMemoryType">
+                    <option value="fact">fact（领域事实）</option>
+                    <option value="preference">preference（用户偏好）</option>
+                    <option value="project">project（项目约定）</option>
+                  </select>
+                </div>
+                <div class="ai-ext-editor-actions">
+                  <button type="button" class="ai-edit-btn" id="btnCancelMemoryEdit">取消</button>
+                  <button type="button" class="ai-edit-btn primary" id="btnSaveMemoryEdit">保存记忆</button>
+                </div>
+              </div>
+
+              <div class="ai-ext-list" id="memoriesCardList"></div>
             </div>
 
             <!-- 板块 2: 人设卡片管理 -->
@@ -751,6 +805,7 @@
     const cfgTempRange = el.querySelector('#cfgTempRange');
     const cfgTempVal = el.querySelector('#cfgTempVal');
     const cfgMaxContext = el.querySelector('#cfgMaxContext');
+    const cfgAgentMaxRounds = el.querySelector('#cfgAgentMaxRounds');
     const cfgAgentWorkDir = el.querySelector('#cfgAgentWorkDir');
     const btnPickAgentWorkDir = el.querySelector('#btnPickAgentWorkDir');
 
@@ -770,8 +825,24 @@
     // Settings Tabs & Personas Management DOM
     const tabNavModel = el.querySelector('#tabNavModel');
     const tabNavPersonas = el.querySelector('#tabNavPersonas');
+    const tabNavMemory = el.querySelector('#tabNavMemory');
     const paneModelSettings = el.querySelector('#paneModelSettings');
     const panePersonasSettings = el.querySelector('#panePersonasSettings');
+    const paneMemorySettings = el.querySelector('#paneMemorySettings');
+
+    // Memory library DOM
+    const inputSearchMemories = el.querySelector('#inputSearchMemories');
+    const memoryCountBadge = el.querySelector('#memoryCountBadge');
+    const btnCreateMemory = el.querySelector('#btnCreateMemory');
+    const memoriesCardList = el.querySelector('#memoriesCardList');
+    const memoryEditPanel = el.querySelector('#memoryEditPanel');
+    const memoryEditTitle = el.querySelector('#memoryEditTitle');
+    const btnCloseMemoryEdit = el.querySelector('#btnCloseMemoryEdit');
+    const inputMemoryContent = el.querySelector('#inputMemoryContent');
+    const selectMemoryScope = el.querySelector('#selectMemoryScope');
+    const selectMemoryType = el.querySelector('#selectMemoryType');
+    const btnCancelMemoryEdit = el.querySelector('#btnCancelMemoryEdit');
+    const btnSaveMemoryEdit = el.querySelector('#btnSaveMemoryEdit');
     const settingsModalFooter = el.querySelector('#settingsModalFooter');
     const inputSearchPersonas = el.querySelector('#inputSearchPersonas');
     const btnResetPersonas = el.querySelector('#btnResetPersonas');
@@ -867,6 +938,9 @@
     let skillSearchKeyword = '';
     let skillCurrentPage = 1;
     const skillPageSize = 5;
+    let memories = [];
+    let editingMemoryId = null;
+    let memorySearchKeyword = '';
 
     // Personas Search & Pagination State
     let personaSearchKeyword = '';
@@ -1353,6 +1427,44 @@
       messagesScroll.scrollTop = messagesScroll.scrollHeight;
     }
 
+    /* Session task plan card: pinned as the first child of the message list,
+       refreshed live by task_list chunks and on every renderMessages pass. */
+    function renderTaskCard() {
+      const existing = messagesScroll.querySelector('#aiTaskCard');
+      const tasks = currentSession && Array.isArray(currentSession.taskList) ? currentSession.taskList : null;
+      if (!tasks || tasks.length === 0) {
+        if (existing) existing.remove();
+        return;
+      }
+      let card = existing;
+      if (!card) {
+        card = document.createElement('div');
+        card.id = 'aiTaskCard';
+        card.className = 'ai-task-card';
+        messagesScroll.insertBefore(card, messagesScroll.firstChild);
+      }
+      const done = tasks.filter(t => t.status === 'completed').length;
+      const icon = t => (t.status === 'completed' ? '✅' : (t.status === 'in_progress' ? '🔵' : '⚪'));
+      card.innerHTML = `
+        <div class="ai-task-card-head">
+          <span class="ai-task-card-title">📋 任务清单</span>
+          <span class="ai-task-card-progress">${done}/${tasks.length}</span>
+          <button type="button" class="ai-task-card-clear" title="收起清单">×</button>
+        </div>
+        <div class="ai-task-list">
+          ${tasks.map(t => `<div class="ai-task-item ${t.status}"><span class="ai-task-ico">${icon(t)}</span><span class="ai-task-text">${escapeHtml(t.content)}</span></div>`).join('')}
+        </div>
+      `;
+      card.querySelector('.ai-task-card-clear').addEventListener('click', async () => {
+        if (!currentSession) return;
+        const res = await ctx.call('clearTaskList', { sessionId: currentSession.id });
+        if (res && res.ok) {
+          currentSession.taskList = null;
+          renderTaskCard();
+        }
+      });
+    }
+
     function renderMessages() {
       messagesScroll.innerHTML = '';
       if (!currentSession || !Array.isArray(currentSession.messages) || currentSession.messages.length === 0) {
@@ -1384,6 +1496,7 @@
         messagesScroll.appendChild(card);
       });
 
+      renderTaskCard();
       scrollToBottom();
     }
 
@@ -1765,6 +1878,15 @@
 
       if (isTerminal && generatingSessionId === payload.sessionId) generatingSessionId = null;
 
+      // Task list updates render into the session-scoped card — resolve them
+      // before the message-element lookup so a race with the placeholder mount
+      // can never drop the update.
+      if (chunk.type === 'task_list') {
+        currentSession.taskList = Array.isArray(chunk.tasks) ? chunk.tasks : [];
+        renderTaskCard();
+        return;
+      }
+
       let msgEl = null;
       if (messageId) {
         msgEl = messagesScroll.querySelector(`.ai-msg[data-id="${messageId}"]`);
@@ -1921,18 +2043,24 @@
       cfgChannel.appendChild(opt);
     });
 
-    /* --- Settings Tabs (Model & Personas) --- */
+    /* --- Settings Tabs (Model & Personas & Memory) --- */
     function switchSettingsTab(tabName) {
       tabNavModel.classList.toggle('active', tabName === 'model');
       tabNavPersonas.classList.toggle('active', tabName === 'personas');
+      tabNavMemory.classList.toggle('active', tabName === 'memory');
       tabNavExt.classList.toggle('active', tabName === 'ext');
       paneModelSettings.classList.toggle('hidden', tabName !== 'model');
       panePersonasSettings.classList.toggle('hidden', tabName !== 'personas');
+      paneMemorySettings.classList.toggle('hidden', tabName !== 'memory');
       paneExtSettings.classList.toggle('hidden', tabName !== 'ext');
       settingsModalFooter.style.display = tabName === 'model' ? 'flex' : 'none';
       if (tabName === 'personas') {
         closePersonaEditor();
         renderPersonasSettingsList();
+      }
+      if (tabName === 'memory') {
+        closeMemoryEditor();
+        renderMemoriesList();
       }
       if (tabName === 'ext') {
         closeMcpEditor();
@@ -1944,7 +2072,110 @@
 
     tabNavModel.addEventListener('click', () => switchSettingsTab('model'));
     tabNavPersonas.addEventListener('click', () => switchSettingsTab('personas'));
+    tabNavMemory.addEventListener('click', () => switchSettingsTab('memory'));
     tabNavExt.addEventListener('click', () => switchSettingsTab('ext'));
+
+    /* --- Memory Library Controller --- */
+    const MEMORY_TYPE_LABELS = { fact: '事实', preference: '偏好', project: '项目' };
+
+    function shortDirLabel(dir) {
+      const parts = String(dir || '').replace(/\\/g, '/').split('/').filter(Boolean);
+      return parts.length ? `…/${parts[parts.length - 1]}` : String(dir || '');
+    }
+
+    function renderMemoriesList() {
+      memoriesCardList.innerHTML = '';
+      const q = memorySearchKeyword.trim().toLowerCase();
+      const filtered = q ? memories.filter(m => (m.content || '').toLowerCase().includes(q)) : memories;
+      memoryCountBadge.textContent = `${memories.length} 条`;
+
+      if (filtered.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'ai-model-empty-tip';
+        empty.textContent = q ? `未找到匹配 "${q}" 的记忆` : '记忆库为空：可在对话中让助手「记住这个偏好」，或点右上角手动新建';
+        memoriesCardList.appendChild(empty);
+        return;
+      }
+
+      filtered.forEach(m => {
+        const card = document.createElement('div');
+        card.className = 'ai-memory-card';
+        const scopeLabel = m.scope === 'global' ? '🌐 全局' : `📁 ${shortDirLabel(m.scope)}`;
+        const typeLabel = MEMORY_TYPE_LABELS[m.type] || m.type;
+        const time = new Date(m.updatedAt || Date.now()).toLocaleString();
+        card.innerHTML = `
+          <div class="ai-memory-card-head">
+            <span class="ai-memory-scope">${escapeHtml(scopeLabel)}</span>
+            <span class="ai-memory-type">${escapeHtml(typeLabel)}</span>
+            ${m.source === 'agent' ? '<span class="ai-memory-src" title="由 Agent 自主写入">🤖</span>' : ''}
+            <span class="ai-memory-actions">
+              <button type="button" class="ai-persona-card-btn edit" title="编辑">✏️</button>
+              <button type="button" class="ai-persona-card-btn del" title="删除">🗑️</button>
+            </span>
+          </div>
+          <div class="ai-memory-content">${escapeHtml(m.content)}</div>
+          <div class="ai-memory-meta">${escapeHtml(time)}</div>
+        `;
+        card.querySelector('.ai-memory-actions .edit').addEventListener('click', () => openMemoryEditor(m));
+        card.querySelector('.ai-memory-actions .del').addEventListener('click', async () => {
+          if (!confirm('删除这条记忆？')) return;
+          const res = await ctx.call('deleteMemory', { id: m.id });
+          if (res && res.ok) {
+            memories = res.memories;
+            renderMemoriesList();
+          }
+        });
+        memoriesCardList.appendChild(card);
+      });
+    }
+
+    function openMemoryEditor(m) {
+      editingMemoryId = m ? m.id : null;
+      memoryEditTitle.textContent = m ? '编辑记忆' : '新建记忆';
+      inputMemoryContent.value = m ? m.content : '';
+      selectMemoryScope.value = m && m.scope !== 'global' ? 'project' : 'global';
+      selectMemoryType.value = m ? (m.type || 'fact') : 'fact';
+      memoryEditPanel.classList.remove('hidden');
+    }
+
+    function closeMemoryEditor() {
+      editingMemoryId = null;
+      memoryEditPanel.classList.add('hidden');
+    }
+
+    btnCreateMemory.addEventListener('click', () => openMemoryEditor(null));
+    btnCloseMemoryEdit.addEventListener('click', closeMemoryEditor);
+    btnCancelMemoryEdit.addEventListener('click', closeMemoryEditor);
+    inputSearchMemories.addEventListener('input', () => {
+      memorySearchKeyword = inputSearchMemories.value;
+      renderMemoriesList();
+    });
+
+    btnSaveMemoryEdit.addEventListener('click', async () => {
+      const content = inputMemoryContent.value.trim();
+      if (!content) { alert('记忆内容不能为空'); return; }
+      let scope = 'global';
+      if (selectMemoryScope.value === 'project') {
+        scope = (currentSession && currentSession.workDir) || config.agentWorkDir || '';
+        if (!scope) {
+          alert('当前没有可用的项目工作目录：请先在会话顶栏 📁 设置工作目录');
+          return;
+        }
+      }
+      const res = await ctx.call('saveMemory', {
+        id: editingMemoryId || undefined,
+        content,
+        type: selectMemoryType.value,
+        scope
+      });
+      if (res && res.ok) {
+        memories = res.memories;
+        closeMemoryEditor();
+        renderMemoriesList();
+      } else {
+        alert(`保存失败: ${(res && res.error) || '未知错误'}`);
+      }
+    });
 
     /* --- Personas Management Controller --- */
     function renderPersonasSettingsList() {
@@ -2757,6 +2988,7 @@
       cfgTempRange.value = config.temperature ?? 0.7;
       cfgTempVal.textContent = config.temperature ?? 0.7;
       cfgMaxContext.value = config.maxContextMessages ?? 16;
+      cfgAgentMaxRounds.value = config.agentMaxRounds ?? 8;
       cfgAgentWorkDir.value = config.agentWorkDir || '';
       modelSearchPanel.classList.add('hidden');
       inputModelSearch.value = '';
@@ -2783,6 +3015,7 @@
         fallbackModel: cfgFallbackModel.value.trim(),
         temperature: Number(cfgTempRange.value),
         maxContextMessages: Number(cfgMaxContext.value) || 16,
+        agentMaxRounds: Math.min(40, Math.max(1, Number(cfgAgentMaxRounds.value) || 8)),
         agentWorkDir: cfgAgentWorkDir.value.trim()
       };
       const res = await ctx.call('saveConfig', patch);
@@ -2808,6 +3041,7 @@
       personas = data.personas || [];
       skills = data.skills || [];
       mcpServers = data.mcpServers || [];
+      memories = data.memories || [];
       sessions = data.sessions || [];
       currentSession = data.activeSession || null;
 
