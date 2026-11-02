@@ -273,28 +273,39 @@
                   <button type="button" class="btn small memo-todo-add-btn">＋ ${L('添加', 'Add')}</button>
                 </div>
                 <div class="memo-todo-opts-row">
-                  <label class="memo-todo-opt-label">📅 ${L('日期', 'Date')}:
-                    <input type="date" class="memo-todo-date-input">
-                  </label>
-                  <label class="memo-todo-opt-label">⏰ ${L('定时提醒', 'Remind')}:
-                    <select class="memo-todo-time-preset input small">
-                      <option value="">${L('不提醒', 'No alert')}</option>
-                      <option value="10m">${L('10分钟后', 'In 10 mins')}</option>
-                      <option value="30m">${L('30分钟后', 'In 30 mins')}</option>
-                      <option value="1h">${L('1小时后', 'In 1 hour')}</option>
+                  <div class="memo-todo-opt-group">
+                    <span class="memo-todo-opt-label">📅 ${L('时间点', 'Time')}:</span>
+                    <input type="datetime-local" class="memo-todo-datetime-input">
+                    <select class="memo-todo-quick-time" title="${L('快速填充时间点', 'Quick fill time')}">
+                      <option value="">${L('快捷填充…', 'Quick fill…')}</option>
                       <option value="today18">${L('今天 18:00', 'Today 18:00')}</option>
+                      <option value="today21">${L('今天 21:00', 'Today 21:00')}</option>
                       <option value="tomorrow09">${L('明天 09:00', 'Tomorrow 09:00')}</option>
-                      <option value="custom">${L('自定义具体时刻…', 'Custom…')}</option>
+                      <option value="tomorrow18">${L('明天 18:00', 'Tomorrow 18:00')}</option>
+                      <option value="in1h">${L('1小时后', 'In 1 hour')}</option>
+                      <option value="clear">${L('清除时间', 'Clear')}</option>
                     </select>
-                    <input type="datetime-local" class="memo-todo-time-custom" style="display:none;">
-                  </label>
-                  <label class="memo-todo-opt-label">🏷 ${L('优先级', 'Priority')}:
+                  </div>
+                  <div class="memo-todo-opt-group">
+                    <span class="memo-todo-opt-label">⏰ ${L('提醒策略', 'Remind')}:</span>
+                    <select class="memo-todo-strategy-select">
+                      <option value="on_time">${L('准时提醒', 'On time')}</option>
+                      <option value="5m">${L('提前 5 分钟', '5 mins before')}</option>
+                      <option value="15m">${L('提前 15 分钟', '15 mins before')}</option>
+                      <option value="30m">${L('提前 30 分钟', '30 mins before')}</option>
+                      <option value="1h">${L('提前 1 小时', '1 hour before')}</option>
+                      <option value="1d">${L('提前 1 天', '1 day before')}</option>
+                      <option value="none">${L('不提醒', 'No alert')}</option>
+                    </select>
+                  </div>
+                  <div class="memo-todo-opt-group">
+                    <span class="memo-todo-opt-label">🏷 ${L('优先级', 'Priority')}:</span>
                     <select class="memo-todo-pri-select">
                       <option value="0">${L('普通', 'Normal')}</option>
                       <option value="1">⭐ ${L('重要', 'Important')}</option>
                       <option value="2">🔥 ${L('紧急', 'Urgent')}</option>
                     </select>
-                  </label>
+                  </div>
                 </div>
               </div>
 
@@ -354,6 +365,35 @@
                   <span class="grow"></span>
                   <button type="button" class="btn ghost small memo-cal-add-day-btn">＋ ${L('添加当日日程', 'Add task')}</button>
                 </div>
+                <div class="memo-cal-add-box">
+                  <div class="memo-cal-add-row">
+                    <input type="text" class="memo-cal-add-input" placeholder="${L('添加当日待办日程，按回车快速创建…', 'Add task for this day, press Enter…')}" spellcheck="false">
+                    <button type="button" class="btn small memo-cal-submit-btn">＋ ${L('添加', 'Add')}</button>
+                  </div>
+                  <div class="memo-cal-add-subrow">
+                    <div class="memo-cal-opt-group">
+                      <span class="memo-cal-opt-label">⏰ ${L('时刻 (可选)', 'Time (opt)')}:</span>
+                      <input type="time" class="memo-cal-add-time">
+                    </div>
+                    <div class="memo-cal-opt-group">
+                      <span class="memo-cal-opt-label">🔔 ${L('提醒策略', 'Remind')}:</span>
+                      <select class="memo-cal-add-strategy">
+                        <option value="on_time">${L('准时提醒', 'On time')}</option>
+                        <option value="15m">${L('提前 15 分钟', '15m before')}</option>
+                        <option value="1h">${L('提前 1 小时', '1h before')}</option>
+                        <option value="none">${L('不提醒', 'No alert')}</option>
+                      </select>
+                    </div>
+                    <div class="memo-cal-opt-group">
+                      <span class="memo-cal-opt-label">🏷 ${L('优先级', 'Priority')}:</span>
+                      <select class="memo-cal-add-pri">
+                        <option value="0">${L('普通', 'Normal')}</option>
+                        <option value="1">⭐ ${L('重要', 'Important')}</option>
+                        <option value="2">🔥 ${L('紧急', 'Urgent')}</option>
+                      </select>
+                    </div>
+                  </div>
+                </div>
                 <div class="memo-cal-day-items memo-todo-items"></div>
               </div>
             </div>
@@ -388,9 +428,9 @@
     // Todo elements
     const todoAddInput = el.querySelector('.memo-todo-add-input');
     const todoAddBtn = el.querySelector('.memo-todo-add-btn');
-    const todoDateInput = el.querySelector('.memo-todo-date-input');
-    const todoTimePreset = el.querySelector('.memo-todo-time-preset');
-    const todoTimeCustom = el.querySelector('.memo-todo-time-custom');
+    const todoDateTimeInput = el.querySelector('.memo-todo-datetime-input');
+    const todoQuickTime = el.querySelector('.memo-todo-quick-time');
+    const todoStrategySelect = el.querySelector('.memo-todo-strategy-select');
     const todoPriSelect = el.querySelector('.memo-todo-pri-select');
     const itemsToday = el.querySelector('.memo-items-today');
     const itemsPending = el.querySelector('.memo-items-pending');
@@ -416,6 +456,11 @@
     const calSelectedLabel = el.querySelector('.memo-cal-selected-label');
     const calDayItems = el.querySelector('.memo-cal-day-items');
     const calAddDayBtn = el.querySelector('.memo-cal-add-day-btn');
+    const calAddInput = el.querySelector('.memo-cal-add-input');
+    const calSubmitBtn = el.querySelector('.memo-cal-submit-btn');
+    const calAddTime = el.querySelector('.memo-cal-add-time');
+    const calAddStrategy = el.querySelector('.memo-cal-add-strategy');
+    const calAddPri = el.querySelector('.memo-cal-add-pri');
 
     let currentTab = 'notes';
     let notes = [];
@@ -618,25 +663,23 @@
     }
 
     /* --- Todo List Rendering & Operations ------------------------------------ */
-    function calcRemindAtFromPreset(preset, customVal) {
-      if (!preset) return null;
-      const now = Date.now();
-      if (preset === '10m') return now + 10 * 60000;
-      if (preset === '30m') return now + 30 * 60000;
-      if (preset === '1h') return now + 60 * 60000;
-      if (preset === 'today18') {
-        const d = new Date(); d.setHours(18, 0, 0, 0);
-        return d.getTime() > now ? d.getTime() : d.getTime() + 86400000;
-      }
-      if (preset === 'tomorrow09') {
-        const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
-        return d.getTime();
-      }
-      if (preset === 'custom' && customVal) {
-        const t = new Date(customVal).getTime();
-        return Number.isFinite(t) ? t : null;
-      }
-      return null;
+    function formatDateTimeLocal(d) {
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    function calcRemindAt(targetTimestamp, strategy) {
+      if (!targetTimestamp || !strategy || strategy === 'none') return null;
+      let delta = 0;
+      if (strategy === '5m') delta = 5 * 60000;
+      else if (strategy === '15m') delta = 15 * 60000;
+      else if (strategy === '30m') delta = 30 * 60000;
+      else if (strategy === '1h') delta = 60 * 60000;
+      else if (strategy === '1d') delta = 24 * 3600000;
+      else if (strategy === 'on_time') delta = 0;
+      else return null;
+
+      const r = targetTimestamp - delta;
+      return r > 0 ? r : null;
     }
 
     function updateTodoBadge() {
@@ -663,12 +706,17 @@
 
       const todayStr = formatDateStr(new Date());
       let dateTag = '';
-      if (t.dueDate) {
-        const isToday = t.dueDate === todayStr;
-        const isOverdue = !t.done && t.dueDate < todayStr;
+      const dStr = t.dueDate || (t.targetTime ? formatDateStr(new Date(t.targetTime)) : null);
+      if (dStr) {
+        const isToday = dStr === todayStr;
+        const isOverdue = !t.done && dStr < todayStr;
         const cls = isToday ? 'today' : (isOverdue ? 'overdue' : '');
-        const label = isToday ? L('今天', 'Today') : t.dueDate.slice(5);
-        dateTag = `<span class="memo-todo-tag ${cls}" title="${t.dueDate}">📅 ${label}</span>`;
+        let label = isToday ? L('今天', 'Today') : dStr.slice(5);
+        if (t.targetTime) {
+          const dObj = new Date(t.targetTime);
+          label += ` ${pad(dObj.getHours())}:${pad(dObj.getMinutes())}`;
+        }
+        dateTag = `<span class="memo-todo-tag ${cls}" title="${dStr}${t.targetTime ? ' ' + new Date(t.targetTime).toLocaleTimeString() : ''}">📅 ${label}</span>`;
       }
 
       let alertTag = '';
@@ -676,7 +724,8 @@
         const dateObj = new Date(t.remindAt);
         const timeStr = `${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
         const isReminded = !!t.reminded;
-        alertTag = `<span class="memo-todo-tag alarm ${isReminded ? 'reminded' : ''}" title="${L('提醒时间: ', 'Alert at: ') + dateObj.toLocaleString()}">⏰ ${timeStr}${isReminded ? ` (${L('已提醒', 'done')})` : ''}</span>`;
+        const tip = `${L('提醒时间: ', 'Alert at: ')}${dateObj.toLocaleString()}`;
+        alertTag = `<span class="memo-todo-tag alarm ${isReminded ? 'reminded' : ''}" title="${tip}">⏰ ${timeStr}${isReminded ? ` (${L('已提醒', 'done')})` : ''}</span>`;
       }
 
       let priTag = '';
@@ -774,12 +823,28 @@
     async function addTodoFromInput() {
       const title = todoAddInput.value.trim();
       if (!title) return;
-      const dueDate = todoDateInput.value || null;
-      const preset = todoTimePreset.value;
-      const remindAt = calcRemindAtFromPreset(preset, todoTimeCustom.value);
+      const dtVal = todoDateTimeInput.value;
+      let targetTime = null;
+      let dueDate = null;
+      if (dtVal) {
+        const d = new Date(dtVal);
+        if (!isNaN(d.getTime())) {
+          targetTime = d.getTime();
+          dueDate = dtVal.slice(0, 10);
+        }
+      }
+      const strategy = todoStrategySelect.value;
+      const remindAt = targetTime ? calcRemindAt(targetTime, strategy) : null;
       const priority = Number(todoPriSelect.value) || 0;
 
-      const res = await ctx.call('todoCreate', { title, dueDate, remindAt, priority }).catch(() => null);
+      const res = await ctx.call('todoCreate', {
+        title,
+        dueDate,
+        targetTime,
+        remindStrategy: strategy,
+        remindAt,
+        priority
+      }).catch(() => null);
       if (res && res.ok) {
         todos = res.todos;
         todoAddInput.value = '';
@@ -792,8 +857,28 @@
     todoAddInput.addEventListener('keydown', e => {
       if (e.key === 'Enter') { e.preventDefault(); addTodoFromInput(); }
     });
-    todoTimePreset.addEventListener('change', () => {
-      todoTimeCustom.style.display = todoTimePreset.value === 'custom' ? 'inline-block' : 'none';
+    todoQuickTime.addEventListener('change', () => {
+      const val = todoQuickTime.value;
+      if (!val) return;
+      if (val === 'clear') {
+        todoDateTimeInput.value = '';
+      } else if (val === 'today18') {
+        const d = new Date(); d.setHours(18, 0, 0, 0);
+        todoDateTimeInput.value = formatDateTimeLocal(d);
+      } else if (val === 'today21') {
+        const d = new Date(); d.setHours(21, 0, 0, 0);
+        todoDateTimeInput.value = formatDateTimeLocal(d);
+      } else if (val === 'tomorrow09') {
+        const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+        todoDateTimeInput.value = formatDateTimeLocal(d);
+      } else if (val === 'tomorrow18') {
+        const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(18, 0, 0, 0);
+        todoDateTimeInput.value = formatDateTimeLocal(d);
+      } else if (val === 'in1h') {
+        const d = new Date(Date.now() + 60 * 60000); d.setSeconds(0, 0);
+        todoDateTimeInput.value = formatDateTimeLocal(d);
+      }
+      todoQuickTime.value = '';
     });
 
     /* --- Calendar Rendering & Operations ------------------------------------- */
@@ -860,10 +945,13 @@
 
     function renderCalDayList() {
       calSelectedLabel.textContent = `📅 ${calSelectedDate} ${L('日程与待办清单', 'Tasks & Reminders')}`;
+      if (calAddInput) {
+        calAddInput.placeholder = `${L('添加', 'Add to ')} ${calSelectedDate} ${L('日程，按回车快速创建…', 'task, press Enter…')}`;
+      }
       calDayItems.innerHTML = '';
       const dayTodos = todos.filter(t => t.dueDate === calSelectedDate);
       if (!dayTodos.length) {
-        calDayItems.innerHTML = `<div class="memo-todo-empty">${L('当日暂无待办日程，点击右上角添加', 'No tasks scheduled on this day')}</div>`;
+        calDayItems.innerHTML = `<div class="memo-todo-empty">${L('当日暂无待办日程，可在上方输入框快速添加 ✨', 'No tasks scheduled on this day')}</div>`;
       } else {
         dayTodos.forEach(t => calDayItems.appendChild(createTodoItemEl(t)));
       }
@@ -929,19 +1017,42 @@
     el.addEventListener('click', e => {
       if (calPicker.classList.contains('open') && !e.target.closest('.memo-cal-title-wrap')) closeCalPicker();
     });
-    calAddDayBtn.addEventListener('click', async () => {
-      const title = window.prompt(L('请输入待办内容:', 'Enter task title:'));
-      if (!title || !title.trim()) return;
+    async function addCalDayTodo() {
+      const title = calAddInput.value.trim();
+      if (!title) return;
+      const timeVal = calAddTime.value;
+      let targetTime = null;
+      if (timeVal && /^\d{1,2}:\d{2}$/.test(timeVal)) {
+        const d = new Date(`${calSelectedDate}T${timeVal}:00`);
+        if (!isNaN(d.getTime())) targetTime = d.getTime();
+      }
+      const strategy = calAddStrategy.value;
+      const remindAt = targetTime ? calcRemindAt(targetTime, strategy) : null;
+      const priority = Number(calAddPri.value) || 0;
+
       const res = await ctx.call('todoCreate', {
-        title: title.trim(),
+        title,
         dueDate: calSelectedDate,
-        priority: 0,
+        targetTime,
+        remindStrategy: strategy,
+        remindAt,
+        priority
       }).catch(() => null);
       if (res && res.ok) {
         todos = res.todos;
+        calAddInput.value = '';
+        calAddTime.value = '';
         renderCalendar();
         updateTodoBadge();
       }
+    }
+
+    calSubmitBtn.addEventListener('click', addCalDayTodo);
+    calAddInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); addCalDayTodo(); }
+    });
+    calAddDayBtn.addEventListener('click', () => {
+      calAddInput.focus();
     });
 
     /* --- Formatter Tools ---------------------------------------------------- */

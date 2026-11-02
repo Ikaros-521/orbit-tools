@@ -87,6 +87,7 @@ module.exports = {
       todos.sort((a, b) => {
         if (a.done !== b.done) return a.done ? 1 : -1;
         if ((b.priority || 0) !== (a.priority || 0)) return (b.priority || 0) - (a.priority || 0);
+        if (a.targetTime && b.targetTime && a.targetTime !== b.targetTime) return a.targetTime - b.targetTime;
         if (a.dueDate && b.dueDate && a.dueDate !== b.dueDate) return a.dueDate.localeCompare(b.dueDate);
         return (b.createdAt || 0) - (a.createdAt || 0);
       });
@@ -246,11 +247,20 @@ module.exports = {
       const title = String((args && args.title) || '').trim().slice(0, 200);
       if (!title) return { ok: false, error: 'title is empty' };
       const now = Date.now();
+      const targetTime = (args && Number.isFinite(args.targetTime) && args.targetTime > 0) ? Math.round(args.targetTime) : null;
+      let dueDate = (args && typeof args.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.dueDate)) ? args.dueDate : null;
+      if (!dueDate && targetTime) {
+        const d = new Date(targetTime);
+        const pad = n => String(n).padStart(2, '0');
+        dueDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      }
       const todo = {
         id: genId('td'),
         title,
         done: false,
-        dueDate: (args && typeof args.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.dueDate)) ? args.dueDate : null,
+        dueDate,
+        targetTime,
+        remindStrategy: (args && typeof args.remindStrategy === 'string') ? args.remindStrategy : 'none',
         remindAt: (args && Number.isFinite(args.remindAt) && args.remindAt > 0) ? Math.round(args.remindAt) : null,
         reminded: false,
         priority: (args && [0, 1, 2].includes(args.priority)) ? args.priority : 0,
@@ -286,8 +296,18 @@ module.exports = {
       const wasDone = todo.done;
       if (typeof args.title === 'string' && args.title.trim()) todo.title = args.title.trim().slice(0, 200);
       if (typeof args.done === 'boolean') todo.done = args.done;
+      if (args.targetTime !== undefined) {
+        todo.targetTime = (Number.isFinite(args.targetTime) && args.targetTime > 0) ? Math.round(args.targetTime) : null;
+      }
       if (args.dueDate !== undefined) {
         todo.dueDate = (typeof args.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(args.dueDate)) ? args.dueDate : null;
+      } else if (args.targetTime !== undefined && todo.targetTime && !todo.dueDate) {
+        const d = new Date(todo.targetTime);
+        const pad = n => String(n).padStart(2, '0');
+        todo.dueDate = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+      }
+      if (args.remindStrategy !== undefined) {
+        todo.remindStrategy = typeof args.remindStrategy === 'string' ? args.remindStrategy : 'none';
       }
       if (args.remindAt !== undefined) {
         const nextRemind = Number.isFinite(args.remindAt) && args.remindAt > 0 ? Math.round(args.remindAt) : null;
