@@ -558,7 +558,7 @@ module.exports = {
       if (LOCAL_TOOL_NAMES.has(name)) {
         return executeLocalTool(name, parseArgs(), { workDir: rt.workDir || os.homedir(), streamId: rt.streamId });
       }
-      return executeAgentTool(name, rawArgs, ctx);
+      return executeAgentTool(name, rawArgs, { ...ctx, workDir: rt.workDir || os.homedir() });
     };
 
     /* --- MCP Servers & Skills management ------------------------------------ */
@@ -850,6 +850,18 @@ module.exports = {
       return { ok: true, session: s };
     });
 
+    /* --- External AI IDE & CLI Dispatcher IPC ------------------------------ */
+
+    ctx.ipc.handle('listAvailableAiIdes', () => {
+      const dispatcher = require('./ide-dispatcher');
+      return dispatcher.listAvailableIDEs();
+    });
+
+    ctx.ipc.handle('dispatchTaskToAiIde', args => {
+      const dispatcher = require('./ide-dispatcher');
+      return dispatcher.dispatchTask(args);
+    });
+
     /* --- Chat Message Dispatch & Stream ----------------------------------- */
 
     ctx.ipc.handle('sendMessage', async args => {
@@ -912,7 +924,7 @@ module.exports = {
       const agentWorkDir = session.workDir || config.agentWorkDir || os.homedir();
       let systemContent = persona ? persona.prompt : '';
       if (enableAgent) {
-        systemContent += `\n\n[本地 Agent 环境] 工作目录: ${agentWorkDir}。相对路径一律基于工作目录解析。你可以连续多轮调用工具：每轮工具结果会回传给你，基于结果继续推理或再次调用工具，直到任务完成给出最终回答。\n[可用工具] 文件: list_dir / read_file / grep_search / edit_file / write_file / search_files；执行: run_command (Windows 为 cmd)；长期记忆: memory_write / memory_search / memory_list / memory_delete；任务规划: update_task_list；技能: list_skills / read_skill；以及已连接的 MCP 工具。\n[工作准则]\n1. 多步骤任务（约 3 步以上）先调用 update_task_list 制定计划，随进度即时更新状态（同一时刻仅一项 in_progress）。\n2. 修改已有文件：grep_search / search_files 定位 → read_file 读取上下文 → edit_file 精确替换（old_text 须与原文逐字符一致）；write_file 仅用于新建文件或整体重写。\n3. 改动后如可验证，用 run_command 运行测试/构建确认结果。\n4. 值得跨会话记住的信息（用户偏好与习惯、项目约定、用户纠正的反馈）用 memory_write 保存；仅本次会话有意义的细节不要入库。\n5. 写文件与执行命令属高危操作，需用户审批。`;
+        systemContent += `\n\n[本地 Agent 环境] 工作目录: ${agentWorkDir}。相对路径一律基于工作目录解析。你可以连续多轮调用工具：每轮工具结果会回传给你，基于结果继续推理或再次调用工具，直到任务完成给出最终回答。\n[可用工具] 文件: list_dir / read_file / grep_search / edit_file / write_file / search_files；执行: run_command (Windows 为 cmd)；外部 AI 调度: list_available_ai_ides / dispatch_task_to_ai_ide (支持自动调度分派给本地已安装的 Claude Code, Codex CLI, 反重力 Antigravity, Qoder, WorkBuddy/CodeBuddy, ZCode, Cursor 等)；长期记忆: memory_write / memory_search / memory_list / memory_delete；任务规划: update_task_list；技能: list_skills / read_skill；以及已连接的 MCP 工具。\n[工作准则]\n1. 多步骤任务（约 3 步以上）先调用 update_task_list 制定计划，随进度即时更新状态（同一时刻仅一项 in_progress）。\n2. 修改已有文件：grep_search / search_files 定位 → read_file 读取上下文 → edit_file 精确替换（old_text 须与原文逐字符一致）；write_file 仅用于新建文件或整体重写。\n3. 改动后如可验证，用 run_command 运行测试/构建确认结果。\n4. 当用户要求调度或分派任务给外部专业 AI IDE / Agent 时，先调用 list_available_ai_ides 探测可用工具，再调用 dispatch_task_to_ai_ide 下发任务。\n5. 值得跨会话记住的信息（用户偏好与习惯、项目约定、用户纠正的反馈）用 memory_write 保存；仅本次会话有意义的细节不要入库。\n6. 写文件、执行系统命令与外部任务调度属高危操作，需用户审批。`;
 
         // Recall relevant long-term memories (global + this project's scope)
         const recalled = searchMemories(

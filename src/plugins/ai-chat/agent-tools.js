@@ -27,7 +27,10 @@ const AGENT_TOOL_META = {
   memory_search: { risk: 'low', label: '检索长期记忆' },
   memory_list: { risk: 'low', label: '列出长期记忆' },
   memory_delete: { risk: 'high', label: '删除长期记忆' },
-  update_task_list: { risk: 'low', label: '更新任务清单' }
+  update_task_list: { risk: 'low', label: '更新任务清单' },
+  // External AI IDE / CLI Dispatcher tools
+  list_available_ai_ides: { risk: 'low', label: '检查本地 AI IDE / CLI' },
+  dispatch_task_to_ai_ide: { risk: 'high', label: '分派任务给外部 AI IDE / CLI' }
   // MCP tools (mcp__server__tool) are dynamic and default to high-risk
   // in resolveToolPermission — they ask in 'ask' and 'auto' tiers.
 };
@@ -169,6 +172,48 @@ const AGENT_TOOLS_DEFINITIONS = [
         required: ['skill_id']
       }
     }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_available_ai_ides',
+      description: '探测并列出用户本地当前已安装、可用于任务分派的外部 AI IDE 和 AI CLI 工具（如 Claude Code, Codex, 反重力 Antigravity, Qoder, WorkBuddy, ZCode, Cursor 等），包括可用状态、安装路径与支持的调度模式。分派前可先调用此工具了解环境支持情况。',
+      parameters: {
+        type: 'object',
+        properties: {}
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'dispatch_task_to_ai_ide',
+      description: '将具体的开发、重构、审查或实现任务调度分派给用户本地安装的专业 AI IDE 或 AI CLI 工具（如 Claude Code, Codex, 反重力 Antigravity, Qoder, WorkBuddy, ZCode, Cursor 等）。可选择后台静默执行（headless，仅限CLI工具）、在工作区打开桌面 IDE 接力（open_ide）、或弹出独立终端窗口交互（terminal）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          target: {
+            type: 'string',
+            enum: ['claude', 'codex', 'qoder', 'antigravity', 'workbuddy', 'zcode', 'cursor'],
+            description: '目标 AI 工具标识：claude (Claude Code), codex (OpenAI Codex), qoder (Qoder), antigravity (反重力), workbuddy (WorkBuddy/CodeBuddy), zcode (ZCode), cursor (Cursor)'
+          },
+          task: {
+            type: 'string',
+            description: '任务详细需求、操作指令与上下文描述'
+          },
+          workspace: {
+            type: 'string',
+            description: '可选：目标工作区/项目根目录的绝对路径，若不填则默认使用当前工作目录'
+          },
+          mode: {
+            type: 'string',
+            enum: ['auto', 'headless', 'open_ide', 'terminal'],
+            description: '调度执行模式：auto (自动匹配最佳模式，默认)、headless (后台静默执行并返回结果，支持 Claude/Codex/Qoder)、open_ide (生成任务文件并在工作区打开桌面 IDE)、terminal (弹出独立终端窗口)'
+          }
+        },
+        required: ['target', 'task']
+      }
+    }
   }
 ];
 
@@ -269,6 +314,23 @@ async function executeAgentTool(name, rawArgs, ctx) {
     } catch (err) {
       return { ok: false, error: `工作流保存失败: ${err.message}` };
     }
+  }
+
+  if (name === 'list_available_ai_ides') {
+    const dispatcher = require('./ide-dispatcher');
+    return dispatcher.listAvailableIDEs();
+  }
+
+  if (name === 'dispatch_task_to_ai_ide') {
+    const dispatcher = require('./ide-dispatcher');
+    const workDir = (ctx && ctx.workDir) || args.workspace || process.cwd();
+    return await dispatcher.dispatchTask({
+      target: args.target,
+      task: args.task,
+      workspace: args.workspace || workDir,
+      mode: args.mode || 'auto',
+      ctx
+    });
   }
 
   return { ok: false, error: `未知工具 "${name}"` };

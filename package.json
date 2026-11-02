@@ -16,8 +16,8 @@
     "test:deck-sort": "electron tools/test-deck-sort.js",
     "test:workflows": "electron tools/test-workflows.js",
     "test:workflow-ui": "electron tools/test-workflow-ui.js",
-    "test:ai": "node tools/test-ai-protocols.js",
-    "test:all": "node tools/test-color-math.js && node tools/test-ai-protocols.js && electron tools/smoke-plugins.js && electron tools/test-renderer-boot.js && electron tools/test-deck-sort.js && electron tools/test-workflows.js && electron tools/test-workflow-ui.js",
+    "test:ai": "node tools/test-ai-protocols.js && node tools/test-ai-ide-dispatch.js && node tools/test-ai-markdown-mermaid.js",
+    "test:all": "node tools/test-color-math.js && node tools/test-ai-protocols.js && node tools/test-ai-ide-dispatch.js && node tools/test-ai-markdown-mermaid.js && electron tools/smoke-plugins.js && electron tools/test-renderer-boot.js && electron tools/test-deck-sort.js && electron tools/test-workflows.js && electron tools/test-workflow-ui.js",
     "icon": "node tools/make-icon.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --x64",
@@ -119,5 +119,8 @@
   },
   "allowScripts": {
     "electron@33.4.11": true
+  },
+  "dependencies": {
+    "mermaid": "^12.2.0"
   }
 }

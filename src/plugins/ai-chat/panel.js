@@ -126,12 +126,62 @@
     return copied;
   }
 
+  function splitTableRow(rowStr) {
+    let raw = rowStr.trim();
+    if (raw.startsWith('|')) raw = raw.slice(1);
+    if (raw.endsWith('|') && !raw.endsWith('\\\|')) raw = raw.slice(0, -1);
+    const cells = [];
+    let current = '';
+    let escaped = false;
+    for (let i = 0; i < raw.length; i++) {
+      const ch = raw[i];
+      if (escaped) {
+        current += ch;
+        escaped = false;
+      } else if (ch === '\\') {
+        current += ch;
+        escaped = true;
+      } else if (ch === '|') {
+        cells.push(current.trim().replace(/\\\|/g, '|'));
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    cells.push(current.trim().replace(/\\\|/g, '|'));
+    return cells;
+  }
+
+  function parseTableDelimiterRow(rowStr) {
+    if (!rowStr || !rowStr.includes('-')) return null;
+    const cells = splitTableRow(rowStr);
+    if (!cells.length) return null;
+    const aligns = [];
+    for (const cell of cells) {
+      const trimmed = cell.trim();
+      if (!/^:?-+:?$/.test(trimmed)) return null;
+      const left = trimmed.startsWith(':');
+      const right = trimmed.endsWith(':');
+      if (left && right) aligns.push('center');
+      else if (right) aligns.push('right');
+      else if (left) aligns.push('left');
+      else aligns.push('left');
+    }
+    return aligns;
+  }
+
   function renderMarkdown(raw) {
     if (!raw) return '';
     const codeBlocks = [];
-    // Extract fenced code blocks
+
+    // Extract fenced code blocks (closed)
     let s = String(raw).replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g, (m, lang, code) => {
-      codeBlocks.push({ lang: lang || 'text', code });
+      codeBlocks.push({ lang: (lang || 'text').trim().toLowerCase(), code, streaming: false });
+      return `\u0001${codeBlocks.length - 1}\u0001`;
+    });
+    // Extract unclosed code block during streaming
+    s = s.replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*)$/g, (m, lang, code) => {
+      codeBlocks.push({ lang: (lang || 'text').trim().toLowerCase(), code, streaming: true });
       return `\u0001${codeBlocks.length - 1}\u0001`;
     });
 
@@ -150,7 +200,7 @@
     s = s.replace(/\u0000(\d+)\u0000/g, (m, idx) => `<code>${inlineCodes[+idx]}</code>`);
 
     // Split paragraphs / lists / lines
-    const lines = s.split('\n');
+    const lines = s.split(/\r?\n/);
     const out = [];
     let inList = false;
     let listType = 'ul';
@@ -164,10 +214,74 @@
       if (cbMatch) {
         if (inList) { out.push(`</${listType}>`); inList = false; }
         const item = codeBlocks[+cbMatch[1]];
-        out.push(`
-          <pre data-lang="${item.lang}"><button type="button" class="ai-code-copy-btn">复制</button><code class="lang-${item.lang}">${escapeHtml(item.code)}</code></pre>
-        `);
+        if (item.lang === 'mermaid') {
+          const rawCode = item.code.trim();
+          const encCode = encodeURIComponent(rawCode);
+          out.push(`
+            <div class="ai-mermaid-wrap" data-mermaid-code="${encCode}">
+              <div class="ai-mermaid-bar">
+                <span class="ai-mermaid-badge">📊 Mermaid 图表</span>
+                <div class="ai-mermaid-actions">
+                  <button type="button" class="ai-mermaid-copy-btn" title="复制 Mermaid 源码">复制代码</button>
+                  <button type="button" class="ai-mermaid-toggle-btn" title="查看源码 / 切换图表">查看源码</button>
+                </div>
+              </div>
+              <div class="ai-mermaid-render-area">
+                <div class="ai-mermaid-loading">${item.streaming ? '图表生成中…' : '正在渲染图表…'}</div>
+              </div>
+              <pre class="ai-mermaid-code hidden"><code>${escapeHtml(rawCode)}</code></pre>
+            </div>
+          `);
+        } else {
+          out.push(`
+            <pre data-lang="${item.lang}"><button type="button" class="ai-code-copy-btn">复制</button><code class="lang-${item.lang}">${escapeHtml(item.code)}</code></pre>
+          `);
+        }
         continue;
+      }
+
+      // Table parsing: check if current line and next line form a valid table header + delimiter
+      if (trimmed.includes('|') && i + 1 < lines.length) {
+        const nextTrimmed = lines[i + 1].trim();
+        const aligns = parseTableDelimiterRow(nextTrimmed);
+        if (aligns) {
+          if (inList) { out.push(`</${listType}>`); inList = false; }
+          const headerCells = splitTableRow(line);
+          const colCount = Math.max(headerCells.length, aligns.length);
+
+          let tableHtml = '<div class="ai-table-wrap"><table class="ai-table"><thead><tr>';
+          for (let c = 0; c < colCount; c++) {
+            const align = aligns[c] || 'left';
+            const cellContent = headerCells[c] || '';
+            tableHtml += `<th style="text-align:${align}">${cellContent}</th>`;
+          }
+          tableHtml += '</tr></thead><tbody>';
+
+          // Skip delimiter row
+          i += 1;
+
+          // Process subsequent table data rows
+          while (i + 1 < lines.length) {
+            const rowLine = lines[i + 1];
+            const rowTrimmed = rowLine.trim();
+            if (!rowTrimmed || !rowTrimmed.includes('|')) break;
+            if (/^(#{1,6}\s|```|>\s|\u0001)/.test(rowTrimmed)) break;
+
+            i++;
+            const dataCells = splitTableRow(rowLine);
+            tableHtml += '<tr>';
+            for (let c = 0; c < colCount; c++) {
+              const align = aligns[c] || 'left';
+              const cellContent = dataCells[c] || '';
+              tableHtml += `<td style="text-align:${align}">${cellContent}</td>`;
+            }
+            tableHtml += '</tr>';
+          }
+
+          tableHtml += '</tbody></table></div>';
+          out.push(tableHtml);
+          continue;
+        }
       }
 
       // Headings
@@ -223,6 +337,142 @@
 
     if (inList) out.push(`</${listType}>`);
     return out.join('');
+  }
+
+  /* --- Mermaid Dynamic Loader & Renderer ------------------------------------ */
+  let mermaidPromise = null;
+  function ensureMermaid() {
+    if (window.mermaid) return Promise.resolve(window.mermaid);
+    if (mermaidPromise) return mermaidPromise;
+    mermaidPromise = new Promise((resolve, reject) => {
+      const script = document.createElement('script');
+      script.src = 'plugin://ai-chat/vendor/mermaid.min.js';
+      script.onload = () => {
+        try {
+          window.mermaid.initialize({
+            startOnLoad: false,
+            theme: 'dark',
+            securityLevel: 'loose',
+            fontFamily: 'inherit',
+            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+            sequence: { useMaxWidth: true },
+            gantt: { useMaxWidth: true }
+          });
+        } catch (e) {
+          console.warn('[AI-Chat] Mermaid init warning:', e);
+        }
+        resolve(window.mermaid);
+      };
+      script.onerror = err => {
+        mermaidPromise = null;
+        reject(err || new Error('Failed to load mermaid.min.js'));
+      };
+      document.head.appendChild(script);
+    });
+    return mermaidPromise;
+  }
+
+  async function renderMermaidInContainer(container) {
+    if (!container) return;
+    const wraps = container.querySelectorAll('.ai-mermaid-wrap:not([data-rendered="true"])');
+    if (!wraps.length) return;
+
+    let mermaid;
+    try {
+      mermaid = await ensureMermaid();
+    } catch (err) {
+      wraps.forEach(wrap => {
+        const renderArea = wrap.querySelector('.ai-mermaid-render-area');
+        const rawPre = wrap.querySelector('.ai-mermaid-code');
+        if (renderArea) {
+          renderArea.innerHTML = '<div class="ai-mermaid-err">⚠️ 未能加载 Mermaid 渲染引擎，已显示源码</div>';
+        }
+        if (rawPre) rawPre.classList.remove('hidden');
+        const toggleBtn = wrap.querySelector('.ai-mermaid-toggle-btn');
+        if (toggleBtn) toggleBtn.textContent = '查看图表';
+      });
+      return;
+    }
+
+    for (const wrap of wraps) {
+      const renderArea = wrap.querySelector('.ai-mermaid-render-area');
+      const rawPre = wrap.querySelector('.ai-mermaid-code');
+      const toggleBtn = wrap.querySelector('.ai-mermaid-toggle-btn');
+      const code = decodeURIComponent(wrap.dataset.mermaidCode || '').trim();
+      if (!code) continue;
+
+      wrap.dataset.rendered = 'true';
+      const chartId = 'mermaid_' + Math.random().toString(36).slice(2, 9);
+      try {
+        const { svg } = await mermaid.render(chartId, code);
+        if (renderArea) {
+          renderArea.innerHTML = svg;
+        }
+      } catch (err) {
+        console.warn('[AI-Chat] Mermaid render failed:', err);
+        const stray = document.getElementById(chartId) || document.getElementById('d' + chartId);
+        if (stray) stray.remove();
+
+        if (renderArea) {
+          renderArea.innerHTML = '<div class="ai-mermaid-err">⚠️ Mermaid 语法解析失败，已切换至源码模式</div>';
+        }
+        if (rawPre) rawPre.classList.remove('hidden');
+        if (toggleBtn) toggleBtn.textContent = '查看图表';
+      }
+    }
+  }
+
+  function initMessageDynamicElements(bubble, { renderMermaid = false } = {}) {
+    if (!bubble) return;
+
+    // Code copy buttons
+    bubble.querySelectorAll('.ai-code-copy-btn:not([data-bound="true"])').forEach(btn => {
+      btn.dataset.bound = 'true';
+      btn.addEventListener('click', async (e) => {
+        const pre = e.target.closest('pre');
+        const code = pre ? pre.querySelector('code').textContent : '';
+        await copyToClipboard(code);
+        btn.textContent = '已复制';
+        setTimeout(() => { btn.textContent = '复制'; }, 1200);
+      });
+    });
+
+    // Mermaid controls
+    bubble.querySelectorAll('.ai-mermaid-wrap:not([data-bound="true"])').forEach(wrap => {
+      wrap.dataset.bound = 'true';
+      const copyBtn = wrap.querySelector('.ai-mermaid-copy-btn');
+      const toggleBtn = wrap.querySelector('.ai-mermaid-toggle-btn');
+      const rawPre = wrap.querySelector('.ai-mermaid-code');
+      const renderArea = wrap.querySelector('.ai-mermaid-render-area');
+      const code = decodeURIComponent(wrap.dataset.mermaidCode || '');
+
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          await copyToClipboard(code);
+          copyBtn.textContent = '已复制';
+          setTimeout(() => { copyBtn.textContent = '复制代码'; }, 1200);
+        });
+      }
+
+      if (toggleBtn) {
+        toggleBtn.addEventListener('click', () => {
+          const isShowingCode = !rawPre.classList.contains('hidden');
+          if (isShowingCode) {
+            rawPre.classList.add('hidden');
+            renderArea.style.display = '';
+            toggleBtn.textContent = '查看源码';
+          } else {
+            rawPre.classList.remove('hidden');
+            renderArea.style.display = 'none';
+            toggleBtn.textContent = '查看图表';
+          }
+        });
+      }
+    });
+
+    if (renderMermaid) {
+      renderMermaidInContainer(bubble);
+    }
   }
 
   /* --- Panel Mount Controller ---------------------------------------------- */
@@ -1422,9 +1672,26 @@
       updateActivePersonaPill();
     }
 
-    /* --- Render Messages -------------------------------------------------- */
-    function scrollToBottom() {
-      messagesScroll.scrollTop = messagesScroll.scrollHeight;
+    /* --- Scroll Control ---------------------------------------------------- */
+    let autoScrollEnabled = true;
+
+    function isAtBottom(threshold = 48) {
+      return (messagesScroll.scrollHeight - messagesScroll.scrollTop - messagesScroll.clientHeight) <= threshold;
+    }
+
+    messagesScroll.addEventListener('scroll', () => {
+      autoScrollEnabled = isAtBottom(48);
+    }, { passive: true });
+
+    function scrollToBottom(force = false) {
+      if (force) {
+        autoScrollEnabled = true;
+        messagesScroll.scrollTop = messagesScroll.scrollHeight;
+        return;
+      }
+      if (autoScrollEnabled) {
+        messagesScroll.scrollTop = messagesScroll.scrollHeight;
+      }
     }
 
     /* Session task plan card: pinned as the first child of the message list,
@@ -1497,7 +1764,7 @@
       });
 
       renderTaskCard();
-      scrollToBottom();
+      scrollToBottom(true);
     }
 
     function createMessageElement(msg) {
@@ -1564,9 +1831,22 @@
             const toolBadge = document.createElement('div');
             toolBadge.className = 'ai-tool-badge' + (st === 'denied' ? ' denied' : '');
             let label;
-            if (st === 'denied') label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-            else if (st === 'approved') label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-            else label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            if (st === 'denied') {
+              label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            } else if (tc.function.name === 'dispatch_task_to_ai_ide') {
+              let ideName = 'AI IDE';
+              try {
+                const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
+                if (args && args.target) ideName = args.target;
+              } catch {}
+              label = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
+            } else if (tc.function.name === 'list_available_ai_ides') {
+              label = `<span>🔍 本地 AI 环境探测</span>`;
+            } else if (st === 'approved') {
+              label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            } else {
+              label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+            }
             toolBadge.innerHTML = label;
             bubble.appendChild(toolBadge);
           });
@@ -1682,16 +1962,8 @@
         });
       }
 
-      // Code block copy buttons
-      bubble.querySelectorAll('.ai-code-copy-btn').forEach(btn => {
-        btn.addEventListener('click', async (e) => {
-          const pre = e.target.closest('pre');
-          const code = pre ? pre.querySelector('code').textContent : '';
-          await copyToClipboard(code);
-          btn.textContent = '已复制';
-          setTimeout(() => { btn.textContent = '复制'; }, 1200);
-        });
-      });
+      // Code block copy buttons & Mermaid rendering
+      initMessageDynamicElements(bubble, { renderMermaid: true });
 
       return el;
     }
@@ -1718,6 +1990,7 @@
       chatInput.value = '';
       autoResizeInput();
       setGeneratingState(true);
+      scrollToBottom(true);
 
       const streamId = `stream_${Date.now()}`;
       currentStreamId = streamId;
@@ -1794,8 +2067,8 @@
         try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
         card.innerHTML = `
           <div class="ai-approval-head">
-            <span class="ai-approval-ico">🔐</span>
-            <span>请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong></span>
+            <span class="ai-approval-ico">${chunk.toolName === 'dispatch_task_to_ai_ide' ? '🚀' : '🔐'}</span>
+            <span>${chunk.toolName === 'dispatch_task_to_ai_ide' ? '请求派发任务至外部 AI IDE / CLI' : `请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong>`}</span>
           </div>
           <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
           <div class="ai-approval-actions">
@@ -1943,16 +2216,7 @@
           bubble.appendChild(mdBody);
         }
         mdBody.innerHTML = renderMarkdown(chunk.content);
-        // Code block copy buttons
-        mdBody.querySelectorAll('.ai-code-copy-btn').forEach(btn => {
-          btn.addEventListener('click', async (e) => {
-            const pre = e.target.closest('pre');
-            const code = pre ? pre.querySelector('code').textContent : '';
-            await copyToClipboard(code);
-            btn.textContent = '已复制';
-            setTimeout(() => { btn.textContent = '复制'; }, 1200);
-          });
-        });
+        initMessageDynamicElements(bubble, { renderMermaid: false });
         scrollToBottom();
       } else if (chunk.type === 'tool_calls') {
         for (const tc of chunk.toolCalls) {
@@ -1960,7 +2224,18 @@
             const b = document.createElement('div');
             b.className = 'ai-tool-badge';
             b.dataset.tool = tc.id;
-            b.innerHTML = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong> (参数就绪)`;
+            let title = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong> (参数就绪)`;
+            if (tc.function.name === 'dispatch_task_to_ai_ide') {
+              let ideName = 'AI IDE';
+              try {
+                const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
+                if (args && args.target) ideName = args.target;
+              } catch {}
+              title = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> (准备中)`;
+            } else if (tc.function.name === 'list_available_ai_ides') {
+              title = `<span>🔍 探测本地 AI IDE/CLI:</span> (准备中)`;
+            }
+            b.innerHTML = title;
             bubble.appendChild(b);
           }
         }
@@ -1998,6 +2273,15 @@
           if (chunk.result && chunk.result.denied) {
             b.classList.add('denied');
             b.innerHTML = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+          } else if (chunk.toolName === 'dispatch_task_to_ai_ide') {
+            const res = chunk.result || {};
+            const ide = res.targetName || res.target || '外部 AI';
+            const mode = res.mode === 'headless' ? '批处理' : (res.mode === 'terminal' ? '终端' : 'IDE窗口');
+            const state = res.ok ? '成功' : '失败';
+            b.innerHTML = `<span>🚀 任务已派发至:</span> <strong>${escapeHtml(ide)}</strong> <span style="opacity:0.85">(${mode}·${state})</span>`;
+          } else if (chunk.toolName === 'list_available_ai_ides') {
+            const count = (chunk.result && chunk.result.count !== undefined) ? chunk.result.count : 0;
+            b.innerHTML = `<span>🔍 本地 AI 环境探测:</span> <strong>已找到 ${count} 个可用工具</strong>`;
           } else {
             b.innerHTML = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong> <span style="opacity:0.7">(已捕获结果)</span>`;
           }
@@ -2010,6 +2294,8 @@
         }
       } else if (chunk.type === 'complete' || chunk.type === 'aborted' || chunk.type === 'error') {
         setGeneratingState(false);
+        initMessageDynamicElements(bubble, { renderMermaid: true });
+        scrollToBottom();
         if (chunk.message && currentSession && currentSession.messages) {
           const m = currentSession.messages.find(x => x.id === messageId);
           if (m) {
@@ -3075,9 +3361,15 @@
   }
 
   let cleanupFn = null;
-  window.Toolbox.panel({
+  if (typeof window !== 'undefined' && window.Toolbox && window.Toolbox.panel) {
+    window.Toolbox.panel({
     mount(el, ctx) { cleanupFn = mount(el, ctx); },
     unmount() { if (typeof cleanupFn === 'function') cleanupFn(); cleanupFn = null; }
-  });
+    });
+  }
+
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { renderMarkdown, splitTableRow, parseTableDelimiterRow };
+  }
 })();
 
