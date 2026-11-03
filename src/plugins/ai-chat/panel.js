@@ -532,6 +532,35 @@
           <!-- Bottom Input Area -->
           <footer class="ai-input-wrap">
             <div class="ai-pills-bar">
+              <!-- 【+】附件扩展中心按钮与下拉菜单 -->
+              <div class="ai-plus-menu-wrap">
+                <button type="button" class="ai-pill-btn plus-btn" id="btnPlusAttachment" title="添加附件 (支持图片、代码/文本文件、文件夹)">
+                  <span class="ai-plus-ico">+</span>
+                </button>
+                <div class="ai-plus-popover hidden" id="plusPopover">
+                  <div class="ai-plus-item" id="btnMenuPickImage">
+                    <span class="ai-plus-item-ico">🖼️</span>
+                    <span class="ai-plus-item-text">
+                      <b>添加图片</b>
+                      <i>选择图像或截图 (支持多模态视觉分析)</i>
+                    </span>
+                  </div>
+                  <div class="ai-plus-item" id="btnMenuPickFile">
+                    <span class="ai-plus-item-ico">📄</span>
+                    <span class="ai-plus-item-text">
+                      <b>添加文件</b>
+                      <i>代码、配置、文档等 (自动提取文本上下文)</i>
+                    </span>
+                  </div>
+                  <div class="ai-plus-item" id="btnMenuPickFolder">
+                    <span class="ai-plus-item-ico">📁</span>
+                    <span class="ai-plus-item-text">
+                      <b>添加文件夹</b>
+                      <i>关联本地目录 (供 Agent 工具深度分析)</i>
+                    </span>
+                  </div>
+                </div>
+              </div>
               <button class="ai-pill-btn active cot" id="pillCot" title="DeepSeek 深度思考 / Claude Thinking">
                 <span>🧠</span> <span>深度思考</span>
               </button>
@@ -607,35 +636,6 @@
                 </div>
               </div>
 
-              <!-- 【+】附件扩展中心按钮与下拉菜单 -->
-              <div class="ai-plus-menu-wrap">
-                <button type="button" class="ai-pill-btn plus-btn" id="btnPlusAttachment" title="添加附件 (支持图片、代码/文本文件、文件夹)">
-                  <span class="ai-plus-ico">+</span>
-                </button>
-                <div class="ai-plus-popover hidden" id="plusPopover">
-                  <div class="ai-plus-item" id="btnMenuPickImage">
-                    <span class="ai-plus-item-ico">🖼️</span>
-                    <span class="ai-plus-item-text">
-                      <b>添加图片</b>
-                      <i>选择图像或截图 (支持多模态视觉分析)</i>
-                    </span>
-                  </div>
-                  <div class="ai-plus-item" id="btnMenuPickFile">
-                    <span class="ai-plus-item-ico">📄</span>
-                    <span class="ai-plus-item-text">
-                      <b>添加文件</b>
-                      <i>代码、配置、文档等 (自动提取文本上下文)</i>
-                    </span>
-                  </div>
-                  <div class="ai-plus-item" id="btnMenuPickFolder">
-                    <span class="ai-plus-item-ico">📁</span>
-                    <span class="ai-plus-item-text">
-                      <b>添加文件夹</b>
-                      <i>关联本地目录 (供 Agent 工具深度分析)</i>
-                    </span>
-                  </div>
-                </div>
-              </div>
               <input type="file" id="imageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
             </div>
 
