@@ -2,7 +2,8 @@
    Dispatches development tasks to local AI IDEs and CLI agents:
    - CLI Agents: Claude Code, OpenAI Codex CLI, Qoder CLI
    - Desktop IDEs: Google Antigravity, Qoder IDE, Tencent WorkBuddy/CodeBuddy, ZCode ADE, Cursor
-   Supports headless background batch execution, workspace context handoff, and interactive terminal dispatch. */
+   Supports headless background batch execution, interactive terminal dispatch, and
+   GUI IDE handoff (brief file opened as editor tab + paste-ready prompt on clipboard). */
 
 const fs = require('fs');
 const path = require('path');
@@ -11,6 +12,25 @@ const { spawn, spawnSync } = require('child_process');
 
 const MAX_OUTPUT_CHARS = 64 * 1024; // 64 KB stdout/stderr limit
 const DEFAULT_TIMEOUT_MS = 120 * 1000; // 2 minutes
+
+/* Injected by backend.js with Electron clipboard; stays null in standalone CLI usage. */
+let clipboardWriter = null;
+
+function setClipboardWriter(fn) {
+  clipboardWriter = typeof fn === 'function' ? fn : null;
+}
+
+/**
+ * Stable paste-ready prompt for GUI IDE handoff: task details live in TASK_BRIEF.md,
+ * so the human only pastes this one fixed sentence into the IDE's AI chat panel.
+ */
+function buildHandoffPrompt(workspaceDir) {
+  return [
+    '请先阅读工作区根目录的任务简报 TASK_BRIEF.md，并严格按照简报要求在当前工作区内执行任务。',
+    `简报位置：${path.join(workspaceDir, 'TASK_BRIEF.md')}`,
+    '完成后请说明：改动文件清单、实现方式、如何验证。'
+  ].join('\n');
+}
 
 function fileExists(p) {
   if (!p) return false;
@@ -339,18 +359,28 @@ async function dispatchTask(options) {
   // Inject task context files
   const taskFile = injectTaskProtocol(targetWorkDir, task, meta);
 
-  // 1. Mode: open_ide (Launch GUI IDE with the workspace)
+  // 1. Mode: open_ide (Launch GUI IDE: workspace + brief tab + clipboard prompt)
   if (actualMode === 'open_ide') {
     try {
       const isWin = process.platform === 'win32';
       const isCmd = /\.(cmd|bat)$/i.test(execPath) || !path.extname(execPath);
-      const child = spawn(execPath, [targetWorkDir], {
+      const useShell = isWin ? true : isCmd;
+      // Paths containing spaces must be quoted when going through a shell
+      const q = useShell ? (s => /\s/.test(s) ? `"${s}"` : s) : (s => s);
+      // VS Code family: folder arg opens the workspace, file arg opens the brief as a tab
+      const child = spawn(q(execPath), [q(targetWorkDir), q(taskFile)], {
         cwd: targetWorkDir,
         detached: true,
         stdio: 'ignore',
-        shell: isWin ? true : isCmd
+        shell: useShell
       });
       child.unref();
+
+      const handoffPrompt = buildHandoffPrompt(targetWorkDir);
+      let clipboardCopied = false;
+      if (clipboardWriter) {
+        try { clipboardWriter(handoffPrompt); clipboardCopied = true; } catch {}
+      }
 
       return {
         ok: true,
@@ -360,8 +390,12 @@ async function dispatchTask(options) {
         status: 'launched',
         workspace: targetWorkDir,
         taskFile,
+        handoffPrompt,
+        clipboardCopied,
         pid: child.pid,
-        message: `已为 ${meta.name.zh} 生成任务简报并成功拉起工作区。`
+        message: clipboardCopied
+          ? `已为 ${meta.name.zh} 生成任务简报并拉起工作区：简报已在编辑器中打开，交接提示词已复制到剪贴板，切到 IDE 的 AI 对话框直接粘贴即可。`
+          : `已为 ${meta.name.zh} 生成任务简报并拉起工作区：简报已在编辑器中打开，请将 handoffPrompt 内容粘贴到 IDE 的 AI 对话框执行。`
       };
     } catch (err) {
       return { ok: false, error: `唤起 ${meta.name.zh} 失败: ${err.message}` };
@@ -513,5 +547,7 @@ module.exports = {
   TARGET_CATALOG,
   listAvailableIDEs,
   dispatchTask,
-  injectTaskProtocol
+  injectTaskProtocol,
+  setClipboardWriter,
+  buildHandoffPrompt
 };

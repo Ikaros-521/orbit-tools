@@ -9,7 +9,9 @@ const {
   TARGET_CATALOG,
   listAvailableIDEs,
   dispatchTask,
-  injectTaskProtocol
+  injectTaskProtocol,
+  setClipboardWriter,
+  buildHandoffPrompt
 } = require('../src/plugins/ai-chat/ide-dispatcher');
 const {
   AGENT_TOOLS_DEFINITIONS,
@@ -110,10 +112,24 @@ async function testExecuteAgentTools() {
   console.log('PASS: executeAgentTool error handling & parameter validation');
 }
 
+function testHandoffPrompt() {
+  console.log('Testing Handoff Prompt & Clipboard Writer...');
+  const ws = path.join(os.tmpdir(), 'orbit ws demo'); // contains a space on purpose
+  const prompt = buildHandoffPrompt(ws);
+  assert(prompt.includes('TASK_BRIEF.md'), 'handoff prompt must reference TASK_BRIEF.md');
+  assert(prompt.includes(ws), 'handoff prompt must embed the brief path');
+  assert(prompt.includes('改动文件清单'), 'handoff prompt must request a completion report');
+
+  // Writer registration must be safe without Electron (standalone CLI usage)
+  setClipboardWriter(null);
+  console.log('PASS: buildHandoffPrompt & setClipboardWriter standalone safety');
+}
+
 async function run() {
   try {
     testCatalogAndDetection();
     testTaskProtocolInjection();
+    testHandoffPrompt();
     testAgentToolsRegistration();
     await testExecuteAgentTools();
     console.log('\nALL AI IDE DISPATCH TESTS PASSED!');

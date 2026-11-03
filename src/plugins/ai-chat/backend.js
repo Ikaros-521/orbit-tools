@@ -13,7 +13,7 @@ const {
   formatMemoriesForPrompt, executeMemoryTool
 } = require('./memory');
 const { TASK_TOOLS_DEFINITIONS, normalizeTaskList, summarizeTaskProgress, formatTaskListForPrompt } = require('./task-tools');
-const { dialog } = require('electron');
+const { dialog, clipboard } = require('electron');
 const os = require('os');
 const fs = require('fs');
 const path = require('path');
@@ -851,6 +851,10 @@ module.exports = {
     });
 
     /* --- External AI IDE & CLI Dispatcher IPC ------------------------------ */
+
+    // GUI IDE handoff: dispatch writes a paste-ready prompt to the OS clipboard
+    // (covers both the IPC path and the agent-tool path, same process)
+    require('./ide-dispatcher').setClipboardWriter(text => clipboard.writeText(text));
 
     ctx.ipc.handle('listAvailableAiIdes', () => {
       const dispatcher = require('./ide-dispatcher');
