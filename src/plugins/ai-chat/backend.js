@@ -548,6 +548,15 @@ module.exports = {
       return { ok: true, session: s };
     });
 
+    ctx.ipc.handle('setTaskList', args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      s.taskList = Array.isArray(args.tasks) ? args.tasks : null;
+      s.updatedAt = Date.now();
+      save();
+      return { ok: true, session: s };
+    });
+
     /* --- External AI IDEs --- */
 
     ctx.ipc.handle('listAvailableAiIdes', () => {

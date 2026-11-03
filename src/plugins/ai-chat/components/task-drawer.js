@@ -8,15 +8,40 @@
 
   function getActiveTasks(currentSession, extractTasksFromContent) {
     if (!currentSession) return null;
+    const extractFn = extractTasksFromContent || (window.AiChatMarkdown && window.AiChatMarkdown.extractTasksFromContent);
+
+    // 1. 优先检查最新一条 assistant 消息中是否有 Markdown checklist
+    // 这样当 AI 在后续对话轮次中通过文本更新清单（如勾选 [x]）时，浮窗能即时反映最新进度
+    let latestAssistantMsg = null;
+    if (Array.isArray(currentSession.messages)) {
+      for (let i = currentSession.messages.length - 1; i >= 0; i--) {
+        if (currentSession.messages[i].role === 'assistant') {
+          latestAssistantMsg = currentSession.messages[i];
+          break;
+        }
+      }
+    }
+
+    if (latestAssistantMsg && typeof latestAssistantMsg.content === 'string' && typeof extractFn === 'function') {
+      if (currentSession._hiddenTasksMessageId !== latestAssistantMsg.id && !currentSession._hideExtractedTasks) {
+        const matches = extractFn(latestAssistantMsg.content);
+        if (matches && matches.length >= 2) {
+          return { tasks: matches, isExplicit: false };
+        }
+      }
+    }
+
+    // 2. 检查会话持久化的显式 taskList (来自 update_task_list 工具或用户交互设置)
     if (Array.isArray(currentSession.taskList) && currentSession.taskList.length > 0) {
       return { tasks: currentSession.taskList, isExplicit: true };
     }
-    // 智能识别：若无显式 taskList 且未被用户手动隐藏，自动提取最新 assistant 消息中的 Markdown checklist
-    const extractFn = extractTasksFromContent || (window.AiChatMarkdown && window.AiChatMarkdown.extractTasksFromContent);
+
+    // 3. 回溯更早的 assistant 历史消息提取任务
     if (!currentSession._hideExtractedTasks && Array.isArray(currentSession.messages) && typeof extractFn === 'function') {
       for (let i = currentSession.messages.length - 1; i >= 0; i--) {
         const msg = currentSession.messages[i];
         if (msg.role === 'assistant' && typeof msg.content === 'string') {
+          if (currentSession._hiddenTasksMessageId === msg.id) continue;
           const matches = extractFn(msg.content);
           if (matches && matches.length >= 2) {
             return { tasks: matches, isExplicit: false };
@@ -102,7 +127,7 @@
         <!-- 任务列表滚动区 -->
         <div class="ai-task-list">
           ${tasks.map((t, idx) => `
-            <div class="ai-task-item ${t.status}" data-idx="${idx}">
+            <div class="ai-task-item ${t.status}" data-idx="${idx}" title="点击切换状态 (待办 ➔ 进行中 ➔ 已完成)">
               <span class="ai-task-ico">${icon(t)}</span>
               <span class="ai-task-text">${escapeHtml(t.content)}</span>
             </div>
@@ -110,6 +135,25 @@
         </div>
       </div>
     `;
+
+    const taskItems = wrap.querySelectorAll('.ai-task-item');
+    taskItems.forEach(item => {
+      item.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const idx = Number(item.dataset.idx);
+        if (isNaN(idx) || !tasks[idx]) return;
+        const curStatus = tasks[idx].status;
+        const nextStatus = curStatus === 'completed' ? 'pending' : (curStatus === 'in_progress' ? 'completed' : 'in_progress');
+        tasks[idx].status = nextStatus;
+        currentSession.taskList = tasks;
+        if (ctx && ctx.call) {
+          try {
+            await ctx.call('setTaskList', { sessionId: currentSession.id, tasks });
+          } catch {}
+        }
+        renderTaskCard({ panelEl, messagesScroll, currentSession, ctx, extractTasksFromContent, escapeHtml });
+      });
+    });
 
     const badge = wrap.querySelector('#aiTaskBadge');
     if (badge) {
@@ -133,18 +177,21 @@
     if (btnClear) {
       btnClear.addEventListener('click', async () => {
         if (!currentSession) return;
-        if (isExplicit) {
-          if (ctx && ctx.call) {
-            const res = await ctx.call('clearTaskList', { sessionId: currentSession.id });
-            if (res && res.ok) {
-              currentSession.taskList = null;
-              renderTaskCard({ panelEl, messagesScroll, currentSession, ctx, extractTasksFromContent, escapeHtml });
-            }
+        currentSession.taskList = null;
+        let latestMsg = null;
+        if (Array.isArray(currentSession.messages)) {
+          for (let i = currentSession.messages.length - 1; i >= 0; i--) {
+            if (currentSession.messages[i].role === 'assistant') { latestMsg = currentSession.messages[i]; break; }
           }
-        } else {
-          currentSession._hideExtractedTasks = true;
-          renderTaskCard({ panelEl, messagesScroll, currentSession, ctx, extractTasksFromContent, escapeHtml });
         }
+        if (latestMsg) currentSession._hiddenTasksMessageId = latestMsg.id;
+        currentSession._hideExtractedTasks = true;
+        if (ctx && ctx.call) {
+          try {
+            await ctx.call('clearTaskList', { sessionId: currentSession.id });
+          } catch {}
+        }
+        renderTaskCard({ panelEl, messagesScroll, currentSession, ctx, extractTasksFromContent, escapeHtml });
       });
     }
   }

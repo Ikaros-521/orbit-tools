@@ -907,6 +907,9 @@
         if (res && res.ok) {
           sessionPromptQueues.delete(currentSession.id);
           currentSession.messages = [];
+          currentSession.taskList = null;
+          currentSession._hiddenTasksMessageId = null;
+          currentSession._hideExtractedTasks = false;
           currentSession.totalTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
           updateHeader();
           syncPromptQueueBar();
@@ -1020,6 +1023,7 @@
     // Messages View & Elements
     function renderMessages() {
       messagesScroll.innerHTML = '';
+      renderTaskCard();
       if (!currentSession || !Array.isArray(currentSession.messages) || currentSession.messages.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'ai-empty-prompt';
@@ -1617,6 +1621,10 @@
         const buf = getLateChunkBuf(payload.sessionId);
         if (chunk.type === 'tool_approval_request') buf.approvals.push(payload);
         if (isTerminal) buf.terminated = true;
+        if (chunk.type === 'task_list' || (isTerminal && chunk.taskList !== undefined)) {
+          const targetSess = sessions.find(s => s.id === payload.sessionId);
+          if (targetSess) targetSess.taskList = chunk.tasks || chunk.taskList;
+        }
         if (isTerminal && generatingSessionId === payload.sessionId) {
           generatingSessionId = null;
           if (isGenerating) setGeneratingState(false);
@@ -1921,6 +1929,10 @@
             m.reasoning = chunk.message.reasoning || m.reasoning;
           }
         }
+        if (chunk.taskList !== undefined && currentSession) {
+          currentSession.taskList = chunk.taskList;
+        }
+        renderTaskCard();
 
         // Safety Net: If content was not rendered during streaming chunks, force render it now
         if (chunk.message && chunk.message.content) {

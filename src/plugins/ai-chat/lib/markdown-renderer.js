@@ -174,12 +174,16 @@
     const matches = [];
     const lines = content.split(/\r?\n/);
     for (const line of lines) {
-      const m = line.match(/^\s*[-*]\s+\[([ xX])\]\s+(.+)$/);
+      const m = line.match(/^\s*[-*]\s+\[([ xX>/~-])\]\s+(.+)$/);
       if (m) {
-        const isDone = m[1].toLowerCase() === 'x';
+        const char = m[1].toLowerCase();
+        const isDone = char === 'x';
+        const isInProgress = char === '>' || char === '/' || char === '~' || /(?:（|\()(?:进行中|in progress)(?:）|\))/i.test(m[2]);
+        const status = isDone ? 'completed' : (isInProgress ? 'in_progress' : 'pending');
+        const cleanText = m[2].replace(/\s*(?:（|\()(?:进行中|in progress)(?:）|\))\s*$/i, '').trim();
         matches.push({
-          content: m[2].trim(),
-          status: isDone ? 'completed' : 'pending',
+          content: cleanText,
+          status,
         });
       }
     }

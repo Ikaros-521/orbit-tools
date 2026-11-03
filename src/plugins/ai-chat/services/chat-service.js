@@ -16,7 +16,7 @@ const {
   MEMORY_TOOLS_DEFINITIONS,
   executeMemoryTool
 } = require('../memory');
-const { TASK_TOOLS_DEFINITIONS, normalizeTaskList, summarizeTaskProgress } = require('../task-tools');
+const { TASK_TOOLS_DEFINITIONS, normalizeTaskList, summarizeTaskProgress, extractTasksFromMarkdown } = require('../task-tools');
 const { buildBoundedContext } = require('../lib/context-bounds');
 const { ToolExecutionPipeline, clipToolContent } = require('./tool-pipeline');
 const { RuntimeContextService } = require('./runtime-context-service');
@@ -499,9 +499,20 @@ class ChatService {
         killRunningCommands(streamId);
         this.activeStreams.delete(streamId);
         this.streamBySession.delete(sessionId);
+        if (assistantMsg && assistantMsg.content) {
+          const extracted = extractTasksFromMarkdown(assistantMsg.content);
+          if (extracted && extracted.length >= 2) {
+            session.taskList = extracted;
+          }
+        }
         session.updatedAt = Date.now();
         if (typeof save === 'function') save();
-        emitChunk({ type: 'complete', message: assistantMsg, sessionTotalTokens: session.totalTokens });
+        emitChunk({
+          type: 'complete',
+          message: assistantMsg,
+          sessionTotalTokens: session.totalTokens,
+          taskList: session.taskList || null
+        });
       }
     })();
 

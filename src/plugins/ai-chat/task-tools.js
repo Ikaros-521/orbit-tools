@@ -74,11 +74,31 @@ function formatTaskListForPrompt(tasks) {
   return `[当前任务清单] ${summarizeTaskProgress(tasks)} 已完成\n${rows.join('\n')}\n（用 update_task_list 维护：开工制定、随进度更新、完成标记）`;
 }
 
+/* Extract Markdown checklists from assistant replies (e.g. Implementation Plan. Task List) */
+function extractTasksFromMarkdown(content) {
+  if (typeof content !== 'string') return [];
+  const matches = [];
+  const lines = content.split(/\r?\n/);
+  for (const line of lines) {
+    const m = line.match(/^\s*[-*]\s+\[([ xX>/~-])\]\s+(.+)$/);
+    if (m) {
+      const char = m[1].toLowerCase();
+      const isDone = char === 'x';
+      const isInProgress = char === '>' || char === '/' || char === '~' || /(?:（|\()(?:进行中|in progress)(?:）|\))/i.test(m[2]);
+      const status = isDone ? 'completed' : (isInProgress ? 'in_progress' : 'pending');
+      const cleanText = m[2].replace(/\s*(?:（|\()(?:进行中|in progress)(?:）|\))\s*$/i, '').trim();
+      matches.push({ content: cleanText.slice(0, TASK_MAX_CHARS), status });
+    }
+  }
+  return matches;
+}
+
 module.exports = {
   TASK_LIMIT,
   TASK_STATUSES,
   TASK_TOOLS_DEFINITIONS,
   normalizeTaskList,
   summarizeTaskProgress,
-  formatTaskListForPrompt
+  formatTaskListForPrompt,
+  extractTasksFromMarkdown
 };

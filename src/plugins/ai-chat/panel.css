@@ -2692,6 +2692,9 @@ input.hidden {
   padding: 4px 6px;
   border-radius: var(--r-sm);
   transition: background 0.12s;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .ai-task-item:hover {
