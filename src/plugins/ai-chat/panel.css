@@ -3064,3 +3064,556 @@ input.hidden {
   display: none;
   margin-bottom: 0;
 }
+
+/* ==========================================================================
+   Multi-modal Vision (Images) & Prompt Queue & Dynamic Send/Stop Button
+   ========================================================================== */
+
+/* --- Input Area Drag & Drop State ---------------------------------------- */
+.ai-input-wrap.ai-input-drag-over {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px var(--primary-soft), 0 8px 24px var(--shadow) !important;
+  background: var(--primary-soft) !important;
+}
+
+/* --- Attachments Bar (Input Area) ---------------------------------------- */
+.ai-input-attachments {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 4px 4px 4px;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+.ai-input-attachments.hidden {
+  display: none !important;
+}
+
+.ai-attachment-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  max-width: 160px;
+  flex-shrink: 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+  transition: all var(--t-fast);
+}
+
+.ai-attachment-item:hover {
+  border-color: var(--primary);
+  box-shadow: 0 2px 8px var(--primary-soft);
+}
+
+.ai-attachment-thumb {
+  width: 38px;
+  height: 38px;
+  object-fit: cover;
+  border-radius: 4px;
+  cursor: zoom-in;
+  background: var(--panel);
+}
+
+.ai-attachment-name {
+  font-size: 11px;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 80px;
+}
+
+.ai-attachment-del {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(239, 68, 68, 0.15);
+  color: var(--danger, #ef4444);
+  font-size: 12px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: all var(--t-fast);
+}
+
+.ai-attachment-del:hover {
+  background: var(--danger, #ef4444);
+  color: #fff;
+  transform: scale(1.1);
+}
+
+/* --- Prompt Queue Bar ----------------------------------------------------- */
+.ai-prompt-queue-bar {
+  margin: 6px 0 8px 0;
+  padding: 8px 12px;
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(99, 102, 241, 0.04));
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  border-radius: var(--r-md);
+  animation: aiQueueSlideIn 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ai-prompt-queue-bar.hidden {
+  display: none !important;
+}
+
+@keyframes aiQueueSlideIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ai-queue-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(59, 130, 246, 0.2);
+}
+
+.ai-queue-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ink);
+  font-weight: 500;
+}
+
+.ai-queue-title strong {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.ai-queue-sub {
+  font-size: 11px;
+  color: var(--muted);
+  font-weight: normal;
+  margin-left: 6px;
+}
+
+.ai-queue-btn-clear {
+  padding: 2px 8px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.ai-queue-btn-clear:hover {
+  background: rgba(239, 68, 68, 0.1);
+  color: var(--danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.ai-queue-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.ai-queue-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  font-size: 12px;
+  transition: all var(--t-fast);
+}
+
+.ai-queue-item:hover {
+  border-color: var(--primary);
+  background: var(--panel);
+}
+
+.ai-queue-num {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--primary);
+  background: var(--primary-soft);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.ai-queue-img-badge {
+  font-size: 11px;
+  color: #6366f1;
+  background: rgba(99, 102, 241, 0.12);
+  padding: 1px 5px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ai-queue-text {
+  flex: 1;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.ai-queue-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.ai-queue-action-btn {
+  padding: 2px 6px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font-size: 10px;
+  color: var(--muted);
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.ai-queue-action-btn.edit:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+}
+
+.ai-queue-action-btn.del:hover {
+  background: rgba(239, 68, 68, 0.12);
+  color: var(--danger, #ef4444);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* --- Dynamic Send / Stop Button Styling ----------------------------------- */
+.ai-btn-action.send.queue {
+  background: linear-gradient(135deg, #3b82f6, #6366f1) !important;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.4);
+  animation: aiQueuePulse 2s infinite ease-in-out;
+}
+
+@keyframes aiQueuePulse {
+  0%, 100% { box-shadow: 0 0 8px rgba(59, 130, 246, 0.3); }
+  50% { box-shadow: 0 0 14px rgba(99, 102, 241, 0.6); }
+}
+
+/* --- Message Bubble Image Grid -------------------------------------------- */
+.ai-msg-images {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 160px));
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.ai-msg-image-thumb {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  cursor: zoom-in;
+  transition: transform var(--t-fast), box-shadow var(--t-fast);
+}
+
+.ai-msg-image-thumb:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  border-color: var(--primary);
+}
+
+.ai-msg-image-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.ai-msg-image-zoom {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  font-size: 11px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border-radius: 4px;
+  padding: 2px 4px;
+  opacity: 0;
+  transition: opacity var(--t-fast);
+  pointer-events: none;
+}
+
+.ai-msg-image-thumb:hover .ai-msg-image-zoom {
+  opacity: 1;
+}
+
+/* --- Global Lightbox Modal ------------------------------------------------ */
+.ai-lightbox-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: aiFadeIn 0.15s ease-out;
+}
+
+.ai-lightbox-modal.hidden {
+  display: none !important;
+}
+
+.ai-lightbox-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.78);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.ai-lightbox-dialog {
+  position: relative;
+  z-index: 1;
+  max-width: 90vw;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  outline: none;
+}
+
+.ai-lightbox-body {
+  max-width: 88vw;
+  max-height: 82vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+.ai-lightbox-img {
+  max-width: 100%;
+  max-height: 82vh;
+  object-fit: contain;
+  display: block;
+  border-radius: var(--r-md);
+}
+
+.ai-lightbox-caption {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
+  max-width: 600px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ai-lightbox-close {
+  position: absolute;
+  top: -16px;
+  right: -16px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(20, 20, 20, 0.8);
+  color: #fff;
+  font-size: 20px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.ai-lightbox-close:hover {
+  background: #ef4444;
+  border-color: #ef4444;
+  transform: scale(1.1);
+}
+
+/* ==========================================================================
+   【+】Attachment Extension Center (Images / Files / Folders)
+   ========================================================================== */
+
+.ai-plus-menu-wrap {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.ai-pill-btn.plus-btn {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  color: var(--ink);
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.ai-pill-btn.plus-btn:hover {
+  background: var(--primary-soft);
+  color: var(--primary);
+  border-color: var(--primary);
+  transform: scale(1.05);
+}
+
+.ai-plus-ico {
+  line-height: 1;
+}
+
+/* --- Plus Popover Menu ---------------------------------------------------- */
+.ai-plus-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  width: 250px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  z-index: 120;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: aiPlusMenuFade 0.15s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.ai-plus-popover.hidden {
+  display: none !important;
+}
+
+@keyframes aiPlusMenuFade {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.ai-plus-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all var(--t-fast);
+}
+
+.ai-plus-item:hover {
+  background: var(--primary-soft);
+}
+
+.ai-plus-item-ico {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+
+.ai-plus-item-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+
+.ai-plus-item-text b {
+  font-size: 12px;
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.ai-plus-item-text i {
+  font-size: 11px;
+  color: var(--muted);
+  font-style: normal;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Attachments Cards (File & Directory variations) ---------------------- */
+.ai-attachment-item.file,
+.ai-attachment-item.directory {
+  max-width: 220px;
+}
+
+.ai-attachment-ico {
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.ai-attachment-size {
+  font-size: 10px;
+  color: var(--muted);
+  background: var(--panel);
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.ai-attachment-tag {
+  font-size: 10px;
+  color: var(--primary);
+  background: var(--primary-soft);
+  padding: 1px 4px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+/* --- Message Bubble Attachment Badges ------------------------------------- */
+.ai-msg-att-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.ai-msg-att-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  background: rgba(255, 255, 255, 0.15);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  border-radius: var(--r-sm);
+  font-size: 11px;
+  color: #fff;
+  max-width: 260px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-msg-att-badge .ico {
+  font-size: 13px;
+}

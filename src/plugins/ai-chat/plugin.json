@@ -1,28 +1,71 @@
 {
   "id": "ai-chat",
-  "name": { "zh": "AI 对话", "en": "AI Chat" },
+  "name": {
+    "zh": "AI 对话",
+    "en": "AI Chat"
+  },
   "desc": {
     "zh": "本地 Agent 助手：内置 Playwright 浏览器自动化与网页交互、MCP 市场一键安装与生态接入、多轮工具循环 (grep 定位/精确编辑/命令执行)、任务规划清单、跨会话长期记忆 (自动召回+记忆库管理)、审批档位（每次确认/自动审核/完全访问）、技能 Skills、思维等级、多协议 (OpenAI/Responses/Claude) 与工作流自动生成",
     "en": "Local agent assistant: built-in Playwright browser automation, MCP market one-click install & ecosystem integration, multi-round tool loop (grep/edit/run), task planning list, cross-session memory with auto-recall, approval tiers, skills, thinking levels, multi-protocol chat, and workflow generation"
   },
-  "version": "1.5.0",
+  "version": "1.6.0",
   "category": "dev",
   "author": "Ikaros-521",
-  "keywords": ["ai", "chat", "gpt", "deepseek", "claude", "llm", "agent", "cot", "openai", "mcp", "skills", "playwright", "browser", "浏览器", "爬虫", "网页抓取", "mcp市场", "对话", "模型", "思维链", "工作流"],
+  "keywords": [
+    "ai",
+    "chat",
+    "gpt",
+    "deepseek",
+    "claude",
+    "llm",
+    "agent",
+    "cot",
+    "openai",
+    "mcp",
+    "skills",
+    "playwright",
+    "browser",
+    "浏览器",
+    "爬虫",
+    "网页抓取",
+    "mcp市场",
+    "对话",
+    "模型",
+    "思维链",
+    "工作流"
+  ],
   "icon": "icon.svg",
   "defaultEnabled": true,
   "backend": "backend.js",
-  "panel": { "script": "panel.js", "style": "panel.css" },
+  "panel": {
+    "script": "panel.js",
+    "style": "panel.css"
+  },
   "actions": [
-    { "id": "open", "label": { "zh": "打开 AI 对话", "en": "Open AI Chat" }, "method": "openPanel", "hotkey": "Ctrl+Shift+A" }
+    {
+      "id": "open",
+      "label": {
+        "zh": "打开 AI 对话",
+        "en": "Open AI Chat"
+      },
+      "method": "openPanel",
+      "hotkey": "Ctrl+Shift+A"
+    }
   ],
   "capabilities": [
     {
       "id": "chat-complete",
       "type": "text/plain",
       "method": "chatComplete",
-      "title": { "zh": "AI 对话与生成", "en": "AI Chat & Completion" }
+      "title": {
+        "zh": "AI 对话与生成",
+        "en": "AI Chat & Completion"
+      }
     }
   ],
-  "consumes": ["text/plain", "application/json"]
+  "consumes": [
+    "text/plain",
+    "application/json"
+  ],
+  "description": "多模态 AI 编程与本地 Agent 助手，支持 Playwright MCP 浏览器自动化、图文视觉对话与发送排队队列。"
 }

@@ -100,7 +100,19 @@ const OpenAIChatAdapter = {
     };
 
     const messages = (opts.messages || []).map(m => {
-      const msg = { role: m.role || 'user', content: m.content || '' };
+      let content = m.content || '';
+      if (Array.isArray(m.images) && m.images.length > 0) {
+        const parts = [];
+        if (m.content) parts.push({ type: 'text', text: String(m.content) });
+        for (const img of m.images) {
+          const url = typeof img === 'string' ? img : (img && img.url ? img.url : '');
+          if (url) parts.push({ type: 'image_url', image_url: { url } });
+        }
+        content = parts;
+      } else if (Array.isArray(m.content)) {
+        content = m.content;
+      }
+      const msg = { role: m.role || 'user', content };
       if (m.name) msg.name = m.name;
       if (m.tool_call_id) msg.tool_call_id = m.tool_call_id;
       if (m.tool_calls) msg.tool_calls = m.tool_calls;
@@ -214,6 +226,14 @@ const OpenAIResponsesAdapter = {
             arguments: (tc.function && tc.function.arguments) || '{}'
           });
         }
+      } else if (Array.isArray(m.images) && m.images.length > 0) {
+        const contentParts = [];
+        if (m.content) contentParts.push({ type: 'input_text', text: String(m.content) });
+        for (const img of m.images) {
+          const url = typeof img === 'string' ? img : (img && img.url ? img.url : '');
+          if (url) contentParts.push({ type: 'input_image', image_url: url });
+        }
+        input.push({ role: m.role || 'user', content: contentParts });
       } else {
         input.push({ role: m.role || 'user', content: contentText });
       }
@@ -437,6 +457,33 @@ const ClaudeMessagesAdapter = {
           blocks.push({ type: 'tool_use', id: tc.id, name: tc.function ? tc.function.name : '', input: inputObj });
         }
         messages.push({ role: 'assistant', content: blocks });
+      } else if (Array.isArray(m.images) && m.images.length > 0) {
+        const blocks = [];
+        for (const img of m.images) {
+          const url = typeof img === 'string' ? img : (img && img.url ? img.url : '');
+          if (!url) continue;
+          const dataMatch = url.match(/^data:([^;]+);base64,(.+)$/);
+          if (dataMatch) {
+            blocks.push({
+              type: 'image',
+              source: {
+                type: 'base64',
+                media_type: dataMatch[1],
+                data: dataMatch[2]
+              }
+            });
+          } else {
+            blocks.push({
+              type: 'image',
+              source: { type: 'url', url }
+            });
+          }
+        }
+        if (m.content) blocks.push({ type: 'text', text: String(m.content) });
+        messages.push({
+          role: m.role === 'assistant' ? 'assistant' : 'user',
+          content: blocks.length > 0 ? blocks : (m.content || '')
+        });
       } else {
         messages.push({
           role: m.role === 'assistant' ? 'assistant' : 'user',

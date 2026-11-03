@@ -606,7 +606,44 @@
                   </div>
                 </div>
               </div>
+
+              <!-- 【+】附件扩展中心按钮与下拉菜单 -->
+              <div class="ai-plus-menu-wrap">
+                <button type="button" class="ai-pill-btn plus-btn" id="btnPlusAttachment" title="添加附件 (支持图片、代码/文本文件、文件夹)">
+                  <span class="ai-plus-ico">+</span>
+                </button>
+                <div class="ai-plus-popover hidden" id="plusPopover">
+                  <div class="ai-plus-item" id="btnMenuPickImage">
+                    <span class="ai-plus-item-ico">🖼️</span>
+                    <span class="ai-plus-item-text">
+                      <b>添加图片</b>
+                      <i>选择图像或截图 (支持多模态视觉分析)</i>
+                    </span>
+                  </div>
+                  <div class="ai-plus-item" id="btnMenuPickFile">
+                    <span class="ai-plus-item-ico">📄</span>
+                    <span class="ai-plus-item-text">
+                      <b>添加文件</b>
+                      <i>代码、配置、文档等 (自动提取文本上下文)</i>
+                    </span>
+                  </div>
+                  <div class="ai-plus-item" id="btnMenuPickFolder">
+                    <span class="ai-plus-item-ico">📁</span>
+                    <span class="ai-plus-item-text">
+                      <b>添加文件夹</b>
+                      <i>关联本地目录 (供 Agent 工具深度分析)</i>
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <input type="file" id="imageFileInput" accept="image/png,image/jpeg,image/webp,image/gif" multiple style="display:none;" />
             </div>
+
+            <!-- 待发送队列看板 -->
+            <div class="ai-prompt-queue-bar hidden" id="promptQueueBar"></div>
+
+            <!-- 输入附件预览条 -->
+            <div class="ai-input-attachments hidden" id="inputAttachmentsBar"></div>
 
             <div class="ai-input-box">
               <textarea class="ai-input-textarea" id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行…" rows="1"></textarea>
@@ -619,6 +656,18 @@
             <div class="ai-input-hint">Orbit Toolbox AI · 兼容 OpenAI / Responses / Claude · 支持流式推理</div>
           </footer>
         </main>
+
+        <!-- 全局 Lightbox 大图预览模态框 -->
+        <div class="ai-lightbox-modal hidden" id="aiLightboxModal">
+          <div class="ai-lightbox-backdrop" id="aiLightboxBackdrop"></div>
+          <div class="ai-lightbox-dialog">
+            <button type="button" class="ai-lightbox-close" id="btnCloseLightbox" title="关闭大图预览 (Esc)">×</button>
+            <div class="ai-lightbox-body">
+              <img class="ai-lightbox-img" id="aiLightboxImg" src="" alt="大图预览" />
+            </div>
+            <div class="ai-lightbox-caption" id="aiLightboxCaption"></div>
+          </div>
+        </div>
 
         <!-- Settings Modal -->
         <div class="ai-modal-overlay hidden" id="settingsModal">
@@ -1040,6 +1089,24 @@
     const pillAgent = el.querySelector('#pillAgent');
     const chatInput = el.querySelector('#chatInput');
     const btnSendOrStop = el.querySelector('#btnSendOrStop');
+    const btnPlusAttachment = el.querySelector('#btnPlusAttachment');
+    const plusPopover = el.querySelector('#plusPopover');
+    const btnMenuPickImage = el.querySelector('#btnMenuPickImage');
+    const btnMenuPickFile = el.querySelector('#btnMenuPickFile');
+    const btnMenuPickFolder = el.querySelector('#btnMenuPickFolder');
+    const imageFileInput = el.querySelector('#imageFileInput');
+    const promptQueueBar = el.querySelector('#promptQueueBar');
+    const inputAttachmentsBar = el.querySelector('#inputAttachmentsBar');
+    const aiInputWrap = el.querySelector('.ai-input-wrap');
+    const aiLightboxModal = el.querySelector('#aiLightboxModal');
+    const aiLightboxBackdrop = el.querySelector('#aiLightboxBackdrop');
+    const btnCloseLightbox = el.querySelector('#btnCloseLightbox');
+    const aiLightboxImg = el.querySelector('#aiLightboxImg');
+    const aiLightboxCaption = el.querySelector('#aiLightboxCaption');
+
+    // 统一附件 (图片、文件、文件夹) 与待发送队列状态
+    let pendingAttachments = []; // [{ type: 'image'|'file'|'directory', id, name, size, url, path, content }]
+    const sessionPromptQueues = new Map(); // sessionId -> [{ id, text, attachments, timestamp }]
 
     // Agent Approval Mode & Thinking Level Popover DOM
     const btnAgentMode = el.querySelector('#btnAgentMode');
@@ -1250,7 +1317,339 @@
       chatInput.style.height = 'auto';
       chatInput.style.height = Math.min(180, Math.max(24, chatInput.scrollHeight)) + 'px';
     }
-    chatInput.addEventListener('input', autoResizeInput);
+    chatInput.addEventListener('input', () => {
+      autoResizeInput();
+      updateSendOrStopButton();
+    });
+
+    /* --- Multi-modal & Lightbox & Prompt Queue ---------------------------- */
+    function openLightbox(url, caption = '') {
+      if (!aiLightboxModal || !aiLightboxImg) return;
+      aiLightboxImg.src = url;
+      if (aiLightboxCaption) aiLightboxCaption.textContent = caption || '';
+      aiLightboxModal.classList.remove('hidden');
+    }
+
+    function closeLightbox() {
+      if (!aiLightboxModal || !aiLightboxImg) return;
+      aiLightboxModal.classList.add('hidden');
+      aiLightboxImg.src = '';
+    }
+
+    if (aiLightboxBackdrop) aiLightboxBackdrop.addEventListener('click', closeLightbox);
+    if (btnCloseLightbox) btnCloseLightbox.addEventListener('click', closeLightbox);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && aiLightboxModal && !aiLightboxModal.classList.contains('hidden')) {
+        closeLightbox();
+      }
+    });
+
+    // 【+】扩展菜单开关与外部点击收起
+    if (btnPlusAttachment && plusPopover) {
+      btnPlusAttachment.addEventListener('click', (e) => {
+        e.stopPropagation();
+        plusPopover.classList.toggle('hidden');
+      });
+      document.addEventListener('click', (e) => {
+        if (!plusPopover.contains(e.target) && e.target !== btnPlusAttachment) {
+          plusPopover.classList.add('hidden');
+        }
+      });
+    }
+
+    // 格式化文件尺寸大小
+    function formatFileSize(bytes) {
+      if (!bytes || bytes <= 0) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    // 渲染统一附件卡片栏
+    function renderAttachmentsBar() {
+      if (!inputAttachmentsBar) return;
+      if (pendingAttachments.length === 0) {
+        inputAttachmentsBar.innerHTML = '';
+        inputAttachmentsBar.classList.add('hidden');
+        return;
+      }
+      inputAttachmentsBar.classList.remove('hidden');
+      inputAttachmentsBar.innerHTML = '';
+      pendingAttachments.forEach((att, idx) => {
+        const item = document.createElement('div');
+        item.className = `ai-attachment-item ${att.type}`;
+        
+        if (att.type === 'image') {
+          item.innerHTML = `
+            <img src="${escapeHtml(att.url)}" alt="${escapeHtml(att.name || 'image')}" class="ai-attachment-thumb" />
+            <span class="ai-attachment-name" title="${escapeHtml(att.name || '')}">${escapeHtml(att.name || `图${idx+1}`)}</span>
+            <button type="button" class="ai-attachment-del" title="移除此图片" data-idx="${idx}">×</button>
+          `;
+          item.querySelector('.ai-attachment-thumb').addEventListener('click', () => {
+            openLightbox(att.url, att.name || `图片 ${idx + 1}`);
+          });
+        } else if (att.type === 'file') {
+          const szStr = formatFileSize(att.size);
+          item.innerHTML = `
+            <span class="ai-attachment-ico">📄</span>
+            <span class="ai-attachment-name" title="${escapeHtml(att.path || att.name)}">${escapeHtml(att.name)}</span>
+            ${szStr ? `<span class="ai-attachment-size">${szStr}</span>` : ''}
+            <button type="button" class="ai-attachment-del" title="移除此文件" data-idx="${idx}">×</button>
+          `;
+        } else if (att.type === 'directory') {
+          item.innerHTML = `
+            <span class="ai-attachment-ico">📁</span>
+            <span class="ai-attachment-name" title="${escapeHtml(att.path || att.name)}">${escapeHtml(att.name)}</span>
+            <span class="ai-attachment-tag">目录</span>
+            <button type="button" class="ai-attachment-del" title="移除此文件夹" data-idx="${idx}">×</button>
+          `;
+        }
+
+        item.querySelector('.ai-attachment-del').addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          pendingAttachments.splice(idx, 1);
+          renderAttachmentsBar();
+          updateSendOrStopButton();
+        });
+        inputAttachmentsBar.appendChild(item);
+      });
+    }
+
+    function addImageAttachment(file) {
+      if (!file || !file.type.startsWith('image/')) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        pendingAttachments.push({
+          type: 'image',
+          id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          name: file.name || 'image.png',
+          size: file.size,
+          url: e.target.result
+        });
+        renderAttachmentsBar();
+        updateSendOrStopButton();
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function handleImageFiles(files) {
+      if (!files || files.length === 0) return;
+      const validFiles = Array.from(files).filter(f => f.type && f.type.startsWith('image/'));
+      if (validFiles.length === 0) return;
+      validFiles.slice(0, 8).forEach(addImageAttachment);
+    }
+
+    // 菜单项 1: 选择图片
+    if (btnMenuPickImage && imageFileInput) {
+      btnMenuPickImage.addEventListener('click', () => {
+        plusPopover.classList.add('hidden');
+        imageFileInput.click();
+      });
+      imageFileInput.addEventListener('change', (e) => {
+        handleImageFiles(e.target.files);
+        imageFileInput.value = '';
+      });
+    }
+
+    // 菜单项 2: 选择文件 (支持代码、文本、配置、文档)
+    if (btnMenuPickFile) {
+      btnMenuPickFile.addEventListener('click', async () => {
+        plusPopover.classList.add('hidden');
+        const res = await ctx.call('chooseFiles');
+        if (res && res.ok && Array.isArray(res.files)) {
+          res.files.forEach(f => {
+            if (f.isImage && f.dataUrl) {
+              pendingAttachments.push({
+                type: 'image',
+                id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                name: f.name,
+                size: f.size,
+                url: f.dataUrl,
+                path: f.path
+              });
+            } else {
+              pendingAttachments.push({
+                type: 'file',
+                id: `file_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                name: f.name,
+                size: f.size,
+                path: f.path,
+                content: f.content
+              });
+            }
+          });
+          renderAttachmentsBar();
+          updateSendOrStopButton();
+        }
+      });
+    }
+
+    // 菜单项 3: 选择文件夹
+    if (btnMenuPickFolder) {
+      btnMenuPickFolder.addEventListener('click', async () => {
+        plusPopover.classList.add('hidden');
+        const res = await ctx.call('chooseDirectory');
+        if (res && res.ok && res.directory) {
+          pendingAttachments.push({
+            type: 'directory',
+            id: `dir_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+            name: res.directory.name,
+            path: res.directory.path
+          });
+          renderAttachmentsBar();
+          updateSendOrStopButton();
+        }
+      });
+    }
+
+    // 剪贴板粘贴图片 (Ctrl+V)
+    chatInput.addEventListener('paste', (e) => {
+      const items = e.clipboardData && e.clipboardData.items;
+      if (!items) return;
+      let hasImage = false;
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        if (item.type && item.type.startsWith('image/')) {
+          const file = item.getAsFile();
+          if (file) {
+            hasImage = true;
+            handleImageFiles([file]);
+          }
+        }
+      }
+      if (hasImage) {
+        setTimeout(() => {
+          autoResizeInput();
+          updateSendOrStopButton();
+        }, 50);
+      }
+    });
+
+    // 拖拽文件到输入区
+    if (aiInputWrap) {
+      aiInputWrap.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        aiInputWrap.classList.add('ai-input-drag-over');
+      });
+      aiInputWrap.addEventListener('dragleave', (e) => {
+        if (!aiInputWrap.contains(e.relatedTarget)) {
+          aiInputWrap.classList.remove('ai-input-drag-over');
+        }
+      });
+      aiInputWrap.addEventListener('drop', (e) => {
+        e.preventDefault();
+        aiInputWrap.classList.remove('ai-input-drag-over');
+        if (e.dataTransfer && e.dataTransfer.files) {
+          handleImageFiles(e.dataTransfer.files);
+        }
+      });
+    }
+
+    // 待发送队列看板渲染与管理
+    function renderPromptQueueBar() {
+      if (!promptQueueBar) return;
+      if (!currentSession) {
+        promptQueueBar.innerHTML = '';
+        promptQueueBar.classList.add('hidden');
+        return;
+      }
+      const queue = sessionPromptQueues.get(currentSession.id) || [];
+      if (queue.length === 0) {
+        promptQueueBar.innerHTML = '';
+        promptQueueBar.classList.add('hidden');
+        return;
+      }
+      promptQueueBar.classList.remove('hidden');
+      promptQueueBar.innerHTML = `
+        <div class="ai-queue-header">
+          <div class="ai-queue-title">
+            <span class="ai-queue-ico">📬</span>
+            <span>待发送队列 <strong>(${queue.length})</strong></span>
+            <span class="ai-queue-sub">当前回答完成后将自动按顺序发送</span>
+          </div>
+          <button type="button" class="ai-queue-btn-clear" id="btnClearPromptQueue" title="清空全部排队消息">清空队列</button>
+        </div>
+        <div class="ai-queue-list"></div>
+      `;
+
+      promptQueueBar.querySelector('#btnClearPromptQueue').addEventListener('click', () => {
+        sessionPromptQueues.set(currentSession.id, []);
+        renderPromptQueueBar();
+      });
+
+      const listEl = promptQueueBar.querySelector('.ai-queue-list');
+      queue.forEach((item, idx) => {
+        const row = document.createElement('div');
+        row.className = 'ai-queue-item';
+        const attCount = item.attachments ? item.attachments.length : (item.images ? item.images.length : 0);
+        const attBadge = attCount > 0 ? `<span class="ai-queue-img-badge">📎 ×${attCount}</span>` : '';
+        const previewText = item.text || (attCount > 0 ? '(附件消息)' : '');
+        row.innerHTML = `
+          <span class="ai-queue-num">#${idx + 1}</span>
+          ${attBadge}
+          <span class="ai-queue-text" title="${escapeHtml(previewText)}">${escapeHtml(previewText)}</span>
+          <div class="ai-queue-actions">
+            <button type="button" class="ai-queue-action-btn edit" title="撤回至输入框编辑">✏️ 编辑</button>
+            <button type="button" class="ai-queue-action-btn del" title="移除此项">✕</button>
+          </div>
+        `;
+        row.querySelector('.ai-queue-action-btn.edit').addEventListener('click', () => {
+          queue.splice(idx, 1);
+          chatInput.value = item.text || '';
+          pendingAttachments = Array.isArray(item.attachments) ? [...item.attachments] : (Array.isArray(item.images) ? [...item.images] : []);
+          renderAttachmentsBar();
+          autoResizeInput();
+          updateSendOrStopButton();
+          renderPromptQueueBar();
+          chatInput.focus();
+        });
+        row.querySelector('.ai-queue-action-btn.del').addEventListener('click', () => {
+          queue.splice(idx, 1);
+          renderPromptQueueBar();
+        });
+        listEl.appendChild(row);
+      });
+    }
+
+    function enqueueCurrentInput() {
+      const text = chatInput.value.trim();
+      const atts = [...pendingAttachments];
+      if (!text && atts.length === 0) return;
+      if (!currentSession) return;
+
+      let queue = sessionPromptQueues.get(currentSession.id);
+      if (!queue) {
+        queue = [];
+        sessionPromptQueues.set(currentSession.id, queue);
+      }
+      queue.push({
+        id: `queue_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        text,
+        attachments: atts,
+        timestamp: Date.now()
+      });
+
+      chatInput.value = '';
+      pendingAttachments = [];
+      renderAttachmentsBar();
+      autoResizeInput();
+      updateSendOrStopButton();
+      renderPromptQueueBar();
+    }
+
+    function checkAndTriggerNextQueuedMessage() {
+      if (isGenerating || !currentSession) return;
+      const queue = sessionPromptQueues.get(currentSession.id);
+      if (!queue || queue.length === 0) {
+        renderPromptQueueBar();
+        return;
+      }
+      const nextItem = queue.shift();
+      renderPromptQueueBar();
+      setTimeout(() => {
+        sendMessage(nextItem.text, null, nextItem.attachments);
+      }, 120);
+    }
 
     /* --- Toggle Sidebar --------------------------------------------------- */
     btnToggleSidebar.addEventListener('click', () => {
@@ -1580,6 +1979,10 @@
         });
         currentSession = res.session;
         updateHeader();
+        pendingAttachments = [];
+        renderAttachmentsBar();
+        renderPromptQueueBar();
+        updateSendOrStopButton();
         renderMessages();
         renderSessionsList();
         chatInput.focus();
@@ -1922,7 +2325,42 @@
       const timeStr = new Date(msg.timestamp || Date.now()).toLocaleTimeString();
 
       if (isUser) {
-        bubble.textContent = msg.content;
+        bubble.innerHTML = '';
+        if (Array.isArray(msg.images) && msg.images.length > 0) {
+          const imgsWrap = document.createElement('div');
+          imgsWrap.className = 'ai-msg-images';
+          msg.images.forEach((img, idx) => {
+            const url = typeof img === 'string' ? img : (img && img.url ? img.url : '');
+            if (!url) return;
+            const thumb = document.createElement('div');
+            thumb.className = 'ai-msg-image-thumb';
+            thumb.innerHTML = `<img src="${escapeHtml(url)}" alt="图片 ${idx + 1}" /><span class="ai-msg-image-zoom">🔍</span>`;
+            thumb.addEventListener('click', () => openLightbox(url, (img && img.name) || `图片 ${idx + 1}`));
+            imgsWrap.appendChild(thumb);
+          });
+          bubble.appendChild(imgsWrap);
+        }
+        if (Array.isArray(msg.attachments) && msg.attachments.length > 0) {
+          const nonImgs = msg.attachments.filter(a => a.type === 'file' || a.type === 'directory');
+          if (nonImgs.length > 0) {
+            const attWrap = document.createElement('div');
+            attWrap.className = 'ai-msg-att-badges';
+            nonImgs.forEach(a => {
+              const badge = document.createElement('span');
+              badge.className = `ai-msg-att-badge ${a.type}`;
+              badge.innerHTML = `<span class="ico">${a.type === 'directory' ? '📁' : '📄'}</span> ${escapeHtml(a.name)}`;
+              badge.title = a.path || a.name;
+              attWrap.appendChild(badge);
+            });
+            bubble.appendChild(attWrap);
+          }
+        }
+        if (msg.content) {
+          const textEl = document.createElement('div');
+          textEl.className = 'ai-msg-text';
+          textEl.textContent = msg.content;
+          bubble.appendChild(textEl);
+        }
 
         // Combined single toolbar: [编辑] [重发] [复制] [删除] [时间]
         toolbar.innerHTML = `
@@ -2198,7 +2636,7 @@
       const btnResend = toolbar.querySelector('.btn-tool-resend');
       if (btnResend) {
         btnResend.addEventListener('click', () => {
-          sendMessage(msg.content, msg.id);
+          sendMessage(msg.content, msg.id, msg.attachments || msg.images);
         });
       }
 
@@ -2215,33 +2653,84 @@
         });
       }
 
-      // Code block copy buttons & Mermaid rendering
+      // Code block copy buttons & Mermaid rendering & Lightbox
       initMessageDynamicElements(bubble, { renderMermaid: true });
+      bubble.querySelectorAll('img:not(.ai-attachment-thumb)').forEach(img => {
+        img.style.cursor = 'zoom-in';
+        img.addEventListener('click', () => {
+          openLightbox(img.src, img.alt || '查看图片');
+        });
+      });
 
       return el;
     }
 
-    /* --- Send / Stop Message ---------------------------------------------- */
-    function setGeneratingState(generating) {
-      isGenerating = generating;
-      if (generating) {
-        btnSendOrStop.className = 'ai-btn-action stop';
-        btnSendOrStop.title = '中断生成';
-        btnSendOrStop.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>`;
-      } else {
+    /* --- Send / Stop Message & Queue Interaction -------------------------- */
+    function updateSendOrStopButton() {
+      const hasInput = (chatInput.value.trim().length > 0) || (pendingAttachments.length > 0);
+      if (!isGenerating) {
+        // 没有对话中 就是一直是发送按钮
         btnSendOrStop.className = 'ai-btn-action send';
-        btnSendOrStop.title = '发送消息';
+        btnSendOrStop.title = '发送消息 (Enter)';
         btnSendOrStop.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+      } else {
+        // 在对话中
+        if (hasInput) {
+          // 对话区输入框内有东西的时候，就变成发送按钮 (加入队列)
+          btnSendOrStop.className = 'ai-btn-action send queue';
+          btnSendOrStop.title = '加入待发送队列 (Enter) · 当前回答完成后自动发送';
+          btnSendOrStop.innerHTML = `<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/></svg>`;
+        } else {
+          // 空的时候恢复到暂停按钮即可
+          btnSendOrStop.className = 'ai-btn-action stop';
+          btnSendOrStop.title = '中断生成';
+          btnSendOrStop.innerHTML = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>`;
+        }
       }
     }
 
-    async function sendMessage(customContent = null, editMessageId = null) {
-      if (isGenerating) return;
-      const text = customContent !== null ? customContent : chatInput.value.trim();
-      if (!text || !currentSession) return;
+    function setGeneratingState(generating) {
+      isGenerating = generating;
+      updateSendOrStopButton();
+      if (!generating) {
+        setTimeout(checkAndTriggerNextQueuedMessage, 150);
+      }
+    }
 
-      chatInput.value = '';
-      autoResizeInput();
+    async function sendMessage(customContent = null, editMessageId = null, customAttachments = null) {
+      if (isGenerating) return;
+      let text = customContent !== null ? customContent : chatInput.value.trim();
+      const attachments = customAttachments !== null ? customAttachments : [...pendingAttachments];
+      if ((!text && attachments.length === 0) || !currentSession) return;
+
+      // 提取图片与组装文件/目录文本上下文
+      const images = [];
+      const fileContextBlocks = [];
+      for (const att of attachments) {
+        if (att.type === 'image' || att.url || att.isImage) {
+          images.push({ url: att.url || att.dataUrl, name: att.name });
+        } else if (att.type === 'file') {
+          if (att.content) {
+            fileContextBlocks.push(`[附件文件: ${att.path || att.name}]\n\`\`\`\n${att.content}\n\`\`\``);
+          } else if (att.path) {
+            fileContextBlocks.push(`[关联文件: ${att.path}]`);
+          }
+        } else if (att.type === 'directory') {
+          fileContextBlocks.push(`[关联工作区文件夹: ${att.path}]`);
+        }
+      }
+
+      if (fileContextBlocks.length > 0) {
+        const extraCtx = fileContextBlocks.join('\n\n');
+        text = text ? `${text}\n\n${extraCtx}` : extraCtx;
+      }
+
+      if (customContent === null) {
+        chatInput.value = '';
+        pendingAttachments = [];
+        renderAttachmentsBar();
+        autoResizeInput();
+      }
       setGeneratingState(true);
       scrollToBottom(true);
 
@@ -2254,6 +2743,8 @@
       const res = await ctx.call('sendMessage', {
         sessionId: currentSession.id,
         content: text,
+        images,
+        attachments,
         editMessageId,
         streamId,
         enableReasoning: pillCot.classList.contains('active'),
@@ -2280,9 +2771,14 @@
     }
 
     btnSendOrStop.addEventListener('click', () => {
-      if (isGenerating && currentStreamId) {
-        ctx.call('abortStream', { streamId: currentStreamId });
-        setGeneratingState(false);
+      const hasInput = (chatInput.value.trim().length > 0) || (pendingAttachments.length > 0);
+      if (isGenerating) {
+        if (hasInput) {
+          enqueueCurrentInput();
+        } else if (currentStreamId) {
+          ctx.call('abortStream', { streamId: currentStreamId });
+          setGeneratingState(false);
+        }
       } else {
         sendMessage();
       }
@@ -2292,7 +2788,13 @@
       if (e.isComposing || e.keyCode === 229) return; // IME composition in progress
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
-        sendMessage();
+        const hasInput = (chatInput.value.trim().length > 0) || (pendingAttachments.length > 0);
+        if (!hasInput) return;
+        if (isGenerating) {
+          enqueueCurrentInput();
+        } else {
+          sendMessage();
+        }
       }
     });
 

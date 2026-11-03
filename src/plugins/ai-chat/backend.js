@@ -116,7 +116,11 @@ const buildBoundedContext = (msgs, max) => {
     if (m.role === 'assistant' && Array.isArray(toolCalls) && toolCalls.length > 0) {
       units.push({ kind: 'assistant', msg: { role: 'assistant', content: m.content || '', tool_calls: toolCalls }, toolMsgs: [] });
     } else {
-      units.push({ kind: 'plain', msg: { role: m.role, content: m.content || '' } });
+      const plainMsg = { role: m.role, content: m.content || '' };
+      if (Array.isArray(m.images) && m.images.length > 0) {
+        plainMsg.images = m.images;
+      }
+      units.push({ kind: 'plain', msg: plainMsg });
     }
   }
   const kept = [];
@@ -474,6 +478,60 @@ module.exports = {
       });
       if (r.canceled || !r.filePaths[0]) return { ok: false, canceled: true };
       return { ok: true, dir: r.filePaths[0] };
+    });
+
+    // Native file picker for chat attachments (code, text, config, images, etc.)
+    ctx.ipc.handle('chooseFiles', async args => {
+      const parent = ctx.getHostWindow ? ctx.getHostWindow() : null;
+      const r = await dialog.showOpenDialog(parent && !parent.isDestroyed() ? parent : null, {
+        title: (args && args.title) || '选择附件文件',
+        properties: ['openFile', 'multiSelections']
+      });
+      if (r.canceled || !r.filePaths || r.filePaths.length === 0) return { ok: false, canceled: true, files: [] };
+      const files = [];
+      for (const fp of r.filePaths) {
+        try {
+          const stat = fs.statSync(fp);
+          const isImg = /\.(png|jpe?g|webp|gif|bmp|svg)$/i.test(fp);
+          let dataUrl = null;
+          let content = null;
+          if (isImg) {
+            const buf = fs.readFileSync(fp);
+            const ext = fp.split('.').pop().toLowerCase() || 'png';
+            const mime = ext === 'svg' ? 'image/svg+xml' : `image/${ext === 'jpg' ? 'jpeg' : ext}`;
+            dataUrl = `data:${mime};base64,${buf.toString('base64')}`;
+          } else if (stat.size <= 512 * 1024) {
+            content = fs.readFileSync(fp, 'utf8');
+          }
+          files.push({
+            path: fp,
+            name: fp.split(/[\\/]/).pop(),
+            size: stat.size,
+            isImage: isImg,
+            dataUrl,
+            content
+          });
+        } catch {}
+      }
+      return { ok: true, files };
+    });
+
+    // Native folder picker for chat attachments
+    ctx.ipc.handle('chooseDirectory', async args => {
+      const parent = ctx.getHostWindow ? ctx.getHostWindow() : null;
+      const r = await dialog.showOpenDialog(parent && !parent.isDestroyed() ? parent : null, {
+        title: (args && args.title) || '选择关联文件夹 / 项目目录',
+        properties: ['openDirectory']
+      });
+      if (r.canceled || !r.filePaths || !r.filePaths[0]) return { ok: false, canceled: true };
+      const dirPath = r.filePaths[0];
+      return {
+        ok: true,
+        directory: {
+          path: dirPath,
+          name: dirPath.split(/[\\/]/).pop() || dirPath
+        }
+      };
     });
 
     /* --- MCP runtime: pooled connections + merged tool table ---------------- */
@@ -927,6 +985,8 @@ module.exports = {
       const {
         sessionId,
         content,
+        images = [],
+        attachments = [],
         editMessageId,
         streamId = genId('stream'),
         enableReasoning = config.enableReasoning,
@@ -954,13 +1014,16 @@ module.exports = {
         id: genId('msg_user'),
         role: 'user',
         content: String(content || '').trim(),
+        images: Array.isArray(images) ? images : [],
+        attachments: Array.isArray(attachments) ? attachments : [],
         timestamp: Date.now()
       };
       session.messages.push(userMsg);
 
       // Auto-title fresh session
       if (session.messages.length === 1 && (!session.title || session.title === '新对话')) {
-        session.title = userMsg.content.slice(0, 24) || '新对话';
+        const titleText = userMsg.content || (userMsg.images.length > 0 ? '[图片对话]' : '新对话');
+        session.title = titleText.slice(0, 24) || '新对话';
       }
 
       // Prepare assistant placeholder message
