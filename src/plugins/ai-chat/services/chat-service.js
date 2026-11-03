@@ -122,7 +122,11 @@ class ChatService {
       }
     }
     if (LOCAL_TOOL_NAMES.has(name)) {
-      return executeLocalTool(name, parseArgs(), { workDir: rt.workDir || os.homedir(), streamId: rt.streamId });
+      return executeLocalTool(name, parseArgs(), {
+        workDir: rt.workDir || os.homedir(),
+        streamId: rt.streamId,
+        sessionId: rt.session ? rt.session.id : null
+      });
     }
     return executeAgentTool(name, rawArgs, { ...ctx, workDir: rt.workDir || os.homedir() });
   }

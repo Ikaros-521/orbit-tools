@@ -22,6 +22,8 @@ const AGENT_TOOL_META = {
   write_file: { risk: 'high', label: '写入本地文件' },
   edit_file: { risk: 'high', label: '修改本地文件' },
   run_command: { risk: 'high', label: '执行系统命令' },
+  list_processes: { risk: 'low', label: '列出后台进程' },
+  stop_process: { risk: 'high', label: '停止后台进程' },
   // Harness capabilities (memory.js / task-tools.js): the agent's own
   // notebook & plan — reads and writes are low-risk, deletions are high.
   memory_write: { risk: 'low', label: '写入长期记忆' },

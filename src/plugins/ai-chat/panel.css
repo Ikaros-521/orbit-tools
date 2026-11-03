@@ -395,6 +395,8 @@
   line-height: 1.65;
   position: relative;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-msg.user .ai-msg-bubble {
@@ -509,9 +511,24 @@
   line-height: 1.5;
   max-height: 220px;
   overflow-y: auto;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 /* Markdown styling inside assistant message */
+.ai-md-body,
+.ai-md-body p,
+.ai-md-body pre,
+.ai-md-body code,
+.ai-md-body table,
+.ai-md-body blockquote,
+.ai-md-body ul,
+.ai-md-body ol,
+.ai-md-body li {
+  user-select: text;
+  -webkit-user-select: text;
+}
 .ai-md-body p { margin: 0 0 8px 0; }
 .ai-md-body p:last-child { margin-bottom: 0; }
 .ai-md-body pre {
@@ -524,6 +541,7 @@
   font-size: 12px;
   position: relative;
   margin: 8px 0;
+  cursor: text;
 }
 .ai-md-body code {
   font-family: var(--font-mono);
@@ -533,6 +551,7 @@
   padding: 2px 4px;
   border-radius: 4px;
   color: var(--ink);
+  cursor: text;
 }
 .ai-code-copy-btn {
   position: absolute;
@@ -1865,18 +1884,56 @@
   padding: 10px 12px;
   margin: 4px 0 10px;
   font-size: 12.5px;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-approval-head {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 7px;
   color: var(--ink);
   margin-bottom: 8px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-approval-title {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .ai-approval-head strong {
   font-family: var(--font-mono);
+  color: var(--amber);
+}
+
+.ai-approval-copy-btn {
+  background: var(--panel-hi);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--font-display);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+}
+
+.ai-approval-copy-btn:hover {
+  background: var(--amber-soft);
+  border-color: var(--amber);
   color: var(--amber);
 }
 
@@ -1893,6 +1950,9 @@
   white-space: pre-wrap;
   word-break: break-all;
   margin: 0 0 8px;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .ai-approval-actions {
@@ -2984,6 +3044,8 @@ input.hidden {
   font-family: var(--font-mono);
   box-sizing: border-box;
   width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-tool-badge.denied {
@@ -2998,6 +3060,8 @@ input.hidden {
   justify-content: space-between;
   gap: 8px;
   width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-tool-badge-title {
@@ -3009,10 +3073,13 @@ input.hidden {
   min-width: 0;
   line-height: 1.5;
   word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-tool-badge-title strong {
   word-break: break-all;
+  cursor: text;
 }
 
 .ai-tool-badge-status {
@@ -3022,11 +3089,44 @@ input.hidden {
   white-space: nowrap;
 }
 
+.ai-tool-stop-proc-btn {
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #ef4444;
+  border-radius: var(--r-sm);
+  padding: 2px 8px;
+  font-size: 11px;
+  font-family: var(--font-display);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+}
+
+.ai-tool-stop-proc-btn:hover:not(:disabled) {
+  background: #ef4444;
+  color: #fff;
+  border-color: #ef4444;
+}
+
+.ai-tool-stop-proc-btn:disabled,
+.ai-tool-stop-proc-btn.stopped {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: var(--panel-hi);
+  border-color: var(--line);
+  color: var(--ink-dim);
+}
+
 .ai-tool-result-details {
   margin-top: 6px;
   border-top: 1px dashed var(--line);
   padding-top: 6px;
   width: 100%;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 .ai-tool-result-summary {
@@ -3038,6 +3138,7 @@ input.hidden {
   justify-content: space-between;
   gap: 6px;
   user-select: none;
+  -webkit-user-select: none;
   padding: 2px 0;
 }
 
@@ -3059,6 +3160,15 @@ input.hidden {
   max-height: 280px;
   overflow-y: auto;
   line-height: 1.45;
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
+}
+
+.ai-tool-result-pre code {
+  user-select: text;
+  -webkit-user-select: text;
+  cursor: text;
 }
 
 .ai-bubble-timeline {

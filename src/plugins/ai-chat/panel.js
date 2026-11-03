@@ -954,6 +954,47 @@
       autoScrollEnabled = isAtBottom(48);
     }, { passive: true });
 
+    // Stop Subprocess Button Listener (delegated)
+    messagesScroll.addEventListener('click', async (e) => {
+      const stopBtn = e.target.closest('.ai-tool-stop-proc-btn');
+      if (stopBtn && !stopBtn.disabled) {
+        e.stopPropagation();
+        const pid = Number(stopBtn.dataset.pid);
+        if (!pid) return;
+        stopBtn.disabled = true;
+        stopBtn.textContent = '停止中…';
+        try {
+          const res = await ctx.call('killProcess', { pid });
+          if (res && res.ok) {
+            const allBtns = messagesScroll.querySelectorAll(`.ai-tool-stop-proc-btn[data-pid="${pid}"]`);
+            allBtns.forEach(btn => {
+              btn.textContent = '✓ 已停止';
+              btn.classList.add('stopped');
+              btn.disabled = true;
+            });
+          } else {
+            stopBtn.textContent = '停止失败';
+            stopBtn.title = (res && res.error) || '未知错误';
+            setTimeout(() => {
+              if (!stopBtn.classList.contains('stopped')) {
+                stopBtn.textContent = '⏹ 停止进程';
+                stopBtn.disabled = false;
+              }
+            }, 2000);
+          }
+        } catch (err) {
+          stopBtn.textContent = '停止失败';
+          stopBtn.title = err.message || String(err);
+          setTimeout(() => {
+            if (!stopBtn.classList.contains('stopped')) {
+              stopBtn.textContent = '⏹ 停止进程';
+              stopBtn.disabled = false;
+            }
+          }, 2000);
+        }
+      }
+    });
+
     function scrollToBottom(force = false) {
       if (force) {
         autoScrollEnabled = true;
@@ -1119,9 +1160,33 @@
           const st = statusMap[tc.id];
           const toolBadge = document.createElement('div');
           toolBadge.className = 'ai-tool-badge' + (st === 'denied' ? ' denied' : '');
+
+          let result = explicitResult !== undefined ? explicitResult : (msg.toolResults ? msg.toolResults[tc.id] : undefined);
+          if (result === undefined && tc.result !== undefined) result = tc.result;
+          if (result === undefined && currentSession && currentSession.messages) {
+            const tm = currentSession.messages.find(m => m.role === 'tool' && m.tool_call_id === tc.id);
+            if (tm) result = tm.content;
+          }
+
+          let parsedResult = null;
+          if (typeof result === 'object' && result !== null) {
+            parsedResult = result;
+          } else if (typeof result === 'string' && result.trim().startsWith('{')) {
+            try { parsedResult = JSON.parse(result); } catch {}
+          }
+
+          let stopBtnHtml = '';
+          if (parsedResult && parsedResult.background && parsedResult.pid) {
+            stopBtnHtml = `<button type="button" class="ai-tool-stop-proc-btn" data-pid="${parsedResult.pid}" title="停止此后台进程树 (PID: ${parsedResult.pid})">⏹ 停止进程</button>`;
+          }
+
           let label;
           if (st === 'denied') {
             label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+          } else if (parsedResult && parsedResult.background && parsedResult.pid) {
+            label = `<span>⚡ 后台运行中 (PID: ${parsedResult.pid}):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+          } else if (tc.function.name === 'stop_process' && parsedResult && parsedResult.ok) {
+            label = `<span>⏹ 已停止进程 (PID: ${parsedResult.pid}):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
           } else if (tc.function.name === 'dispatch_task_to_ai_ide') {
             let ideName = 'AI IDE';
             try {
@@ -1134,17 +1199,13 @@
             label = `<span>🌐 Playwright 浏览器自动化:</span> <strong>${escapeHtml(op)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
           } else if (tc.function.name === 'list_available_ai_ides') {
             label = `<span>🔍 本地 AI 环境探测</span>`;
+          } else if (tc.function.name === 'list_processes') {
+            const count = (parsedResult && parsedResult.count !== undefined) ? parsedResult.count : 0;
+            label = `<span>📋 进程清单:</span> <strong>共 ${count} 个活跃进程</strong>`;
           } else if (st === 'approved') {
             label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
           } else {
             label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-          }
-
-          let result = explicitResult !== undefined ? explicitResult : (msg.toolResults ? msg.toolResults[tc.id] : undefined);
-          if (result === undefined && tc.result !== undefined) result = tc.result;
-          if (result === undefined && currentSession && currentSession.messages) {
-            const tm = currentSession.messages.find(m => m.role === 'tool' && m.tool_call_id === tc.id);
-            if (tm) result = tm.content;
           }
 
           let resultHtml = '';
@@ -1165,6 +1226,7 @@
           toolBadge.innerHTML = `
             <div class="ai-tool-badge-head">
               <div class="ai-tool-badge-title">${label}</div>
+              ${stopBtnHtml}
             </div>
             ${resultHtml}
           `;
@@ -1475,8 +1537,11 @@
         try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
         card.innerHTML = `
           <div class="ai-approval-head">
-            <span class="ai-approval-ico">${chunk.toolName === 'dispatch_task_to_ai_ide' ? '🚀' : '🔐'}</span>
-            <span>${chunk.toolName === 'dispatch_task_to_ai_ide' ? '请求派发任务至外部 AI IDE / CLI' : `请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong>`}</span>
+            <div class="ai-approval-title">
+              <span class="ai-approval-ico">${chunk.toolName === 'dispatch_task_to_ai_ide' ? '🚀' : '🔐'}</span>
+              <span>${chunk.toolName === 'dispatch_task_to_ai_ide' ? '请求派发任务至外部 AI IDE / CLI' : `请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong>`}</span>
+            </div>
+            <button type="button" class="ai-approval-copy-btn" title="复制参数">📋 复制参数</button>
           </div>
           <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
           <div class="ai-approval-actions">
@@ -1485,6 +1550,15 @@
             <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
           </div>
         `;
+        const copyBtn = card.querySelector('.ai-approval-copy-btn');
+        if (copyBtn) {
+          copyBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            await copyToClipboard(argsPretty);
+            copyBtn.textContent = '✓ 已复制';
+            setTimeout(() => { copyBtn.textContent = '📋 复制参数'; }, 1500);
+          });
+        }
         if (bubble) {
           const badge = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
           if (badge) badge.insertAdjacentElement('afterend', card);
@@ -1686,6 +1760,15 @@
               title = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> <span class="ai-tool-badge-status">(准备中)</span>`;
             } else if (tc.function.name === 'list_available_ai_ides') {
               title = `<span>🔍 探测本地 AI IDE/CLI:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
+            } else if (tc.function.name === 'list_processes') {
+              title = `<span>📋 查看后台进程:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
+            } else if (tc.function.name === 'stop_process') {
+              let pidText = '';
+              try {
+                const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
+                if (args && args.pid) pidText = `(PID: ${args.pid})`;
+              } catch {}
+              title = `<span>⏹ 停止后台进程 ${pidText}:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
             }
             b.innerHTML = `
               <div class="ai-tool-badge-head">
@@ -1726,9 +1809,24 @@
         const b = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
         if (b) {
           let titleHtml = '';
-          if (chunk.result && chunk.result.denied) {
+          let stopBtnHtml = '';
+          const res = chunk.result || {};
+          if (res.denied) {
             b.classList.add('denied');
             titleHtml = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+          } else if (res.background && res.pid) {
+            titleHtml = `<span>⚡ 后台运行中 (PID: ${res.pid}):</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+            stopBtnHtml = `<button type="button" class="ai-tool-stop-proc-btn" data-pid="${res.pid}" title="停止此后台进程树 (PID: ${res.pid})">⏹ 停止进程</button>`;
+          } else if (chunk.toolName === 'stop_process' && res.ok) {
+            titleHtml = `<span>⏹ 已停止进程 (PID: ${res.pid}):</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+            if (res.pid) {
+              const allWithPid = messagesScroll.querySelectorAll(`.ai-tool-stop-proc-btn[data-pid="${res.pid}"]`);
+              allWithPid.forEach(btn => {
+                btn.textContent = '✓ 已停止';
+                btn.classList.add('stopped');
+                btn.disabled = true;
+              });
+            }
           } else if (chunk.toolName === 'dispatch_subagent') {
             const res = chunk.result || {};
             const modeLabel = res.mode === 'fork' ? '分叉探索' : '专项派生';
@@ -1747,6 +1845,9 @@
           } else if (chunk.toolName === 'list_available_ai_ides') {
             const count = (chunk.result && chunk.result.count !== undefined) ? chunk.result.count : 0;
             titleHtml = `<span>🔍 本地 AI 环境探测:</span> <strong>已找到 ${count} 个可用工具</strong>`;
+          } else if (chunk.toolName === 'list_processes') {
+            const count = (res.count !== undefined) ? res.count : 0;
+            titleHtml = `<span>📋 进程清单:</span> <strong>共 ${count} 个活跃进程</strong>`;
           } else {
             titleHtml = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
           }
@@ -1791,6 +1892,7 @@
           b.innerHTML = `
             <div class="ai-tool-badge-head">
               <div class="ai-tool-badge-title">${titleHtml}</div>
+              ${stopBtnHtml}
             </div>
             ${detailsHtml}
           `;

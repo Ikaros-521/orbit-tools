@@ -7,13 +7,14 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
+const { processManager } = require('./services/process-manager');
 
 const MAX_READ_CHARS = 64 * 1024;
 const MAX_WRITE_CHARS = 1024 * 1024;
 const MAX_CMD_OUT = 15 * 1024;
-const DEFAULT_CMD_TIMEOUT = 30000;
+const DEFAULT_CMD_TIMEOUT = 25000;
 
-const LOCAL_TOOL_NAMES = new Set(['list_dir', 'read_file', 'write_file', 'edit_file', 'search_files', 'grep_search', 'run_command']);
+const LOCAL_TOOL_NAMES = new Set(['list_dir', 'read_file', 'write_file', 'edit_file', 'search_files', 'grep_search', 'run_command', 'list_processes', 'stop_process']);
 
 const LOCAL_TOOLS_DEFINITIONS = [
   {
@@ -117,14 +118,42 @@ const LOCAL_TOOLS_DEFINITIONS = [
     type: 'function',
     function: {
       name: 'run_command',
-      description: '在当前工作目录执行一条 shell 命令 (Windows 为 cmd)，并返回 stdout/stderr 与退出码。适合构建、测试、git、系统信息查询等。高危操作，需用户审批。',
+      description: '在当前工作目录执行一条 shell 命令 (Windows 为 cmd)。适合构建、测试、git、启动程序或后台游戏等。若程序在等待时间内未退出 (如 GUI 游戏、本地服务)，会自动转入后台持续运行并返回 PID 与初步输出，供模型分析情况，且程序退出时会被安全关闭。高危操作，需用户审批。',
       parameters: {
         type: 'object',
         properties: {
           command: { type: 'string', description: '要执行的命令行' },
-          timeout_ms: { type: 'number', description: '超时毫秒数 (默认 30000，上限 120000)' }
+          timeout_ms: { type: 'number', description: '等待/超时毫秒数 (默认 25000，上限 120000)' },
+          is_background: { type: 'boolean', description: '是否作为后台长驻服务/游戏运行。若为 true，等待启动初步输出后即转入后台管理并返回' },
+          kill_on_timeout: { type: 'boolean', description: '超时时是否强制终止进程 (默认为 false，若未退出则转后台管理)' }
         },
         required: ['command']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_processes',
+      description: '列出当前由 AI 助手在后台运行的子进程列表 (如 Python 游戏、开发服务器等)。包含 PID、命令、已运行时间。',
+      parameters: {
+        type: 'object',
+        properties: {},
+        required: []
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'stop_process',
+      description: '终止/停止指定的后台子进程树 (如正在运行的 Python 游戏、服务等)。',
+      parameters: {
+        type: 'object',
+        properties: {
+          pid: { type: 'number', description: '要停止的子进程 PID' }
+        },
+        required: ['pid']
       }
     }
   }
@@ -397,72 +426,153 @@ async function executeLocalTool(name, args, runtime) {
       return { ok: true, root, pattern, matched: matches.length, filesMatched: filesWithHits.size, scannedFiles, truncated, matches };
     }
 
+    if (name === 'list_processes') {
+      const sessionId = (runtime && runtime.sessionId) || null;
+      const list = processManager.listProcesses(sessionId);
+      return {
+        ok: true,
+        count: list.length,
+        processes: list
+      };
+    }
+
+    if (name === 'stop_process') {
+      const pid = Number(args.pid);
+      if (!pid) return { ok: false, error: '必须提供有效的 pid 参数' };
+      return processManager.killProcess(pid, false);
+    }
+
     if (name === 'run_command') {
       const command = String(args.command || '').trim();
       if (!command) return { ok: false, error: 'command 不能为空' };
-      const timeout = Math.min(120000, Math.max(3000, Number(args.timeout_ms) || DEFAULT_CMD_TIMEOUT));
+      const isBackgroundRequested = Boolean(args.is_background);
+      const killOnTimeout = Boolean(args.kill_on_timeout);
+      const timeout = isBackgroundRequested
+        ? Math.min(15000, Math.max(1000, Number(args.timeout_ms) || 3000))
+        : Math.min(120000, Math.max(1000, Number(args.timeout_ms) || DEFAULT_CMD_TIMEOUT));
+
       const streamId = (runtime && runtime.streamId) || null;
+      const sessionId = (runtime && runtime.sessionId) || null;
       const codepage = await detectOemCodepage();
       const isWin = process.platform === 'win32';
+
       return await new Promise(resolve => {
-        // stdin 'ignore' so stdin-reading children get EOF instead of stalling;
-        // raw buffers so output can be transcoded from the OEM codepage.
+        let isResolved = false;
+        let didTimeout = false;
+        let hardKillFallbackTimer = null;
+
+        const safeResolve = (res) => {
+          if (isResolved) return;
+          isResolved = true;
+          clearTimeout(timer);
+          clearTimeout(hardKillFallbackTimer);
+          resolve(res);
+        };
+
         const child = isWin
           ? spawn('cmd.exe', ['/d', '/s', '/c', command], { cwd: workDir, windowsHide: true, windowsVerbatimArguments: true, stdio: ['ignore', 'pipe', 'pipe'] })
           : spawn('/bin/sh', ['-c', command], { cwd: workDir, stdio: ['ignore', 'pipe', 'pipe'] });
+
         if (streamId) {
           if (!runningCommands.has(streamId)) runningCommands.set(streamId, new Set());
           runningCommands.get(streamId).add(child);
         }
+
+        const procRecord = processManager.register(child, {
+          command,
+          workDir,
+          streamId,
+          sessionId,
+          isBackground: isBackgroundRequested
+        });
+
         const CAP = 2 * 1024 * 1024;
         const out = [];
         const errBuf = [];
         let outLen = 0;
         let errLen = 0;
-        let timedOut = false;
         child.stdout.on('data', d => { if (outLen < CAP) { out.push(d); outLen += d.length; } });
         child.stderr.on('data', d => { if (errLen < CAP) { errBuf.push(d); errLen += d.length; } });
+
         const timer = setTimeout(() => {
-          timedOut = true;
+          const stdout = decodeCommandOutput(Buffer.concat(out), codepage);
+          const stderr = decodeCommandOutput(Buffer.concat(errBuf), codepage);
+
+          let isAlive = false;
           try {
-            if (isWin && child.pid) {
-              // cmd /c leaves grandchildren alive after child.kill(); taskkill /T takes the whole tree
-              spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
+            isAlive = child.pid && process.kill(child.pid, 0);
+          } catch {
+            isAlive = false;
+          }
+
+          if (isAlive) {
+            if (killOnTimeout) {
+              didTimeout = true;
+              processManager.killProcess(child.pid, false);
+              hardKillFallbackTimer = setTimeout(() => {
+                if (streamId) unregisterCommand(streamId, child);
+                safeResolve({
+                  ok: false,
+                  exitCode: null,
+                  timedOut: true,
+                  stdout: truncate(stdout, MAX_CMD_OUT),
+                  stderr: truncate(stderr || `命令执行超时 (${Math.round(timeout / 1000)}s)，已强制结束进程树`, MAX_CMD_OUT)
+                });
+              }, 600);
+              if (hardKillFallbackTimer.unref) hardKillFallbackTimer.unref();
             } else {
-              child.kill('SIGTERM');
-              setTimeout(() => { try { child.kill('SIGKILL'); } catch {} }, 2000).unref?.();
+              if (procRecord) procRecord.isBackground = true;
+              safeResolve({
+                ok: true,
+                background: true,
+                pid: child.pid,
+                timeoutMs: timeout,
+                stdout: truncate(stdout, MAX_CMD_OUT),
+                stderr: truncate(stderr, MAX_CMD_OUT),
+                message: `命令已运行 ${Math.round(timeout / 1000)} 秒，检测到程序仍在持续活跃运行 (PID: ${child.pid})。如果是 Python 游戏、GUI 应用或本地服务，已自动转入后台持续运行。你可以据此分析情况向用户汇报启动结果；如需关闭可调用 stop_process(pid: ${child.pid})，程序退出时也会全量自动清理保证安全。`
+              });
             }
-          } catch {}
+          }
         }, timeout);
+
         if (timer.unref) timer.unref();
+
         child.on('error', err => {
-          clearTimeout(timer);
           if (streamId) unregisterCommand(streamId, child);
-          resolve({ ok: false, error: `命令启动失败: ${err.message}` });
+          safeResolve({ ok: false, error: `命令启动失败: ${err.message}` });
         });
+
         child.on('close', code => {
-          clearTimeout(timer);
           if (streamId) unregisterCommand(streamId, child);
           const stdout = decodeCommandOutput(Buffer.concat(out), codepage);
           const stderr = decodeCommandOutput(Buffer.concat(errBuf), codepage);
-          if (timedOut) {
-            resolve({
+
+          if (didTimeout) {
+            safeResolve({
               ok: false,
-              exitCode: code ?? null,
+              exitCode: code,
               timedOut: true,
               stdout: truncate(stdout, MAX_CMD_OUT),
-              stderr: truncate(stderr || '命令执行超时，已强制结束进程树', MAX_CMD_OUT)
+              stderr: truncate(stderr || `命令执行超时 (${Math.round(timeout / 1000)}s)，已强制结束进程树`, MAX_CMD_OUT)
             });
-          } else if (code !== 0) {
-            resolve({
+            return;
+          }
+
+          if (code !== 0 && code !== null) {
+            safeResolve({
               ok: false,
-              exitCode: code ?? null,
+              exitCode: code,
               timedOut: false,
               stdout: truncate(stdout, MAX_CMD_OUT),
               stderr: truncate(stderr || `命令退出码 ${code}`, MAX_CMD_OUT)
             });
           } else {
-            resolve({ ok: true, exitCode: 0, stdout: truncate(stdout, MAX_CMD_OUT), stderr: truncate(stderr, MAX_CMD_OUT) });
+            safeResolve({
+              ok: true,
+              exitCode: code ?? 0,
+              stdout: truncate(stdout, MAX_CMD_OUT),
+              stderr: truncate(stderr, MAX_CMD_OUT)
+            });
           }
         });
       });

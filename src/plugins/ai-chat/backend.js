@@ -20,6 +20,7 @@ const ApprovalService = require('./services/approval-service');
 const McpService = require('./services/mcp-service');
 const { SkillsService, DEFAULT_SKILLS } = require('./services/skills-service');
 const { ChatService } = require('./services/chat-service');
+const { processManager } = require('./services/process-manager');
 
 const DEFAULT_CONFIG = {
   channel: 'openai',
@@ -584,10 +585,23 @@ module.exports = {
       return chatService.chatComplete(args, { config, getPersona });
     });
 
+    /* --- Subprocess Registry & Lifecycle IPC --- */
+
+    ctx.ipc.handle('listProcesses', args => {
+      const sessionId = (args && args.sessionId) || null;
+      return { ok: true, processes: processManager.listProcesses(sessionId) };
+    });
+
+    ctx.ipc.handle('killProcess', args => {
+      const pid = args && args.pid;
+      return processManager.killProcess(pid, false);
+    });
+
     disposeAll = sync => {
       chatService.abortAll(approvalService);
       approvalService.denyAll();
       mcpService.disposeAll(sync);
+      processManager.killAll(sync);
     };
   },
 
