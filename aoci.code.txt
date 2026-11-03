@@ -1,0 +1,232 @@
+#AOCI-CODE-VOLUME: 1
+
+===E:/Github_Pro/orbit-tools/===
+.gitattributes[FC1T]: F:Git属性配置，指定所有文本文件检出时统一转换为LF换行符 | R:- | A:- | S:-
+.gitignore[FC1T]: F:Git忽略规则配置，排除依赖目录、构建产物、日志及本机绑定的Agent配置 | R:- | A:- | S:-
+AGENTS.md[SG7S]: F:仓库级Agent纪律与AOCI协议说明，指导模型在会话中按合同建立和维护系统认知 | R:code:aoci.txt | A:- | S:aoci区块受治理保护，严禁手动绕过或伪造认知收据
+LICENSE[SG1L]: F:项目开源许可证，声明遵循GPL-3.0许可条款 | R:- | A:- | S:-
+README.md[SU7S]: F:Orbit Toolbox项目主说明文档，介绍项目定位、架构特性、内置插件列表与运行指引 | R:code:package.json | A:- | S:-
+TASK_BRIEF.md[SW3T]: F:AI任务调度交接简报，记录AI对话插件渲染修复与增强任务背景与要求 | R:- | A:- | S:-
+package-lock.json[FV1L]: F:npm依赖版本锁定清单，记录完整依赖树与哈希校验和 | R:code:package.json | A:- | S:-
+package.json[FB8S]: F:Node.js项目元数据与npm脚本定义，声明Electron主入口、构建配置与运行时依赖 | R:code:src/main.js | A:main | S:main字段指向src/main.js，定义了start、build:win等构建脚本
+
+===E:/Github_Pro/orbit-tools/.github/workflows/===
+release.yml[OV6T]: F:GitHub Actions发布流水线，在推送v*标签时触发Windows平台打包并创建GitHub Release草稿 | R:code:package.json | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/docs/===
+plugin-guide.md[SE7M]: F:Orbit插件开发指南，规范纯前端、全栈及独立窗口插件目录结构与manifest规范 | R:code:skills/orbit-plugin-developer/SKILL.md | A:- | S:插件必须遵循安全沙箱边界，全栈插件后端代码仅运行在主进程受限上下文
+
+===E:/Github_Pro/orbit-tools/skills/orbit-plugin-developer/===
+.gitignore[FC1T]: F:orbit-plugin-developer技能私有Git忽略配置 | R:- | A:- | S:-
+LICENSE[SG1T]: F:orbit-plugin-developer技能组件MIT开源许可证 | R:- | A:- | S:-
+README.md[SE4T]: F:Orbit插件开发技能使用说明与快速上手指引 | R:code:skills/orbit-plugin-developer/SKILL.md | A:- | S:-
+SKILL.md[SE7M]: F:Orbit插件开发者技能主体定义，包含开发工作流、架构规范、脚手架使用与测试校验流程 | R:code:skills/orbit-plugin-developer/scripts/create-plugin.js | A:- | S:引导AI遵守无框架、无打包器及主渲染进程IPC通信准则
+
+===E:/Github_Pro/orbit-tools/skills/orbit-plugin-developer/scripts/===
+create-plugin.js[XE5T]: F:Orbit插件模板生成脚本，从模板复制并初始化新插件骨架 | R:- | A:main | S:支持frontend-only、fullstack和standalone-window三种模板生成
+
+===E:/Github_Pro/orbit-tools/skills/orbit-plugin-developer/templates/frontend-only/===
+icon.svg[CU1T]: F:纯前端插件模板默认图标矢量资源 | R:- | A:- | S:-
+panel.css[CU2T]: F:纯前端插件面板模板默认样式表 | R:- | A:- | S:-
+panel.js[EU4T]: F:纯前端插件面板脚本模板，示范DOM交互与事件监听基本逻辑 | R:- | A:- | S:-
+plugin.json[FE4T]: F:纯前端插件清单元数据模板，定义id、名称、版本、类别与入口文件配置 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/skills/orbit-plugin-developer/templates/fullstack/===
+backend.js[EB5T]: F:全栈插件主进程后端模板，导出init生命周期并注册IPC通信处理函数 | R:- | A:init | S:接收context上下文，在init中绑定IPC通道并支持销毁清理
+icon.svg[CU1T]: F:全栈插件模板默认图标矢量资源 | R:- | A:- | S:-
+panel.css[CU2T]: F:全栈插件面板模板默认样式表 | R:- | A:- | S:-
+panel.js[EU4T]: F:全栈插件前端脚本模板，示范通过window.orbitAPI进行IPC远程方法调用 | R:- | A:- | S:依赖预加载脚本注入的window.orbitAPI实现安全渲染进程IPC通信
+plugin.json[FE4T]: F:全栈插件清单元数据模板，声明前端面板与主进程backend.js入口 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/skills/orbit-plugin-developer/templates/standalone-window/===
+backend.js[EB5T]: F:独立窗口插件主进程后端模板，导出createWindow方法管理多窗口生命周期 | R:- | A:createWindow | S:-
+icon.svg[CU1T]: F:独立窗口插件模板默认图标矢量资源 | R:- | A:- | S:-
+panel.css[CU2T]: F:独立窗口插件主面板触发样式表 | R:- | A:- | S:-
+panel.js[EU4T]: F:独立窗口插件面板脚本模板，绑定打开新窗口按钮点击事件 | R:- | A:- | S:-
+plugin.json[FE4T]: F:独立窗口插件元数据声明，配置主面板及window配置节 | R:- | A:- | S:-
+window-preload.js[EU5T]: F:独立窗口专属预加载脚本，为独立窗口提供安全IPC上下文隔离 | R:- | A:- | S:-
+window.css[CU2T]: F:独立窗口页面默认样式表 | R:- | A:- | S:-
+window.html[EU3T]: F:独立窗口页面DOM结构模板 | R:- | A:- | S:-
+window.js[EU4T]: F:独立窗口页面交互逻辑脚本 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/===
+main.js[EB9M]: F:Electron应用主入口，管理主窗口与命令面板生命周期、系统托盘、全局热键及IPC路由初始化 | R:code:src/core/config.js,code:src/core/hotkeys.js,code:src/core/ipc.js,code:src/core/plugin-manager.js | A:createWindow,initTray,toggleMainWindow | S:严格开启contextIsolation与sandbox；窗口隐藏时不销毁WebContents以保持插件状态
+preload.js[EI9T]: F:预加载脚本，通过contextBridge安全暴露window.orbitAPI方法给渲染进程 | R:code:src/main.js | A:contextBridge.exposeInMainWorld | S:杜绝直接暴露ipcRenderer，仅提供白名单封装好的invoke/on/send方法
+
+===E:/Github_Pro/orbit-tools/src/core/===
+capabilities.js[DG8M]: F:宿主系统与本地环境能力探测器，检测命令工具、系统特性、WSL与剪贴板依赖可用性 | R:- | A:detectCapabilities,hasCommand | S:缓存能力检测结果避免高频子进程拉起开销
+config.js[DC8T]: F:全局配置管理模块，负责settings.json的读取、深合并与持久化保存 | R:- | A:loadConfig,saveConfig,get | S:配置写入采用原子写或同步落盘，避免多进程并发写损坏
+hotkeys.js[DU8M]: F:全局热键注册与防冲突管理，校验外部软件独占并提供启动降级fallback | R:code:src/core/config.js | A:registerAll,registerHotkey,unregisterAll | S:准确捕获被外部独占的失败状态，注册失败时自动标黄提示并降级备用键
+ipc.js[MB8M]: F:核心IPC通道集中注册表，分发配置读写、窗口控制、选区提取与工作流事件 | R:code:src/core/config.js,code:src/core/hotkeys.js,code:src/core/plugin-manager.js,code:src/core/selection.js | A:registerIpcHandlers | S:-
+plugin-manager.js[DE9L]: F:插件系统生命周期管理器，扫描src/plugins并按plugin.json加载前后端、分配上下文与管理状态 | R:code:src/core/plugin-protocol.js | A:loadAll,getPlugins,invokeBackend | S:注入受控的PluginContext给后端，阻止全栈插件直接逃逸主进程沙箱
+plugin-protocol.js[IE7T]: F:orbit-plugin自定义协议处理器，安全映射插件静态资源目录到本地文件系统 | R:code:src/core/plugin-manager.js | A:registerPluginProtocol | S:路径校验限制在允许的插件根目录下，杜绝路径穿越访问敏感文件
+selection-reader.cs[IU6T]: F:Windows原生C#控制台辅助源码，通过UI Automation安全提取当前前台窗口选中文本 | R:code:src/core/selection.js | A:Main | S:针对不支持快捷键复制的无障碍应用直接读取选区文本
+selection.js[DU7M]: F:跨进程当前屏幕选区内容获取模块，组合按键模拟与原生无障碍API提取选区 | R:code:src/core/selection-reader.cs,code:src/core/send_copy.vbs | A:getSelectedText,captureSelection | S:获取前先备份剪贴板并在操作后恢复，避免破坏用户原本的剪贴板内容
+send_copy.vbs[XU4T]: F:VBScript辅助脚本，模拟向活动前台窗口发送Ctrl+C按键指令 | R:code:src/core/selection.js | A:WScript.CreateObject | S:-
+workflows.js[DW8L]: F:自动化工作流编排与执行引擎，支持触发器、多步骤动作链与插件间数据管道传递 | R:code:src/core/plugin-manager.js | A:executeWorkflow,loadWorkflows,saveWorkflows | S:步骤执行具备超时保护与错误阻断机制，防止死循环阻塞主线程
+
+===E:/Github_Pro/orbit-tools/src/renderer/===
+app.js[EU9L]: F:渲染层主控制器，驱动主界面DOM渲染、插件卡片列表、热键设置与视图切换 | R:code:src/renderer/i18n.js,code:src/renderer/style.css | A:initApp,renderPlugins,switchTab | S:纯原生JS无前端框架，通过动态加载插件CSS/JS与DOM注入实现快速启动
+i18n.js[CL6S]: F:国际化多语言翻译字典与文本替换辅助模块，支持zh-CN与en-US无缝切换 | R:code:src/renderer/app.js | A:t,setLocale,getLocale | S:-
+index.html[EU7L]: F:Orbit Toolbox主窗口结构骨架HTML，包含侧边导航栏、插件主内容区与设置抽屉 | R:code:src/renderer/app.js,code:src/renderer/style.css | A:- | S:-
+palette-search.js[KU6T]: F:快捷指令命令面板搜索算法，结合拼音首字母与关键词权重实现模糊匹配过滤 | R:code:src/renderer/pinyin.js | A:matchQuery,rankResults | S:-
+palette.html[EU6T]: F:快捷呼出Spotlight式命令面板结构HTML，提供极简单行输入与悬浮搜索卡片 | R:code:src/renderer/palette.js | A:- | S:-
+palette.js[EU8L]: F:快捷命令面板前端交互逻辑，处理键盘上下移动选择、快速执行插件与结果渲染 | R:code:src/renderer/palette-search.js,code:src/renderer/payload-type.js | A:initPalette,handleKeydown,executeAction | S:支持根据剪贴板类型动态前置展示最相关的处理插件动作
+payload-type.js[DU6S]: F:剪贴板输入载荷类型自动嗅探器，判定文本、JSON、URL、色彩代码或Base64 | R:code:src/renderer/palette.js | A:detectType | S:-
+pinyin.js[CL5T]: F:拼音映射查询轻量工具，提供常用汉字首字母转换供快速输入检索 | R:code:src/renderer/palette-search.js | A:getPinyinInitials | S:-
+style.css[CU7L]: F:主界面全局核心样式表，定义CSS变量主题、网格布局、按钮与弹窗交互样式 | R:code:src/renderer/index.html | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/tools/===
+gen-pinyin.js[XL4T]: F:离线生成拼音字母字典映射脚本 | R:code:src/renderer/pinyin.js | A:main | S:-
+make-icon.js[XV4S]: F:应用各尺寸ICO与PNG图标批量生成转换工具 | R:- | A:main | S:-
+shot-ai-agent-ui.js[TQ4S]: F:针对AI Agent对话界面截图与渲染快照测试脚本 | R:code:src/plugins/ai-chat/panel.js | A:main | S:-
+smoke-plugins.js[TQ7M]: F:插件系统冒烟测试，自动化校验全部内置插件的清单、资源与加载状态 | R:code:src/core/plugin-manager.js | A:main | S:启动无头测试环境确保所有插件backend与panel语法及依赖健全
+test-ai-agent-upgrade.js[TB6M]: F:AI Agent升级自动化测试，覆盖多轮工具调用、任务规划与上下文流转 | R:code:src/plugins/ai-chat/backend.js | A:main | S:-
+test-ai-ide-dispatch.js[TI6S]: F:AI对话IDE调度派发功能测试，验证Cursor与Antigravity等IDE唤起协议 | R:code:src/plugins/ai-chat/ide-dispatcher.js | A:main | S:-
+test-ai-local-tools.js[TB6M]: F:AI本地工具链调用测试，验证文件读写、命令执行与状态查询工具 | R:code:src/plugins/ai-chat/local-tools.js | A:main | S:-
+test-ai-markdown-mermaid.js[TU6S]: F:Markdown表格与Mermaid图表渲染自动化测试，验证GFM渲染修复成效 | R:code:src/plugins/ai-chat/panel.js | A:main | S:-
+test-ai-mcp.js[TI7L]: F:MCP客户端协议集成测试，校验工具发现、调用与stdio进程通信稳定性 | R:code:src/plugins/ai-chat/mcp-client.js | A:main | S:-
+test-ai-protocols.js[TN7L]: F:AI对话网络通信协议与SSE流式传输测试，覆盖OpenAI与Anthropic协议格式 | R:code:src/plugins/ai-chat/protocols.js | A:main | S:-
+test-ai-quit-cleanup.js[TR5T]: F:AI Agent进程退出清理测试，确保子进程与临时资源被可靠回收 | R:code:src/plugins/ai-chat/backend.js | A:main | S:-
+test-ai-skills-live.js[TB5T]: F:动态加载Agent Skills的实时执行测试 | R:code:src/plugins/ai-chat/skills-util.js | A:main | S:-
+test-ai-skills.js[TB6M]: F:Agent Skills系统自动化测试，校验技能扫描、参数校验与提示词拼装 | R:code:src/plugins/ai-chat/skills-util.js | A:main | S:-
+test-clip-links.js[TU5T]: F:剪贴板链接识别与卡片渲染测试 | R:code:src/plugins/clip-history/backend.js | A:main | S:-
+test-clip-responsive.js[TU5T]: F:剪贴板响应性能与长列表滚动测试 | R:code:src/plugins/clip-history/panel.js | A:main | S:-
+test-color-math.js[TU5S]: F:色彩算法转换单元测试，验证HEX、RGB、HSL与HSV相互换算精度 | R:code:src/plugins/color-lab/color-math.js | A:main | S:-
+test-deck-sort.js[TU5S]: F:插件卡片拖拽排序与持久化顺序校验测试 | R:code:src/renderer/app.js | A:main | S:-
+test-draw-board-pin.js[TU5S]: F:画板置顶悬浮与透明窗口渲染穿透测试 | R:code:src/plugins/draw-board/backend.js | A:main | S:-
+test-memo-todo.js[TB5S]: F:备忘录待办创建、提醒时间调度与日历联动功能测试 | R:code:src/plugins/memo/backend.js | A:main | S:-
+test-port-parsers.js[TD5T]: F:端口监听输出文本解析器测试，验证Windows netstat输出解析正确性 | R:code:src/plugins/port-scope/ports.js | A:main | S:-
+test-renderer-boot.js[TU6M]: F:渲染进程启动初始化与DOM加载时序端到端测试 | R:code:src/renderer/app.js | A:main | S:-
+test-text-tools.js[TB5S]: F:常用文本转换处理逻辑功能测试 | R:code:src/plugins/codec-lab/backend.js | A:main | S:-
+test-transform-tool.js[TB5S]: F:数据格式转换与编解码单元测试 | R:code:src/plugins/codec-lab/backend.js | A:main | S:-
+test-workflow-ui.js[TW6S]: F:工作流编辑面板与图形化配置界面交互测试 | R:code:src/core/workflows.js | A:main | S:-
+test-workflows.js[TW7M]: F:工作流多步骤调度与数据管道传递自动化集成测试 | R:code:src/core/workflows.js | A:main | S:-
+uitest.js[TQ7L]: F:端到端UI自动化测试入口，模拟全流程用户交互与页面渲染 | R:code:src/renderer/app.js | A:main | S:-
+
+===E:/Github_Pro/orbit-tools/tools/workflow-scenarios/===
+ai-and-code.js[TW5S]: F:工作流场景测试：AI辅助代码生成与自动保存工作流测试用例 | R:code:src/core/workflows.js | A:main | S:-
+builtin-utilities.js[TW5S]: F:工作流场景测试：内置多工具链组合调度测试用例 | R:code:src/core/workflows.js | A:main | S:-
+clipboard-trigger.js[TW5S]: F:工作流场景测试：剪贴板内容变更自动触发动作流水线测试用例 | R:code:src/core/workflows.js | A:main | S:-
+plugin-capabilities.js[TW5S]: F:工作流场景测试：插件能力调用与IPC传递完整性测试用例 | R:code:src/core/workflows.js | A:main | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/ai-chat/===
+agent-tools.js[DA8M]: F:AI Agent工具执行引擎，支持多轮Tool Loop分发与结果反馈 | R:code:src/plugins/ai-chat/local-tools.js,code:src/plugins/ai-chat/mcp-client.js | A:executeTool | S:-
+backend.js[EB9L]: F:AI对话插件主进程后端，管理LLM流式会话、上下文拼接、会话持久化与IPC接口 | R:code:src/plugins/ai-chat/protocols.js,code:src/plugins/ai-chat/agent-tools.js,code:src/plugins/ai-chat/memory.js | A:init,sendMessage,streamResponse | S:处理AbortSignal请求中断与模型配置动态切换
+icon.svg[CU1T]: F:AI对话插件SVG图标资源 | R:- | A:- | S:-
+ide-dispatcher.js[IA8L]: F:外部AI IDE调度器，生成一键接手Prompt并唤起对应编辑器 | R:- | A:dispatchToIDE | S:通过URI Scheme或命令行启动外部IDE，并自动拷贝上下文到剪贴板
+local-tools.js[DA8L]: F:本地确定性Agent工具集，提供安全受限的文件读写、系统命令执行与环境检索工具 | R:- | A:registerLocalTools | S:包含危险命令拦截名单，只允许受控的工作区内文件操作
+mcp-client.js[IA8L]: F:标准stdio MCP客户端实现，连接第三方MCP Server并映射其Tools到Agent上下文 | R:- | A:connectServer,callTool | S:隔离MCP子进程生命周期，通信异常时平滑重连
+memory.js[PA7M]: F:对话历史与长短期记忆存储器，支持会话归档与上下文摘要提炼 | R:- | A:saveMemory,loadMemory | S:-
+panel.css[CU8L]: F:AI对话前端主面板样式表，包含消息气泡、Markdown排版、代码高亮与Mermaid容器样式 | R:code:src/plugins/ai-chat/panel.js | A:- | S:-
+panel.js[EU9L]: F:AI对话前端交互控制器，处理消息流式追加、GFM Markdown渲染、Mermaid图表生成与工具结果展示 | R:code:src/plugins/ai-chat/panel.css | A:renderMessage,renderMermaid | S:严格隔离用户输入与代码高亮，防范富文本XSS攻击
+plugin.json[FE7T]: F:AI对话插件清单声明，配置主进程backend.js与前端panel界面元数据 | R:- | A:- | S:-
+protocols.js[IN8L]: F:大模型API请求协议适配层，抹平OpenAI兼容格式、Claude格式与SSE流式协议解析 | R:- | A:createChatStream | S:支持自定义请求Header、代理穿透与API Key凭证注入
+skills-util.js[DA6S]: F:Agent Skills加载解析辅助模块，读取SKILL.md并将结构化指令注入系统提示词 | R:- | A:parseSkill | S:-
+task-tools.js[DA6T]: F:任务拆解与Todo清单Agent内置工具 | R:- | A:manageTasks | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/antigravity-launcher/===
+backend.js[EB8M]: F:Antigravity启动器主进程后端，提供进程探测、代理注入与命令行拉起IPC服务 | R:code:src/plugins/antigravity-launcher/core/detect.js,code:src/plugins/antigravity-launcher/core/launch.js,code:src/plugins/antigravity-launcher/core/proxy.js | A:init,launchApp | S:-
+icon.svg[CU1T]: F:反重力启动器SVG矢量徽标资源 | R:- | A:- | S:-
+panel.css[CU6M]: F:反重力启动器面板样式表 | R:code:src/plugins/antigravity-launcher/panel.js | A:- | S:-
+panel.js[EU8L]: F:反重力启动器前端交互逻辑，展示环境诊断状态、代理设置与一键启动按钮 | R:code:src/plugins/antigravity-launcher/panel.css | A:initPanel,startDiagnostics | S:-
+plugin.json[FE6T]: F:反重力启动器插件清单配置 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/antigravity-launcher/core/===
+detect.js[DI7S]: F:Antigravity IDE安装路径与运行中进程状态探测逻辑 | R:- | A:detectInstallation,isProcessRunning | S:-
+launch.js[DI8M]: F:Antigravity进程启动器，组装进程环境变量、网络代理参数并安全拉起 | R:code:src/plugins/antigravity-launcher/core/proxy.js | A:launchAntigravity | S:确保代理端口联通后再启动目标进程，避免握手失败
+proxy.js[IN8M]: F:网络代理诊断与连通性握手测试器，探测HTTP/SOCKS5代理有效性 | R:- | A:testProxyConnection | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/calculator/===
+backend.js[EB5T]: F:表达式计算器主进程后端，提供安全计算沙箱IPC通道 | R:code:src/plugins/calculator/eval.js | A:init | S:-
+eval.js[KB7M]: F:数学表达式解析与安全求值引擎，支持常用数学函数与进制换算 | R:- | A:evaluateExpression | S:严禁使用直接eval，采用语法分词AST求值防注入
+icon.svg[CU1T]: F:计算器插件图标资源 | R:- | A:- | S:-
+panel.css[CU5T]: F:计算器面板样式表 | R:code:src/plugins/calculator/panel.js | A:- | S:-
+panel.js[EU7M]: F:计算器前端界面逻辑，处理键盘输入、历史记录计算与实时反馈 | R:code:src/plugins/calculator/panel.css | A:initPanel,calculate | S:-
+plugin.json[FE5T]: F:计算器插件清单元数据 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/clip-history/===
+backend.js[PB8L]: F:剪贴板历史记录主进程后台服务，监听剪贴板变化、持久化历史记录并支持快捷键回填 | R:- | A:init,getHistory,pasteItem | S:针对密码等敏感内容支持正则过滤脱敏
+icon.svg[CU1T]: F:剪贴板历史插件图标 | R:- | A:- | S:-
+panel.css[CU7L]: F:剪贴板历史记录面板样式表，包含卡片列表与搜索框 | R:code:src/plugins/clip-history/panel.js | A:- | S:-
+panel.js[EU8L]: F:剪贴板历史前端交互控制器，实现条目搜索、置顶收藏、图片预览与一键回填 | R:code:src/plugins/clip-history/panel.css | A:initPanel,renderList | S:-
+plugin.json[FE6T]: F:剪贴板历史插件清单配置 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/codec-lab/===
+backend.js[EB6S]: F:编解码实验室主进程后端，提供常用文本转换与加密解密IPC服务 | R:- | A:init,transform | S:-
+icon.svg[CU1T]: F:编解码实验室矢量图标 | R:- | A:- | S:-
+panel.css[CU6S]: F:编解码实验室界面样式表 | R:code:src/plugins/codec-lab/panel.js | A:- | S:-
+panel.js[EU8L]: F:编解码实验室前端交互逻辑，支持Base64、URL、Hex、Unicode、JWT与时间戳转换 | R:code:src/plugins/codec-lab/panel.css | A:initPanel,convert | S:-
+plugin.json[FE6T]: F:编解码实验室插件清单配置 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/json-editor/===
+icon.svg[CU1T]: F:JSON编辑器图标矢量资源 | R:- | A:- | S:-
+panel.css[CU7L]: F:JSON编辑器面板样式表，包含树状折叠、语法高亮与工具栏样式 | R:code:src/plugins/json-editor/panel.js | A:- | S:-
+panel.js[EU8L]: F:JSON编辑器纯前端交互控制器，实现语法校验、格式化、树状展开与Python字典转JSON | R:code:src/plugins/json-editor/panel.css | A:initPanel,formatJson,parseTree | S:纯前端运行不依赖外部后端，大文本分块解析防界面卡死
+plugin.json[FE6T]: F:JSON编辑器插件元数据声明 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/color-lab/===
+backend.js[EB8L]: F:色彩工坊主进程后端，管理取色透明全屏窗口与GDI取色子进程 | R:code:src/plugins/color-lab/gdi-cap.ps1,code:src/plugins/color-lab/color-math.js | A:init,openPicker | S:-
+color-math.js[DU7M]: F:核心色彩空间数学转换算法，支持HEX、RGB、HSL、HSV、ARGB多格式互转与对比度计算 | R:- | A:rgbToHsl,hslToRgb,hexToRgb,calcContrast | S:浮点精度四舍五入防除以零溢出
+gdi-cap.ps1[XU6T]: F:PowerShell GDI底层屏幕像素截取脚本，获取指定屏幕坐标的RGB真实像素 | R:code:src/plugins/color-lab/backend.js | A:- | S:-
+icon.svg[CU1T]: F:色彩工坊矢量图标 | R:- | A:- | S:-
+panel.css[CU6S]: F:色彩工坊面板调色器与历史色彩卡片样式表 | R:code:src/plugins/color-lab/panel.js | A:- | S:-
+panel.js[EU8L]: F:色彩工坊面板交互逻辑，RGBA调色盘滑动、色彩格式复制与历史色板持久化 | R:code:src/plugins/color-lab/color-math.js | A:initPanel,updateColor | S:-
+picker-preload.js[EU6T]: F:屏幕吸管全屏透明窗口专属预加载脚本 | R:- | A:- | S:-
+picker.css[CU6S]: F:像素级屏幕放大镜与十字准星悬浮样式表 | R:code:src/plugins/color-lab/picker.js | A:- | S:-
+picker.html[EU5T]: F:屏幕吸管取色器全屏透明窗口HTML结构 | R:code:src/plugins/color-lab/picker.js | A:- | S:-
+picker.js[EU8L]: F:屏幕取色放大镜交互逻辑，跟随鼠标移动绘制像素矩阵、支持冻结与动态取色 | R:code:src/plugins/color-lab/color-math.js | A:initPicker,renderMagnifier | S:键盘方向键支持单像素微调
+plugin.json[FE6T]: F:色彩工坊插件清单元数据，注册Ctrl+Shift+E全局取色热键 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/draw-board/===
+backend.js[EB8M]: F:屏幕画板主进程后端，管理全屏透明绘图窗口与悬浮贴图窗口创建 | R:- | A:init,openBoard,pinImage | S:-
+board-preload.js[EU6T]: F:绘图画板透明全屏窗口预加载脚本 | R:- | A:- | S:-
+board.css[CU6S]: F:画板工具栏浮动面板、画笔粗细选择与颜色选择器样式 | R:code:src/plugins/draw-board/board.js | A:- | S:-
+board.html[EU6T]: F:全屏画板DOM结构，包含透明Canvas与悬浮控制条 | R:code:src/plugins/draw-board/board.js | A:- | S:-
+board.js[EU9L]: F:屏幕画板Canvas绘图引擎，实现画笔、荧光笔、直线、箭头、矩形、椭圆与橡皮擦撤销重做 | R:code:src/plugins/draw-board/board.css | A:initBoard,handleDraw,exportPNG | S:Canvas支持多图层双缓冲绘制与PNG导出
+icon.svg[CU1T]: F:画板插件矢量图标 | R:- | A:- | S:-
+panel.css[CU4T]: F:画板主界面启动入口小面板样式 | R:code:src/plugins/draw-board/panel.js | A:- | S:-
+panel.js[EU5T]: F:画板面板快速启动脚本，触发全屏画板打开 | R:- | A:initPanel | S:-
+pin-preload.js[EU5T]: F:画板贴图悬浮窗口预加载脚本 | R:- | A:- | S:-
+pin.css[CU5T]: F:贴图置顶悬浮窗口样式 | R:code:src/plugins/draw-board/pin.js | A:- | S:-
+pin.html[EU4T]: F:贴图置顶悬浮窗口HTML结构 | R:code:src/plugins/draw-board/pin.js | A:- | S:-
+pin.js[EU6S]: F:贴图置顶悬浮窗口交互，支持滚轮缩放与透明度调节 | R:code:src/plugins/draw-board/pin.css | A:initPin | S:-
+plugin.json[FE6T]: F:画板插件清单配置，注册Ctrl+Shift+D画板热键 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/memo/===
+backend.js[PB8M]: F:备忘录与待办主进程后台，负责本地JSON数据持久化、到期定时提醒调度与日历联动 | R:- | A:init,loadMemos,saveMemos,scheduleNotification | S:注册系统Notification提醒，待办完成状态双向同步
+icon.svg[CU1T]: F:备忘录插件矢量图标 | R:- | A:- | S:-
+panel.css[CU6M]: F:备忘录看板、待办列表、日历视图与便签卡片样式表 | R:code:src/plugins/memo/panel.js | A:- | S:-
+panel.js[EU8L]: F:备忘录前端控制器，实现Markdown简易便签、优先级排序、日历切换与待办打勾 | R:code:src/plugins/memo/panel.css | A:initPanel,renderMemos,filterMemos | S:-
+plugin.json[FE6T]: F:备忘录插件清单配置 | R:- | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/mirror-hub/===
+backend.js[EB7M]: F:镜像源助手主进程后端，检测本地npm/pip/docker配置文件并写入镜像URL | R:code:src/plugins/mirror-hub/proxy-detect.js | A:init,getMirrorConfigs,setMirror | S:切换镜像源时先备份用户配置文件（如.npmrc、pip.ini）
+icon.svg[CU1T]: F:镜像源助手矢量图标 | R:- | A:- | S:-
+panel.css[CU7L]: F:镜像源助手面板样式，含测速延迟柱状标识与源切换开关 | R:code:src/plugins/mirror-hub/panel.js | A:- | S:-
+panel.js[EU8L]: F:镜像源助手前端交互，实现国内各源并发ping测速与一键配置应用 | R:code:src/plugins/mirror-hub/panel.css | A:initPanel,pingMirrors,applyMirror | S:-
+plugin.json[FE6T]: F:镜像源助手插件配置清单 | R:- | A:- | S:-
+proxy-detect.js[IN7S]: F:各包管理器国内镜像源连通性测试与延迟统计工具 | R:- | A:pingUrl,measureLatency | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/port-scope/===
+backend.js[EB6T]: F:端口与进程查看器主进程后端，分发端口查询IPC | R:code:src/plugins/port-scope/ports.js | A:init | S:-
+icon.svg[CU1T]: F:端口查看器矢量图标 | R:- | A:- | S:-
+panel.css[CU5T]: F:端口查看器表格样式表 | R:code:src/plugins/port-scope/panel.js | A:- | S:-
+panel.js[EU7M]: F:端口查看器前端交互，展示活动TCP/UDP端口、进程名与一键Kill按钮 | R:code:src/plugins/port-scope/panel.css | A:initPanel,renderPorts,killProcess | S:终止关键系统进程前提示二次确认
+plugin.json[FE6T]: F:端口与进程查看器插件清单配置 | R:- | A:- | S:-
+ports.js[DO7S]: F:Windows原生网络连接与端口占用信息提取器，解析netstat输出并关联PID与进程名 | R:- | A:listActivePorts,killPid | S:-
+
+===E:/Github_Pro/orbit-tools/src/plugins/screenshot-pin/===
+backend.js[EB9L]: F:截图悬浮钉主进程后端，协调全屏选区遮罩创建、截图采集与置顶贴图窗口 | R:- | A:init,startCapture,createPinWindow | S:支持多显示器虚拟屏幕坐标合流截取
+icon.svg[CU1T]: F:截图悬浮钉矢量图标 | R:- | A:- | S:-
+overlay-preload.js[EU6T]: F:截图选区全屏遮罩预加载脚本 | R:- | A:- | S:-
+panel.css[CU4T]: F:截图悬浮钉控制面板样式表 | R:code:src/plugins/screenshot-pin/panel.js | A:- | S:-
+panel.js[EU6T]: F:截图悬浮钉面板交互，提供手动截屏触发与热键提示 | R:- | A:initPanel | S:-
+pin-preload.js[EU6T]: F:截图置顶悬浮贴图窗口预加载脚本 | R:- | A:- | S:-
+pin.css[CU6M]: F:置顶悬浮图片卡片样式表，含阴影、工具栏与缩放边框 | R:code:src/plugins/screenshot-pin/pin.js | A:- | S:-
+pin.html[EU6S]: F:置顶悬浮贴图窗口HTML结构，包含操作工具条与图像容器 | R:code:src/plugins/screenshot-pin/pin.js | A:- | S:-
+pin.js[EU8L]: F:置顶贴图交互逻辑，实现鼠标滚轮缩放、透明度滑动、翻转、文字OCR提取与保存 | R:code:src/plugins/screenshot-pin/pin.css | A:initPin,zoomImage,copyImage | S:-
+plugin.json[FE7T]: F:截图悬浮钉插件清单，注册Ctrl+Shift+A全局截图热键 | R:- | A:- | S:-
+selection.css[CU6M]: F:屏幕选区框选遮罩样式，包含十字光标、尺寸标注与操作按钮样式 | R:code:src/plugins/screenshot-pin/selection.js | A:- | S:-
+selection.html[EU6S]: F:屏幕框选截屏窗口HTML结构 | R:code:src/plugins/screenshot-pin/selection.js | A:- | S:-
+selection.js[EU9L]: F:屏幕选区框选交互引擎，支持拖拽矩形框选、边界拖动微调与选区捕捉 | R:code:src/plugins/screenshot-pin/selection.css | A:initSelection,confirmCapture | S:严格处理DPI缩放比率，避免高分屏截图偏移错位
