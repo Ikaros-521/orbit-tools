@@ -141,6 +141,19 @@
       container.classList.add('hidden');
       return;
     }
+
+    const reRender = () => {
+      renderPromptQueueBar({
+        container,
+        currentSession,
+        sessionPromptQueues,
+        onRecall,
+        onQueueChanged,
+        escapeHtml
+      });
+      if (typeof onQueueChanged === 'function') onQueueChanged();
+    };
+
     container.classList.remove('hidden');
     container.innerHTML = `
       <div class="ai-queue-header">
@@ -157,8 +170,9 @@
     const btnClear = container.querySelector('#btnClearPromptQueue');
     if (btnClear) {
       btnClear.addEventListener('click', () => {
+        queue.length = 0;
         sessionPromptQueues.set(currentSession.id, []);
-        if (typeof onQueueChanged === 'function') onQueueChanged();
+        reRender();
       });
     }
 
@@ -179,12 +193,25 @@
         </div>
       `;
       row.querySelector('.ai-queue-action-btn.edit').addEventListener('click', () => {
-        queue.splice(idx, 1);
+        const q = sessionPromptQueues.get(currentSession.id) || queue;
+        const targetIdx = q.indexOf(item);
+        if (targetIdx !== -1) {
+          q.splice(targetIdx, 1);
+        } else {
+          q.splice(idx, 1);
+        }
+        reRender();
         if (typeof onRecall === 'function') onRecall(item);
       });
       row.querySelector('.ai-queue-action-btn.del').addEventListener('click', () => {
-        queue.splice(idx, 1);
-        if (typeof onQueueChanged === 'function') onQueueChanged();
+        const q = sessionPromptQueues.get(currentSession.id) || queue;
+        const targetIdx = q.indexOf(item);
+        if (targetIdx !== -1) {
+          q.splice(targetIdx, 1);
+        } else {
+          q.splice(idx, 1);
+        }
+        reRender();
       });
       listEl.appendChild(row);
     });

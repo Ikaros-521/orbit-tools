@@ -208,4 +208,193 @@ console.log('Testing Unified Attachments (Images, Files, Directories)...');
   console.log('PASS: Unified Attachments assembling files & directories into context verified');
 }
 
+// 6. DOM-Level Prompt Queue Component (renderPromptQueueBar, delete item, clear queue, recall)
+console.log('Testing PromptQueue.renderPromptQueueBar DOM Interactions & Event Handlers...');
+{
+  const PromptQueue = require('../src/plugins/ai-chat/components/prompt-queue');
+
+  class MockElement {
+    constructor(tagName = 'div') {
+      this.tagName = tagName.toUpperCase();
+      this.classList = {
+        _classes: new Set(),
+        add(c) { this._classes.add(c); },
+        remove(c) { this._classes.delete(c); },
+        contains(c) { return this._classes.has(c); }
+      };
+      this.children = [];
+      this.listeners = {};
+      this._innerHTML = '';
+      this.parentElement = null;
+    }
+
+    set innerHTML(html) {
+      this._innerHTML = html;
+      this.children = [];
+      if (!html) return;
+      if (html.includes('id="btnClearPromptQueue"')) {
+        const btnClear = new MockElement('button');
+        btnClear.id = 'btnClearPromptQueue';
+        btnClear.className = 'ai-queue-btn-clear';
+        btnClear.parentElement = this;
+        this.children.push(btnClear);
+      }
+      if (html.includes('class="ai-queue-list"')) {
+        const listEl = new MockElement('div');
+        listEl.className = 'ai-queue-list';
+        listEl.parentElement = this;
+        this.children.push(listEl);
+      }
+    }
+
+    get innerHTML() {
+      return this._innerHTML;
+    }
+
+    appendChild(child) {
+      child.parentElement = this;
+      this.children.push(child);
+      return child;
+    }
+
+    addEventListener(event, fn) {
+      if (!this.listeners[event]) this.listeners[event] = [];
+      this.listeners[event].push(fn);
+    }
+
+    click() {
+      const fns = this.listeners['click'] || [];
+      fns.forEach(fn => fn({ stopPropagation: () => {} }));
+    }
+
+    querySelector(selector) {
+      if (selector.startsWith('#')) {
+        const id = selector.slice(1);
+        return this._find(el => el.id === id);
+      }
+      if (selector.startsWith('.')) {
+        const cls = selector.slice(1).split('.');
+        return this._find(el => el.className && cls.every(c => el.className.split(/\s+/).includes(c)));
+      }
+      return null;
+    }
+
+    querySelectorAll(selector) {
+      const results = [];
+      if (selector.startsWith('.')) {
+        const cls = selector.slice(1).split('.');
+        this._findAll(el => el.className && cls.every(c => el.className.split(/\s+/).includes(c)), results);
+      }
+      return results;
+    }
+
+    _find(predicate) {
+      if (predicate(this)) return this;
+      for (const child of this.children) {
+        const found = child._find(predicate);
+        if (found) return found;
+      }
+      return null;
+    }
+
+    _findAll(predicate, results) {
+      if (predicate(this)) results.push(this);
+      for (const child of this.children) {
+        child._findAll(predicate, results);
+      }
+    }
+  }
+
+  // Setup minimal document mock for document.createElement in renderPromptQueueBar
+  global.document = {
+    createElement(tag) {
+      const el = new MockElement(tag);
+      el._originalSetInnerHTML = el.__lookupSetter__('innerHTML') || function(val) { el._innerHTML = val; };
+      Object.defineProperty(el, 'innerHTML', {
+        set(val) {
+          el._innerHTML = val;
+          // populate action buttons if matching ai-queue-item template
+          if (val.includes('ai-queue-action-btn edit')) {
+            const btnEdit = new MockElement('button');
+            btnEdit.className = 'ai-queue-action-btn edit';
+            el.appendChild(btnEdit);
+          }
+          if (val.includes('ai-queue-action-btn del')) {
+            const btnDel = new MockElement('button');
+            btnDel.className = 'ai-queue-action-btn del';
+            el.appendChild(btnDel);
+          }
+        },
+        get() {
+          return el._innerHTML;
+        }
+      });
+      return el;
+    }
+  };
+
+  const container = new MockElement('div');
+  const currentSession = { id: 'sess_1', title: '测试会话' };
+  const sessionPromptQueues = new Map();
+
+  const msg1 = { id: 'm1', text: '排队消息 1' };
+  const msg2 = { id: 'm2', text: '排队消息 2' };
+  const msg3 = { id: 'm3', text: '排队消息 3' };
+  sessionPromptQueues.set('sess_1', [msg1, msg2, msg3]);
+
+  let queueChangeNotified = 0;
+  let recalledItem = null;
+
+  PromptQueue.renderPromptQueueBar({
+    container,
+    currentSession,
+    sessionPromptQueues,
+    onRecall: (item) => { recalledItem = item; },
+    onQueueChanged: () => { queueChangeNotified++; }
+  });
+
+  // Verify initial render
+  assert.strictEqual(container.classList.contains('hidden'), false);
+  const listEl = container.querySelector('.ai-queue-list');
+  assert.ok(listEl, 'Queue list element should exist');
+  assert.strictEqual(listEl.children.length, 3, 'Should have 3 rendered queue items');
+
+  // Test 1: Delete middle item (msg2)
+  const item2DelBtn = listEl.children[1].querySelector('.ai-queue-action-btn.del');
+  assert.ok(item2DelBtn, 'Delete button for item 2 should exist');
+  item2DelBtn.click();
+
+  const qAfterDel = sessionPromptQueues.get('sess_1');
+  assert.strictEqual(qAfterDel.length, 2, 'Queue should have 2 items remaining');
+  assert.strictEqual(qAfterDel[0].id, 'm1');
+  assert.strictEqual(qAfterDel[1].id, 'm3');
+  assert.ok(queueChangeNotified >= 1, 'onQueueChanged should be called on deletion');
+
+  // Verify container re-rendered automatically
+  const listAfterDel = container.querySelector('.ai-queue-list');
+  assert.strictEqual(listAfterDel.children.length, 2, 'DOM should re-render and contain 2 items');
+
+  // Test 2: Edit/Recall item (m1)
+  const item1EditBtn = listAfterDel.children[0].querySelector('.ai-queue-action-btn.edit');
+  assert.ok(item1EditBtn, 'Edit button for item 1 should exist');
+  item1EditBtn.click();
+
+  assert.strictEqual(recalledItem.id, 'm1');
+  const qAfterRecall = sessionPromptQueues.get('sess_1');
+  assert.strictEqual(qAfterRecall.length, 1);
+  assert.strictEqual(qAfterRecall[0].id, 'm3');
+
+  // Test 3: Clear queue
+  const btnClear = container.querySelector('#btnClearPromptQueue');
+  assert.ok(btnClear, 'Clear queue button should exist');
+  btnClear.click();
+
+  const qAfterClear = sessionPromptQueues.get('sess_1');
+  assert.strictEqual(qAfterClear.length, 0, 'Queue should be empty');
+  assert.strictEqual(container.classList.contains('hidden'), true, 'Container should be hidden');
+  assert.strictEqual(container.innerHTML, '', 'Container HTML should be empty');
+
+  console.log('PASS: PromptQueue.renderPromptQueueBar delete item, recall, and clear queue verified');
+}
+
 console.log('\nALL MULTIMODAL & QUEUE & ATTACHMENT TESTS PASSED!');

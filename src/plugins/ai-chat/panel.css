@@ -14,6 +14,16 @@
   overflow: hidden;
   position: relative;
   letter-spacing: .02em;
+
+  /* Aliases & tokens preventing silent transparent resolutions */
+  --surface: light-dark(#ffffff, #191f21);
+  --panel: light-dark(rgba(255, 255, 255, .72), rgba(20, 26, 28, .64));
+  --primary: var(--amber);
+  --primary-soft: var(--amber-soft);
+  --muted: var(--ink-dim);
+  --danger: var(--red);
+  --amber-strong: light-dark(#924c00, #ffc066);
+  --t-fast: 0.15s;
 }
 
 /* --- Left Sidebar (Sessions) --------------------------------------------- */
@@ -499,21 +509,6 @@
   line-height: 1.5;
   max-height: 220px;
   overflow-y: auto;
-}
-
-/* Tool execution badge */
-.ai-tool-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  background: var(--green-soft);
-  border: 1px solid var(--green);
-  color: var(--green);
-  padding: 4px 8px;
-  border-radius: var(--r-sm);
-  font-size: 12px;
-  margin-bottom: 8px;
-  font-family: var(--font-mono);
 }
 
 /* Markdown styling inside assistant message */
@@ -2977,8 +2972,8 @@ input.hidden {
 
 /* Tool execution card & foldable result styles */
 .ai-tool-badge {
-  display: flex !important;
-  flex-direction: column !important;
+  display: flex;
+  flex-direction: column;
   background: var(--inset);
   border: 1px solid var(--line);
   color: var(--ink);
@@ -3008,11 +3003,22 @@ input.hidden {
 .ai-tool-badge-title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  flex-wrap: wrap;
+  gap: 4px 8px;
   flex: 1;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.ai-tool-badge-title strong {
+  word-break: break-all;
+}
+
+.ai-tool-badge-status {
+  opacity: 0.75;
+  font-size: 11px;
+  font-weight: normal;
   white-space: nowrap;
 }
 
@@ -3474,7 +3480,7 @@ input.hidden {
   align-items: center;
   justify-content: center;
   border-radius: 50%;
-  background: var(--panel);
+  background: var(--inset);
   border: 1px solid var(--line);
   color: var(--ink);
   font-size: 16px;
@@ -3484,9 +3490,9 @@ input.hidden {
 }
 
 .ai-pill-btn.plus-btn:hover {
-  background: var(--primary-soft);
-  color: var(--primary);
-  border-color: var(--primary);
+  background: var(--amber-soft);
+  color: var(--amber);
+  border-color: var(--amber);
   transform: scale(1.05);
 }
 
@@ -3500,17 +3506,17 @@ input.hidden {
   bottom: calc(100% + 8px);
   left: 0;
   width: 250px;
-  background: var(--surface);
-  border: 1px solid var(--line);
+  background: light-dark(#ffffff, #191f21);
+  border: 1px solid var(--line-strong);
   border-radius: var(--r-md);
-  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow);
   padding: 6px;
   display: flex;
   flex-direction: column;
   gap: 3px;
   z-index: 120;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
   animation: aiPlusMenuFade 0.15s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
@@ -3534,7 +3540,7 @@ input.hidden {
 }
 
 .ai-plus-item:hover {
-  background: var(--primary-soft);
+  background: var(--amber-soft);
 }
 
 .ai-plus-item-ico {
@@ -3557,7 +3563,7 @@ input.hidden {
 
 .ai-plus-item-text i {
   font-size: 11px;
-  color: var(--muted);
+  color: var(--ink-dim);
   font-style: normal;
   white-space: nowrap;
   overflow: hidden;

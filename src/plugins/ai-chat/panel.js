@@ -237,6 +237,7 @@
           chatInput.focus();
         },
         onQueueChanged: () => {
+          syncPromptQueueBar();
           updateSendOrStopButton();
         },
         escapeHtml
@@ -751,6 +752,8 @@
           if (res && res.ok) {
             currentSession = res.session;
             updateHeader();
+            syncPromptQueueBar();
+            updateSendOrStopButton();
             renderMessages();
             renderSessionsList();
             restorePendingLateChunks();
@@ -759,6 +762,7 @@
 
         item.querySelector('.ai-session-del').addEventListener('click', async (e) => {
           e.stopPropagation();
+          sessionPromptQueues.delete(s.id);
           const res = await ctx.call('deleteSession', { id: s.id });
           if (res && res.ok) {
             pendingLateChunks.delete(s.id);
@@ -771,6 +775,8 @@
               currentSession = null;
             }
             updateHeader();
+            syncPromptQueueBar();
+            updateSendOrStopButton();
             renderMessages();
             renderSessionsList();
             restorePendingLateChunks();
@@ -899,9 +905,12 @@
       if (confirm('确认清空当前对话的所有记录吗？')) {
         const res = await ctx.call('clearSession', { id: currentSession.id });
         if (res && res.ok) {
+          sessionPromptQueues.delete(currentSession.id);
           currentSession.messages = [];
           currentSession.totalTokens = { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
           updateHeader();
+          syncPromptQueueBar();
+          updateSendOrStopButton();
           renderMessages();
           renderSessionsList();
         }
@@ -1667,18 +1676,22 @@
             const b = document.createElement('div');
             b.className = 'ai-tool-badge';
             b.dataset.tool = tc.id;
-            let title = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong> (参数就绪)`;
+            let title = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong> <span class="ai-tool-badge-status">(参数就绪)</span>`;
             if (tc.function.name === 'dispatch_task_to_ai_ide') {
               let ideName = 'AI IDE';
               try {
                 const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
                 if (args && args.target) ideName = args.target;
               } catch {}
-              title = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> (准备中)`;
+              title = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> <span class="ai-tool-badge-status">(准备中)</span>`;
             } else if (tc.function.name === 'list_available_ai_ides') {
-              title = `<span>🔍 探测本地 AI IDE/CLI:</span> (准备中)`;
+              title = `<span>🔍 探测本地 AI IDE/CLI:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
             }
-            b.innerHTML = title;
+            b.innerHTML = `
+              <div class="ai-tool-badge-head">
+                <div class="ai-tool-badge-title">${title}</div>
+              </div>
+            `;
             timeline.appendChild(b);
           }
         }
