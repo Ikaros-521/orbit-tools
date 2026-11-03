@@ -81,6 +81,25 @@ async function run() {
   assert(checkResError.error.includes('Connection timed out'));
   console.log('Mocked network error graceful fallback OK');
 
+  console.log('--- 4. Testing cancelDownload & cache cleanup ---');
+  const path = require('path');
+  const fs = require('fs');
+  const tempDir = um.getUpdateTempDir();
+  
+  // 模拟写入临时碎片文件
+  const testPart = path.join(tempDir, 'test-download.bin.part');
+  const testOldBin = path.join(tempDir, 'old-installer.exe');
+  fs.writeFileSync(testPart, 'dummy partial chunk');
+  fs.writeFileSync(testOldBin, 'dummy old file');
+  assert(fs.existsSync(testPart), 'Part file created');
+  assert(fs.existsSync(testOldBin), 'Old bin created');
+
+  // 调用清理
+  um.cleanupUpdateCache();
+  assert(!fs.existsSync(testPart), 'Part file must be completely removed');
+  assert(!fs.existsSync(testOldBin), 'Old installer must be completely removed');
+  console.log('Cache cleanup & anti-residue OK');
+
   console.log('ALL UPDATER FLOW TESTS PASSED!');
 }
 

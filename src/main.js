@@ -300,7 +300,12 @@ if (!app.requestSingleInstanceLock()) {
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else toggleWindow(); });
   });
 
-  app.on('before-quit', () => { quitting = true; });
+  app.on('before-quit', () => {
+    quitting = true;
+    if (manager && manager.updateManager) {
+      try { manager.updateManager.cancelDownload(); } catch {}
+    }
+  });
   app.on('will-quit', () => { globalShortcut.unregisterAll(); manager && manager.deactivateAll(); });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') { quitting = true; app.quit(); } });
 }

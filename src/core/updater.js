@@ -104,6 +104,73 @@ class UpdateManager {
     this.activeDownloadRequest = null;
     this.downloadAbortController = null;
     this.cachedUpdateInfo = null;
+    this.currentPartFile = null;
+    this.currentFinalFile = null;
+  }
+
+  /**
+   * 获取专用更新临时缓存目录
+   */
+  getUpdateTempDir() {
+    const base = app && app.getPath ? app.getPath('temp') : require('os').tmpdir();
+    const dir = path.join(base, 'orbit-update');
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+    } catch {}
+    return dir;
+  }
+
+  /**
+   * 彻底清理更新临时目录下的缓存与碎片文件
+   * @param {string} [preserveFile] 可选保留的文件完整路径
+   */
+  cleanupUpdateCache(preserveFile = null) {
+    try {
+      const dir = this.getUpdateTempDir();
+      if (!fs.existsSync(dir)) return true;
+      const files = fs.readdirSync(dir);
+      for (const f of files) {
+        const fullPath = path.join(dir, f);
+        if (preserveFile && path.resolve(fullPath) === path.resolve(preserveFile)) {
+          continue;
+        }
+        this._safeDeleteFile(fullPath);
+      }
+      return true;
+    } catch (err) {
+      console.warn('[updater] cleanupUpdateCache failed:', err && err.message);
+      return false;
+    }
+  }
+
+  /**
+   * 安全删除单个文件，适配 Windows 下文件句柄延迟释放的情况
+   */
+  _safeDeleteFile(filePath, stream = null) {
+    if (!filePath) return;
+    const unlinkNow = () => {
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (e) {
+        // Windows 上若句柄刚释放，延迟 150ms 再次重试删除，确保彻底删除
+        setTimeout(() => {
+          try {
+            if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+          } catch {}
+        }, 150);
+      }
+    };
+
+    if (stream && !stream.destroyed) {
+      try {
+        stream.destroy();
+      } catch {}
+      stream.once('close', unlinkNow);
+    } else {
+      unlinkNow();
+    }
   }
 
   /**
@@ -154,7 +221,7 @@ class UpdateManager {
   }
 
   /**
-   * 下载安装包资产并提供进度回调
+   * 下载安装包资产并提供进度回调，支持停止与垃圾彻底清理
    * @param {string} downloadUrl 目标文件下载地址
    * @param {string} fileName 保存文件名
    * @param {function} [onProgress] 进度回调函数 ({ percent, transferred, total, speed })
@@ -169,12 +236,20 @@ class UpdateManager {
       throw new Error('已有正在进行的下载任务');
     }
 
-    const tempDir = app && app.getPath ? app.getPath('temp') : path.join(require('os').tmpdir(), 'orbit-update');
-    fs.mkdirSync(tempDir, { recursive: true });
-    const targetFile = path.join(tempDir, fileName || `orbit-update-${Date.now()}.bin`);
+    const safeFileName = String(fileName || `orbit-update-${Date.now()}.bin`).replace(/[\\/:*?"<>|]/g, '_');
+    const tempDir = this.getUpdateTempDir();
+
+    // 在下载前，先清理之前可能残留的未完成 .part 碎片与历史旧安装包垃圾
+    this.cleanupUpdateCache();
+
+    // 采用 .part 后缀作为未完成分片，避免未下载完全的文件被当作正常安装包
+    const partFile = path.join(tempDir, `${safeFileName}.part`);
+    const finalFile = path.join(tempDir, safeFileName);
+    this.currentPartFile = partFile;
+    this.currentFinalFile = finalFile;
 
     return new Promise((resolve, reject) => {
-      const fileStream = fs.createWriteStream(targetFile);
+      const fileStream = fs.createWriteStream(partFile);
       let transferred = 0;
       let total = 0;
       let startTime = Date.now();
@@ -185,8 +260,9 @@ class UpdateManager {
       // 使用 electron.net 以尊重系统网络代理设置，若不可用降级为 https
       const requestSender = (url, redirectCount = 0) => {
         if (redirectCount > 5) {
-          fileStream.close();
-          try { fs.unlinkSync(targetFile); } catch {}
+          this._safeDeleteFile(partFile, fileStream);
+          this.currentPartFile = null;
+          this.activeDownloadRequest = null;
           return reject(new Error('重定向次数过多'));
         }
 
@@ -200,8 +276,8 @@ class UpdateManager {
           }
 
           if (res.statusCode !== 200) {
-            fileStream.close();
-            try { fs.unlinkSync(targetFile); } catch {}
+            this._safeDeleteFile(partFile, fileStream);
+            this.currentPartFile = null;
             this.activeDownloadRequest = null;
             return reject(new Error(`下载失败，HTTP 状态码: ${res.statusCode}`));
           }
@@ -234,36 +310,61 @@ class UpdateManager {
           });
 
           res.on('end', () => {
-            fileStream.end();
-            this.activeDownloadRequest = null;
-            if (!isCancelled) {
-              resolve({ ok: true, filePath: targetFile, total });
-            }
+            fileStream.end(() => {
+              this.activeDownloadRequest = null;
+              this.downloadAbortController = null;
+              if (isCancelled) {
+                this._safeDeleteFile(partFile);
+                this._safeDeleteFile(finalFile);
+                return;
+              }
+
+              // 下载完成，原子重命名为最终文件
+              try {
+                if (fs.existsSync(finalFile)) {
+                  fs.unlinkSync(finalFile);
+                }
+                fs.renameSync(partFile, finalFile);
+                this.currentPartFile = null;
+                resolve({ ok: true, filePath: finalFile, total });
+              } catch (err) {
+                this._safeDeleteFile(partFile);
+                this.currentPartFile = null;
+                reject(new Error(`重命名完成文件失败: ${err.message}`));
+              }
+            });
           });
 
           res.on('error', err => {
-            fileStream.close();
-            try { fs.unlinkSync(targetFile); } catch {}
+            this._safeDeleteFile(partFile, fileStream);
+            this.currentPartFile = null;
             this.activeDownloadRequest = null;
+            this.downloadAbortController = null;
             reject(err);
           });
         });
 
         req.setHeader('User-Agent', `Orbit-Toolbox-Updater/${this.appVersion}`);
         req.on('error', err => {
-          fileStream.close();
-          try { fs.unlinkSync(targetFile); } catch {}
+          this._safeDeleteFile(partFile, fileStream);
+          this.currentPartFile = null;
           this.activeDownloadRequest = null;
+          this.downloadAbortController = null;
           reject(err);
         });
 
+        // 绑定取消中断控制器，并彻底删除残留缓存垃圾
         this.downloadAbortController = () => {
           isCancelled = true;
-          req.abort();
-          fileStream.close();
-          try { fs.unlinkSync(targetFile); } catch {}
+          try {
+            req.abort();
+          } catch {}
+          this._safeDeleteFile(partFile, fileStream);
+          this._safeDeleteFile(finalFile);
+          this.currentPartFile = null;
           this.activeDownloadRequest = null;
-          reject(new Error('用户取消了下载'));
+          this.downloadAbortController = null;
+          reject(new Error('用户取消了更新下载，已清理临时文件'));
         };
 
         this.activeDownloadRequest = req;
@@ -275,15 +376,24 @@ class UpdateManager {
   }
 
   /**
-   * 取消当前下载
+   * 取消当前下载，并确保磁盘上没有任何临时残留垃圾
    */
   cancelDownload() {
+    let handled = false;
     if (typeof this.downloadAbortController === 'function') {
-      this.downloadAbortController();
+      try {
+        this.downloadAbortController();
+      } catch {}
       this.downloadAbortController = null;
-      return true;
+      handled = true;
     }
-    return false;
+    // 再次全面清理临时碎片
+    if (this.currentPartFile) {
+      this._safeDeleteFile(this.currentPartFile);
+      this.currentPartFile = null;
+    }
+    this.cleanupUpdateCache();
+    return handled;
   }
 
   /**

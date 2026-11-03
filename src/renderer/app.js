@@ -65,6 +65,7 @@ const els = {
   updateProgressText: $('updateProgressText'), updateProgressSpeed: $('updateProgressSpeed'),
   updateProgressFill: $('updateProgressFill'), updateErrorText: $('updateErrorText'),
   btnUpdateCancel: $('btnUpdateCancel'), btnUpdateOpenBrowser: $('btnUpdateOpenBrowser'), btnUpdateAction: $('btnUpdateAction'),
+  btnCancelDownload: $('btnCancelDownload'),
   // Context menu elements
   cardContextMenu: $('cardContextMenu'), ctxTitle: $('ctxTitle'),
   ctxLaunch: $('ctxLaunch'), ctxConfig: $('ctxConfig'),
@@ -1064,7 +1065,37 @@ els.btnRepo.addEventListener('click', () => window.host.openExternal('https://gi
 els.btnGotoPlugins.addEventListener('click', () => setView('plugins'));
 
 /* --- update & release manager ----------------------------------------------------------- */
+async function cancelUpdateDownload() {
+  if (!state.downloadingUpdate && !state.downloadedFilePath) return;
+  state.downloadingUpdate = false;
+  state.downloadedFilePath = null;
+  try {
+    await window.host.cancelDownloadUpdate();
+  } catch (err) {
+    console.warn('cancelDownloadUpdate failed:', err);
+  }
+  if (els.updateDownloadArea) els.updateDownloadArea.hidden = true;
+  if (els.btnCancelDownload) els.btnCancelDownload.hidden = true;
+  if (els.btnUpdateAction) {
+    els.btnUpdateAction.disabled = false;
+    els.btnUpdateAction.textContent = I18N.t('btnDownloadUpdate');
+  }
+  if (els.updateErrorText) {
+    els.updateErrorText.hidden = false;
+    els.updateErrorText.textContent = I18N.t('downloadCancelled');
+    setTimeout(() => {
+      if (els.updateErrorText && els.updateErrorText.textContent === I18N.t('downloadCancelled')) {
+        els.updateErrorText.hidden = true;
+      }
+    }, 3200);
+  }
+}
+
 function hideUpdateModal() {
+  if (state.downloadingUpdate) {
+    // 下载中途用户关闭弹窗，立即中断并彻底删除临时垃圾缓存
+    cancelUpdateDownload();
+  }
   if (els.updateModalMask) els.updateModalMask.hidden = true;
 }
 
@@ -1084,6 +1115,7 @@ function showUpdateModal(info) {
   if (els.updateNotesBox) els.updateNotesBox.textContent = info.releaseNotes || '暂无详细更新说明';
 
   if (els.updateDownloadArea) els.updateDownloadArea.hidden = true;
+  if (els.btnCancelDownload) els.btnCancelDownload.hidden = true;
   if (els.updateProgressFill) els.updateProgressFill.style.width = '0%';
   if (els.updateErrorText) {
     els.updateErrorText.hidden = true;
@@ -1166,6 +1198,7 @@ async function handleUpdateAction() {
 
   state.downloadingUpdate = true;
   if (els.updateDownloadArea) els.updateDownloadArea.hidden = false;
+  if (els.btnCancelDownload) els.btnCancelDownload.hidden = false;
   if (els.updateErrorText) els.updateErrorText.hidden = true;
   els.btnUpdateAction.disabled = true;
   els.btnUpdateAction.textContent = I18N.t('btnDownloadingUpdate', { percent: 0 });
@@ -1178,6 +1211,7 @@ async function handleUpdateAction() {
     if (res && res.ok && res.filePath) {
       state.downloadedFilePath = res.filePath;
       state.downloadingUpdate = false;
+      if (els.btnCancelDownload) els.btnCancelDownload.hidden = true;
       if (els.updateProgressFill) els.updateProgressFill.style.width = '100%';
       if (els.updateProgressText) els.updateProgressText.textContent = '下载完成！安装包已就绪';
       if (els.updateProgressSpeed) els.updateProgressSpeed.textContent = '';
@@ -1188,6 +1222,7 @@ async function handleUpdateAction() {
     }
   } catch (err) {
     state.downloadingUpdate = false;
+    if (els.btnCancelDownload) els.btnCancelDownload.hidden = true;
     els.btnUpdateAction.disabled = false;
     els.btnUpdateAction.textContent = I18N.t('btnDownloadUpdate');
     if (els.updateErrorText) {
@@ -1203,6 +1238,7 @@ if (els.chkAutoUpdate) {
     window.host.setPref('autoCheckUpdate', els.chkAutoUpdate.checked);
   });
 }
+if (els.btnCancelDownload) els.btnCancelDownload.addEventListener('click', cancelUpdateDownload);
 if (els.btnUpdateAction) els.btnUpdateAction.addEventListener('click', handleUpdateAction);
 if (els.btnUpdateOpenBrowser) {
   els.btnUpdateOpenBrowser.addEventListener('click', () => {
@@ -1213,7 +1249,7 @@ if (els.btnUpdateModalClose) els.btnUpdateModalClose.addEventListener('click', h
 if (els.btnUpdateCancel) els.btnUpdateCancel.addEventListener('click', hideUpdateModal);
 if (els.updateModalMask) {
   els.updateModalMask.addEventListener('click', e => {
-    if (e.target === els.updateModalMask && !state.downloadingUpdate) hideUpdateModal();
+    if (e.target === els.updateModalMask) hideUpdateModal();
   });
 }
 
