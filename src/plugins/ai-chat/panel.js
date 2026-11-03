@@ -837,9 +837,29 @@
                     <span class="ai-ext-title">🔌 MCP 服务器</span>
                     <span class="ai-ext-hint">接入 Model Context Protocol 工具生态；已启用服务器的工具会自动注入 Agent，并受审批档位管控 (MCP 工具视为高危)</span>
                   </div>
-                  <button type="button" class="ai-edit-btn primary" id="btnCreateMcp">+ 添加服务器</button>
+                  <div class="ai-ext-head-btns">
+                    <button type="button" class="ai-edit-btn" id="btnOpenMcpMarket">🛒 检索 MCP 市场</button>
+                    <button type="button" class="ai-edit-btn" id="btnResetMcp" title="恢复内置默认预设（含 Playwright）">↺ 恢复预设</button>
+                    <button type="button" class="ai-edit-btn primary" id="btnCreateMcp">+ 添加服务器</button>
+                  </div>
                 </div>
                 <div class="ai-ext-list" id="mcpServerList"></div>
+
+                <!-- 内联 MCP 市场与检索面板 -->
+                <div class="ai-ext-market-panel hidden" id="mcpMarketPanel">
+                  <div class="ai-ext-market-head">
+                    <div class="ai-ext-market-title-wrap">
+                      <span class="ai-ext-market-title">🛒 MCP 市场（官方与成熟社区生态）</span>
+                      <span class="ai-ext-market-subtitle">精选开箱即用的 GitHub / npm 成熟 MCP 服务，支持一键安装接入本地 Agent</span>
+                    </div>
+                    <button type="button" class="ai-modal-close" id="btnCloseMcpMarket">×</button>
+                  </div>
+                  <div class="ai-ext-market-toolbar">
+                    <input type="text" class="ai-form-input ai-market-search" id="inputMarketSearch" placeholder="🔍 检索 MCP 市场（例如：Playwright、网页抓取、文件系统、数据库…）">
+                    <div class="ai-market-categories" id="marketCategoriesBar"></div>
+                  </div>
+                  <div class="ai-market-list" id="marketServerList"></div>
+                </div>
 
                 <!-- 内联 MCP 编辑器 -->
                 <div class="ai-ext-editor hidden" id="mcpEditPanel">
@@ -1117,8 +1137,15 @@
     // MCP & Skills Tab DOM
     const tabNavExt = el.querySelector('#tabNavExt');
     const paneExtSettings = el.querySelector('#paneExtSettings');
+    const btnOpenMcpMarket = el.querySelector('#btnOpenMcpMarket');
+    const btnResetMcp = el.querySelector('#btnResetMcp');
     const btnCreateMcp = el.querySelector('#btnCreateMcp');
     const mcpServerList = el.querySelector('#mcpServerList');
+    const mcpMarketPanel = el.querySelector('#mcpMarketPanel');
+    const btnCloseMcpMarket = el.querySelector('#btnCloseMcpMarket');
+    const inputMarketSearch = el.querySelector('#inputMarketSearch');
+    const marketCategoriesBar = el.querySelector('#marketCategoriesBar');
+    const marketServerList = el.querySelector('#marketServerList');
     const mcpEditPanel = el.querySelector('#mcpEditPanel');
     const mcpEditTitle = el.querySelector('#mcpEditTitle');
     const btnCloseMcpEdit = el.querySelector('#btnCloseMcpEdit');
@@ -1809,54 +1836,167 @@
           bubble.appendChild(fbBadge);
         }
 
-        // CoT Reasoning Box
-        if (msg.reasoning) {
+        const formatToolResultForDisplay = (res) => {
+          if (res === null || res === undefined) return '(无执行结果)';
+          if (typeof res === 'string') return res;
+          if (typeof res === 'object') {
+            if (Array.isArray(res.content)) {
+              const texts = res.content.map(c => (c && c.text) ? c.text : JSON.stringify(c)).filter(Boolean);
+              if (texts.length > 0) return texts.join('\n');
+            }
+            if (res.stdout !== undefined || res.stderr !== undefined) {
+              let out = '';
+              if (res.stdout) out += res.stdout;
+              if (res.stderr) out += (out ? '\n[stderr]\n' : '') + res.stderr;
+              if (res.exitCode !== undefined) out += `\n[退出码: ${res.exitCode}]`;
+              return out || '(无控制台输出)';
+            }
+            if (res.result !== undefined) {
+              return typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result);
+            }
+            return JSON.stringify(res, null, 2);
+          }
+          return String(res);
+        };
+
+        const timeline = document.createElement('div');
+        timeline.className = 'ai-bubble-timeline';
+        bubble.appendChild(timeline);
+
+        const renderSingleToolBadge = (tc, explicitResult, container = timeline) => {
+          const statusMap = msg.toolStatus || {};
+          const st = statusMap[tc.id];
+          const toolBadge = document.createElement('div');
+          toolBadge.className = 'ai-tool-badge' + (st === 'denied' ? ' denied' : '');
+          let label;
+          if (st === 'denied') {
+            label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+          } else if (tc.function.name === 'dispatch_task_to_ai_ide') {
+            let ideName = 'AI IDE';
+            try {
+              const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
+              if (args && args.target) ideName = args.target;
+            } catch {}
+            label = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
+          } else if (tc.function.name.startsWith('mcp__Playwright__') || tc.function.name.startsWith('mcp__playwright__')) {
+            const op = tc.function.name.replace(/^mcp__[Pp]laywright__/, '');
+            label = `<span>🌐 Playwright 浏览器自动化:</span> <strong>${escapeHtml(op)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
+          } else if (tc.function.name === 'list_available_ai_ides') {
+            label = `<span>🔍 本地 AI 环境探测</span>`;
+          } else if (st === 'approved') {
+            label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+          } else {
+            label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+          }
+          // Attach result if available
+          let result = explicitResult !== undefined ? explicitResult : (msg.toolResults ? msg.toolResults[tc.id] : undefined);
+          if (result === undefined && tc.result !== undefined) result = tc.result;
+          if (result === undefined && currentSession && currentSession.messages) {
+            const tm = currentSession.messages.find(m => m.role === 'tool' && m.tool_call_id === tc.id);
+            if (tm) result = tm.content;
+          }
+
+          let resultHtml = '';
+          if (result !== undefined && result !== null && st !== 'denied') {
+            const formatted = formatToolResultForDisplay(result);
+            const previewLen = formatted.length > 1024 ? `(${(formatted.length / 1024).toFixed(1)} KB)` : `(${formatted.length} 字符)`;
+            resultHtml = `
+              <details class="ai-tool-result-details">
+                <summary class="ai-tool-result-summary">
+                  <span>📋 查看执行结果</span>
+                  <span style="opacity:0.6;font-size:10px;">${previewLen} ▾</span>
+                </summary>
+                <pre class="ai-tool-result-pre"><code>${escapeHtml(formatted)}</code></pre>
+              </details>
+            `;
+          }
+
+          toolBadge.innerHTML = `
+            <div class="ai-tool-badge-head">
+              <div class="ai-tool-badge-title">${label}</div>
+            </div>
+            ${resultHtml}
+          `;
+          (container || timeline || bubble).appendChild(toolBadge);
+        };
+
+        const renderSingleCotBox = (text, roundIdx = 0, totalSteps = 1, container = timeline) => {
+          if (!text || !text.trim()) return;
           const cotBox = document.createElement('details');
           cotBox.className = 'ai-cot-box';
           cotBox.open = false;
+          const title = totalSteps <= 1 ? '🧠 思考过程' : (roundIdx === 0 ? '🧠 思考过程' : `🧠 进一步思考 (第 ${roundIdx + 1} 步)`);
           cotBox.innerHTML = `
             <summary class="ai-cot-summary">
-              <span>🧠 思考过程</span>
+              <span>${title}</span>
             </summary>
-            <div class="ai-cot-body">${escapeHtml(msg.reasoning)}</div>
+            <div class="ai-cot-body">${escapeHtml(text)}</div>
           `;
-          bubble.appendChild(cotBox);
-        }
+          (container || timeline || bubble).appendChild(cotBox);
+        };
 
-        // Tool Calls badge (with approval outcome from history)
-        if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
-          const statusMap = msg.toolStatus || {};
-          msg.toolCalls.forEach(tc => {
-            const st = statusMap[tc.id];
-            const toolBadge = document.createElement('div');
-            toolBadge.className = 'ai-tool-badge' + (st === 'denied' ? ' denied' : '');
-            let label;
-            if (st === 'denied') {
-              label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-            } else if (tc.function.name === 'dispatch_task_to_ai_ide') {
-              let ideName = 'AI IDE';
-              try {
-                const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
-                if (args && args.target) ideName = args.target;
-              } catch {}
-              label = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
-            } else if (tc.function.name === 'list_available_ai_ides') {
-              label = `<span>🔍 本地 AI 环境探测</span>`;
-            } else if (st === 'approved') {
-              label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-            } else {
-              label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
+        const renderSingleMdBlock = (text, roundIdx = 0, container = timeline) => {
+          if (!text || !text.trim()) return;
+          const mdBlock = document.createElement('div');
+          mdBlock.className = 'ai-md-block ai-md-body';
+          mdBlock.dataset.round = String(roundIdx);
+          mdBlock.innerHTML = renderMarkdown(text);
+          (container || timeline || bubble).appendChild(mdBlock);
+        };
+
+        const hasStepData = (Array.isArray(msg.reasoningSteps) && msg.reasoningSteps.length > 0) ||
+                            (Array.isArray(msg.contentSteps) && msg.contentSteps.length > 0);
+
+        if (hasStepData) {
+          // Render strictly in chronological order by round: Cot -> Content -> Tools
+          const allTools = Array.isArray(msg.toolCalls) ? [...msg.toolCalls] : [];
+          const renderedToolIds = new Set();
+          const rSteps = Array.isArray(msg.reasoningSteps) ? msg.reasoningSteps : [];
+          const cSteps = Array.isArray(msg.contentSteps) ? msg.contentSteps : [];
+
+          const rounds = Array.from(new Set([
+            ...rSteps.map(s => s.round),
+            ...cSteps.map(s => s.round),
+            ...allTools.map(t => (t.round !== undefined ? t.round : 0))
+          ])).sort((a, b) => a - b);
+
+          let renderedAnyContent = false;
+          rounds.forEach(r => {
+            // 1. Thinking step
+            const stepCot = rSteps.find(s => s.round === r);
+            if (stepCot && stepCot.reasoning) {
+              renderSingleCotBox(stepCot.reasoning, r, rSteps.length, timeline);
             }
-            toolBadge.innerHTML = label;
-            bubble.appendChild(toolBadge);
+            // 2. Content step for this round
+            const stepContent = cSteps.find(s => s.round === r);
+            if (stepContent && stepContent.content && stepContent.content.trim()) {
+              renderSingleMdBlock(stepContent.content, r, timeline);
+              renderedAnyContent = true;
+            }
+            // 3. Tool calls triggered in this round
+            const stepTools = allTools.filter(t => (t.round === r || (t.round === undefined && r === 0)) && !renderedToolIds.has(t.id));
+            stepTools.forEach(tc => {
+              renderSingleToolBadge(tc, undefined, timeline);
+              renderedToolIds.add(tc.id);
+            });
           });
-        }
+          // Render any leftover tools
+          allTools.filter(t => !renderedToolIds.has(t.id)).forEach(tc => renderSingleToolBadge(tc, undefined, timeline));
 
-        // Markdown Body
-        const mdBody = document.createElement('div');
-        mdBody.className = 'ai-md-body';
-        mdBody.innerHTML = renderMarkdown(msg.content);
-        bubble.appendChild(mdBody);
+          // If no contentSteps rendered, fallback to msg.content
+          if (!renderedAnyContent && msg.content && msg.content.trim()) {
+            renderSingleMdBlock(msg.content, rounds.length, timeline);
+          }
+        } else {
+          // Fallback compatibility for legacy messages
+          if (msg.reasoning) renderSingleCotBox(msg.reasoning, 0, 1, timeline);
+          if (Array.isArray(msg.toolCalls) && msg.toolCalls.length > 0) {
+            msg.toolCalls.forEach(tc => renderSingleToolBadge(tc, undefined, timeline));
+          }
+          if (msg.content && msg.content.trim()) {
+            renderSingleMdBlock(msg.content, 0, timeline);
+          }
+        }
 
         let usageText = '';
         if (msg.usage) {
@@ -2192,35 +2332,77 @@
         if (mdBody) mdBody.innerHTML = '';
         scrollToBottom();
       } else if (chunk.type === 'reasoning') {
-        let cotBox = bubble.querySelector('.ai-cot-box');
+        let timeline = bubble.querySelector('.ai-bubble-timeline');
+        if (!timeline) {
+          timeline = document.createElement('div');
+          timeline.className = 'ai-bubble-timeline';
+          const md = bubble.querySelector('.ai-md-body');
+          if (md) bubble.insertBefore(timeline, md); else bubble.appendChild(timeline);
+        }
+
+        const round = typeof chunk.round === 'number' ? chunk.round : 0;
+        let cotBox = timeline.querySelector(`.ai-cot-box[data-round="${round}"]`);
         if (!cotBox) {
           cotBox = document.createElement('details');
           cotBox.className = 'ai-cot-box';
+          cotBox.dataset.round = String(round);
           cotBox.open = true;
+          const title = round === 0 ? '🧠 思考中…' : `🧠 进一步思考 (第 ${round + 1} 步)…`;
           cotBox.innerHTML = `
             <summary class="ai-cot-summary">
-              <span>🧠 思考中…</span>
+              <span>${title}</span>
             </summary>
             <div class="ai-cot-body"></div>
           `;
-          bubble.insertBefore(cotBox, bubble.firstChild);
+          // Append chronologically to the timeline
+          timeline.appendChild(cotBox);
         }
         const body = cotBox.querySelector('.ai-cot-body');
         if (body) body.textContent = chunk.reasoning;
         scrollToBottom();
       } else if (chunk.type === 'content') {
-        let mdBody = bubble.querySelector('.ai-md-body');
-        if (!mdBody) {
-          mdBody = document.createElement('div');
-          mdBody.className = 'ai-md-body';
-          bubble.appendChild(mdBody);
+        let timeline = bubble.querySelector('.ai-bubble-timeline');
+        if (!timeline) {
+          timeline = document.createElement('div');
+          timeline.className = 'ai-bubble-timeline';
+          bubble.appendChild(timeline);
         }
-        mdBody.innerHTML = renderMarkdown(chunk.content);
-        initMessageDynamicElements(bubble, { renderMermaid: false });
+
+        const round = typeof chunk.round === 'number' ? chunk.round : 0;
+        const textToRender = (chunk.roundContent !== undefined) ? chunk.roundContent : chunk.content;
+
+        let mdBlock = timeline.querySelector(`.ai-md-block[data-round="${round}"]`);
+        if (!mdBlock) {
+          mdBlock = document.createElement('div');
+          mdBlock.className = 'ai-md-block ai-md-body';
+          mdBlock.dataset.round = String(round);
+          timeline.appendChild(mdBlock);
+        }
+        mdBlock.innerHTML = renderMarkdown(textToRender);
+        initMessageDynamicElements(mdBlock, { renderMermaid: false });
         scrollToBottom();
       } else if (chunk.type === 'tool_calls') {
+        let timeline = bubble.querySelector('.ai-bubble-timeline');
+        if (!timeline) {
+          timeline = document.createElement('div');
+          timeline.className = 'ai-bubble-timeline';
+          const md = bubble.querySelector('.ai-md-body');
+          if (md) bubble.insertBefore(timeline, md); else bubble.appendChild(timeline);
+        }
+
+        // Close current in-progress thinking box when tools start
+        const activeCot = timeline.querySelector('.ai-cot-box[open]');
+        if (activeCot) {
+          const sum = activeCot.querySelector('.ai-cot-summary span');
+          const r = activeCot.dataset.round;
+          if (sum) {
+            const prefix = (r && Number(r) > 0) ? `🧠 进一步思考 (第 ${Number(r) + 1} 步)` : '🧠 思考过程';
+            sum.textContent = `${prefix} (已完成)`;
+          }
+        }
+
         for (const tc of chunk.toolCalls) {
-          if (!bubble.querySelector(`.ai-tool-badge[data-tool="${tc.id}"]`)) {
+          if (!timeline.querySelector(`.ai-tool-badge[data-tool="${tc.id}"]`)) {
             const b = document.createElement('div');
             b.className = 'ai-tool-badge';
             b.dataset.tool = tc.id;
@@ -2236,13 +2418,15 @@
               title = `<span>🔍 探测本地 AI IDE/CLI:</span> (准备中)`;
             }
             b.innerHTML = title;
-            bubble.appendChild(b);
+            // Append chronologically to timeline (directly below the thinking box)
+            timeline.appendChild(b);
           }
         }
         scrollToBottom();
       } else if (chunk.type === 'tool_approval_request') {
         // Approval card: suspend execution until the user answers (tier: 每次确认/自动审核高危)
-        appendApprovalCard(bubble, payload, chunk, () => {
+        let timeline = bubble.querySelector('.ai-bubble-timeline') || bubble;
+        appendApprovalCard(timeline, payload, chunk, () => {
           const buf = pendingLateChunks.get(payload.sessionId);
           if (buf) buf.approvals = buf.approvals.filter(ap => ap.chunk.toolId !== chunk.toolId);
         });
@@ -2270,21 +2454,69 @@
       } else if (chunk.type === 'tool_result') {
         const b = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
         if (b) {
+          let titleHtml = '';
           if (chunk.result && chunk.result.denied) {
             b.classList.add('denied');
-            b.innerHTML = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+            titleHtml = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
           } else if (chunk.toolName === 'dispatch_task_to_ai_ide') {
             const res = chunk.result || {};
             const ide = res.targetName || res.target || '外部 AI';
             const mode = res.mode === 'headless' ? '批处理' : (res.mode === 'terminal' ? '终端' : 'IDE窗口');
             const state = res.ok ? '成功' : '失败';
-            b.innerHTML = `<span>🚀 任务已派发至:</span> <strong>${escapeHtml(ide)}</strong> <span style="opacity:0.85">(${mode}·${state})</span>`;
+            titleHtml = `<span>🚀 任务已派发至:</span> <strong>${escapeHtml(ide)}</strong> <span style="opacity:0.85">(${mode}·${state})</span>`;
+          } else if (chunk.toolName.startsWith('mcp__Playwright__') || chunk.toolName.startsWith('mcp__playwright__')) {
+            const op = chunk.toolName.replace(/^mcp__[Pp]laywright__/, '');
+            titleHtml = `<span>🌐 Playwright 执行完成:</span> <strong>${escapeHtml(op)}</strong>`;
           } else if (chunk.toolName === 'list_available_ai_ides') {
             const count = (chunk.result && chunk.result.count !== undefined) ? chunk.result.count : 0;
-            b.innerHTML = `<span>🔍 本地 AI 环境探测:</span> <strong>已找到 ${count} 个可用工具</strong>`;
+            titleHtml = `<span>🔍 本地 AI 环境探测:</span> <strong>已找到 ${count} 个可用工具</strong>`;
           } else {
-            b.innerHTML = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong> <span style="opacity:0.7">(已捕获结果)</span>`;
+            titleHtml = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
           }
+
+          let detailsHtml = '';
+          if (chunk.result && !chunk.result.denied) {
+            const formatForDisplay = (res) => {
+              if (res === null || res === undefined) return '(无执行结果)';
+              if (typeof res === 'string') return res;
+              if (typeof res === 'object') {
+                if (Array.isArray(res.content)) {
+                  const texts = res.content.map(c => (c && c.text) ? c.text : JSON.stringify(c)).filter(Boolean);
+                  if (texts.length > 0) return texts.join('\n');
+                }
+                if (res.stdout !== undefined || res.stderr !== undefined) {
+                  let out = '';
+                  if (res.stdout) out += res.stdout;
+                  if (res.stderr) out += (out ? '\n[stderr]\n' : '') + res.stderr;
+                  if (res.exitCode !== undefined) out += `\n[退出码: ${res.exitCode}]`;
+                  return out || '(无控制台输出)';
+                }
+                if (res.result !== undefined) {
+                  return typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result);
+                }
+                return JSON.stringify(res, null, 2);
+              }
+              return String(res);
+            };
+            const formatted = formatForDisplay(chunk.result);
+            const previewLen = formatted.length > 1024 ? `(${(formatted.length / 1024).toFixed(1)} KB)` : `(${formatted.length} 字符)`;
+            detailsHtml = `
+              <details class="ai-tool-result-details">
+                <summary class="ai-tool-result-summary">
+                  <span>📋 查看执行结果</span>
+                  <span style="opacity:0.6;font-size:10px;">${previewLen} ▾</span>
+                </summary>
+                <pre class="ai-tool-result-pre"><code>${escapeHtml(formatted)}</code></pre>
+              </details>
+            `;
+          }
+
+          b.innerHTML = `
+            <div class="ai-tool-badge-head">
+              <div class="ai-tool-badge-title">${titleHtml}</div>
+            </div>
+            ${detailsHtml}
+          `;
         }
         scrollToBottom();
       } else if (chunk.type === 'usage') {
@@ -2303,11 +2535,15 @@
             m.reasoning = chunk.message.reasoning || m.reasoning;
           }
         }
-        const cotBox = bubble.querySelector('.ai-cot-box');
-        if (cotBox) {
-          const sum = cotBox.querySelector('.ai-cot-summary span');
-          if (sum) sum.textContent = '🧠 思考过程 (已完成)';
-        }
+        const cotBoxes = bubble.querySelectorAll('.ai-cot-box');
+        cotBoxes.forEach(cb => {
+          const sum = cb.querySelector('.ai-cot-summary span');
+          const r = cb.dataset.round;
+          if (sum) {
+            const prefix = (r && Number(r) > 0) ? `🧠 进一步思考 (第 ${Number(r) + 1} 步)` : '🧠 思考过程';
+            sum.textContent = `${prefix} (已完成)`;
+          }
+        });
         if (chunk.sessionTotalTokens) {
           sessionUsageBadge.textContent = `${chunk.sessionTotalTokens.totalTokens.toLocaleString()} tokens`;
         }
@@ -2657,8 +2893,8 @@
           <div class="ai-mcp-card-head">
             <span class="ai-mcp-ico">${s.transport === 'http' ? '🌐' : '🖥️'}</span>
             <div class="ai-mcp-card-info">
-              <span class="ai-mcp-name">${escapeHtml(s.name)}</span>
-              <span class="ai-mcp-target" title="${escapeHtml(mcpTargetText(s))}">${escapeHtml(mcpTargetText(s))}</span>
+              <span class="ai-mcp-name">${escapeHtml(s.name)}${(s.isPreset || s.id === 'preset-playwright') ? ' <span class="ai-preset-tag">内置</span>' : ''}</span>
+              <span class="ai-mcp-target" title="${escapeHtml(s.desc || mcpTargetText(s))}">${escapeHtml(mcpTargetText(s))}</span>
             </div>
             <span class="ai-mcp-badge ${s.enabled === false ? 'off' : ''}">${s.enabled === false ? '已停用' : '已启用'}</span>
             <div class="ai-persona-card-btns">
@@ -2728,6 +2964,7 @@
       mcpTestResult.textContent = '';
       mcpTestResult.className = 'ai-ext-test-result';
       syncMcpTransportGroups();
+      if (mcpMarketPanel) mcpMarketPanel.classList.add('hidden');
       mcpServerList.classList.add('hidden');
       mcpEditPanel.classList.remove('hidden');
       inputMcpName.focus();
@@ -2777,6 +3014,154 @@
         alert(`保存失败: ${(res && res.error) || '未知错误'}`);
       }
     });
+
+    /* --- MCP Market Controller ---------------------------------------------- */
+    let marketActiveCategory = 'all';
+    let marketSearchQuery = '';
+
+    async function loadAndRenderMcpMarket() {
+      marketServerList.innerHTML = '<div class="ai-model-empty-tip">正在加载 MCP 市场…</div>';
+      try {
+        const res = await ctx.call('getMcpMarket', { query: marketSearchQuery, category: marketActiveCategory });
+        if (!res || !res.ok) {
+          marketServerList.innerHTML = `<div class="ai-model-empty-tip">加载市场失败: ${(res && res.error) || '未知错误'}</div>`;
+          return;
+        }
+
+        // Render categories
+        marketCategoriesBar.innerHTML = '';
+        (res.categories || []).forEach(cat => {
+          const catBtn = document.createElement('button');
+          catBtn.type = 'button';
+          catBtn.className = 'ai-market-cat-btn' + (marketActiveCategory === cat.id ? ' active' : '');
+          catBtn.textContent = cat.label;
+          catBtn.addEventListener('click', () => {
+            marketActiveCategory = cat.id;
+            loadAndRenderMcpMarket();
+          });
+          marketCategoriesBar.appendChild(catBtn);
+        });
+
+        // Render market items
+        marketServerList.innerHTML = '';
+        const items = res.items || [];
+        if (items.length === 0) {
+          marketServerList.innerHTML = '<div class="ai-model-empty-tip">未找到匹配的 MCP 服务</div>';
+          return;
+        }
+
+        const catIcons = {
+          browser: '🌐',
+          dev: '💻',
+          search: '🔍',
+          data: '🗄️',
+          system: '⚙️'
+        };
+
+        items.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'ai-market-card';
+          const cmdPreview = `${item.command} ${(item.args || []).join(' ')}`;
+          card.innerHTML = `
+            <div class="ai-market-card-top">
+              <div class="ai-market-info-col">
+                <span class="ai-market-card-ico">${catIcons[item.category] || '🔌'}</span>
+                <div class="ai-market-name-row">
+                  <span class="ai-market-card-name">${escapeHtml(item.name)}</span>
+                  ${item.official ? '<span class="ai-market-official-badge">Official</span>' : '<span class="ai-market-community-badge">Community</span>'}
+                  ${item.repoUrl ? '<a href="#" class="ai-market-repo-link" title="在 GitHub 查看">GitHub ↗</a>' : ''}
+                </div>
+              </div>
+              <button type="button" class="ai-market-btn ${item.installed ? 'installed' : 'install'}" ${item.installed ? 'disabled' : ''}>
+                ${item.installed ? '✓ 已添加' : '+ 一键安装'}
+              </button>
+            </div>
+            <div class="ai-market-card-desc">${escapeHtml(item.desc || '')}</div>
+            <div class="ai-market-card-cmd" title="启动命令预览">${escapeHtml(cmdPreview)}</div>
+          `;
+
+          if (item.repoUrl) {
+            const link = card.querySelector('.ai-market-repo-link');
+            if (link) {
+              link.addEventListener('click', e => {
+                e.preventDefault();
+                if (window.Toolbox && window.Toolbox.openExternal) {
+                  window.Toolbox.openExternal(item.repoUrl);
+                } else {
+                  window.open(item.repoUrl, '_blank');
+                }
+              });
+            }
+          }
+
+          const btn = card.querySelector('.ai-market-btn.install');
+          if (btn) {
+            btn.addEventListener('click', async () => {
+              btn.disabled = true;
+              btn.textContent = '安装中…';
+              try {
+                const addRes = await ctx.call('installMarketMcp', { marketId: item.id });
+                if (addRes && addRes.ok) {
+                  mcpServers = addRes.mcpServers;
+                  btn.className = 'ai-market-btn installed';
+                  btn.textContent = '✓ 已添加';
+                  renderMcpList();
+                } else {
+                  alert(`安装失败: ${(addRes && addRes.error) || '未知错误'}`);
+                  btn.disabled = false;
+                  btn.textContent = '+ 一键安装';
+                }
+              } catch (e) {
+                alert(`安装出错: ${e.message}`);
+                btn.disabled = false;
+                btn.textContent = '+ 一键安装';
+              }
+            });
+          }
+
+          marketServerList.appendChild(card);
+        });
+      } catch (err) {
+        marketServerList.innerHTML = `<div class="ai-model-empty-tip">市场加载异常: ${err.message}</div>`;
+      }
+    }
+
+    function openMcpMarket() {
+      mcpEditPanel.classList.add('hidden');
+      mcpServerList.classList.add('hidden');
+      mcpMarketPanel.classList.remove('hidden');
+      loadAndRenderMcpMarket();
+    }
+
+    function closeMcpMarket() {
+      mcpMarketPanel.classList.add('hidden');
+      mcpServerList.classList.remove('hidden');
+    }
+
+    if (btnOpenMcpMarket) btnOpenMcpMarket.addEventListener('click', openMcpMarket);
+    if (btnCloseMcpMarket) btnCloseMcpMarket.addEventListener('click', closeMcpMarket);
+
+    let marketSearchTimer = null;
+    if (inputMarketSearch) {
+      inputMarketSearch.addEventListener('input', e => {
+        clearTimeout(marketSearchTimer);
+        marketSearchTimer = setTimeout(() => {
+          marketSearchQuery = e.target.value.trim();
+          loadAndRenderMcpMarket();
+        }, 200);
+      });
+    }
+
+    if (btnResetMcp) {
+      btnResetMcp.addEventListener('click', async () => {
+        if (!confirm('确定将 MCP 服务器恢复为内置默认预设（含官方 Playwright）吗？')) return;
+        const res = await ctx.call('resetMcpServers');
+        if (res && res.ok) {
+          mcpServers = res.mcpServers;
+          renderMcpList();
+        }
+      });
+    }
 
     /* --- Skills Controller (search + pagination + import) ------------------- */
     function renderSkillsList() {

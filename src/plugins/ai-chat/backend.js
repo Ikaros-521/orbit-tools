@@ -13,6 +13,7 @@ const {
   formatMemoriesForPrompt, executeMemoryTool
 } = require('./memory');
 const { TASK_TOOLS_DEFINITIONS, normalizeTaskList, summarizeTaskProgress, formatTaskListForPrompt } = require('./task-tools');
+const { DEFAULT_MCP_SERVERS, MARKET_CATEGORIES, MCP_MARKET_CATALOG, searchMcpMarket } = require('./mcp-market');
 const { dialog, clipboard } = require('electron');
 const os = require('os');
 const fs = require('fs');
@@ -162,6 +163,12 @@ module.exports = {
     let activeSessionId = rawData.activeSessionId || null;
     let skills = Array.isArray(rawData.skills) && rawData.skills.length > 0 ? rawData.skills : [...DEFAULT_SKILLS];
     let mcpServers = Array.isArray(rawData.mcpServers) ? rawData.mcpServers : [];
+    // 确保内置的 Playwright 预设开箱即用：若从未使用过或未配置 Playwright，则自动装配
+    if (mcpServers.length === 0) {
+      mcpServers = DEFAULT_MCP_SERVERS.map(s => ({ ...s }));
+    } else if (!mcpServers.some(s => s.id === 'preset-playwright' || (s.name && s.name.toLowerCase() === 'playwright'))) {
+      mcpServers.unshift({ ...DEFAULT_MCP_SERVERS[0] });
+    }
     let memories = (Array.isArray(rawData.memories) ? rawData.memories : [])
       .map(normalizeMemoryRecord)
       .filter(Boolean);
@@ -577,7 +584,9 @@ module.exports = {
         env: s.env && typeof s.env === 'object' && !Array.isArray(s.env) ? s.env : {},
         url: String(s.url || '').trim(),
         apiKey: String(s.apiKey || ''),
-        enabled: s.enabled !== false
+        enabled: s.enabled !== false,
+        desc: String(s.desc || '').trim(),
+        isPreset: !!s.isPreset
       };
       if (rec.transport === 'stdio' && !rec.command) return { ok: false, error: 'stdio 服务器需要填写启动命令' };
       if (rec.transport === 'http' && !rec.url) return { ok: false, error: 'HTTP 服务器需要填写 URL' };
@@ -593,6 +602,52 @@ module.exports = {
       if (!id) return { ok: false, error: '缺少服务器 ID' };
       mcpServers = mcpServers.filter(s => s.id !== id);
       disposeMcpConn(id);
+      save();
+      return { ok: true, mcpServers };
+    });
+
+    ctx.ipc.handle('getMcpMarket', args => {
+      const q = args && args.query;
+      const cat = args && args.category;
+      const items = searchMcpMarket(q, cat);
+      const installedSet = new Set(mcpServers.map(s => s.id));
+      const installedNames = new Set(mcpServers.map(s => (s.name || '').toLowerCase()));
+      const enriched = items.map(it => ({
+        ...it,
+        installed: installedSet.has(it.id) || installedNames.has(it.name.toLowerCase())
+      }));
+      return { ok: true, items: enriched, categories: MARKET_CATEGORIES };
+    });
+
+    ctx.ipc.handle('installMarketMcp', args => {
+      const marketId = args && args.marketId;
+      const target = MCP_MARKET_CATALOG.find(x => x.id === marketId);
+      if (!target) return { ok: false, error: '未找到指定市场 MCP 服务' };
+      const existing = mcpServers.find(s => s.id === target.id || (s.name && s.name.toLowerCase() === target.name.toLowerCase()));
+      if (existing) {
+        existing.enabled = true;
+        save();
+        return { ok: true, server: existing, mcpServers, message: `MCP 服务「${existing.name}」已存在并设为启用` };
+      }
+      const newServer = {
+        id: target.id,
+        name: target.name,
+        transport: 'stdio',
+        command: target.command,
+        args: [...target.args],
+        env: { ...(target.env || {}) },
+        enabled: true,
+        desc: target.desc,
+        isPreset: !!target.official
+      };
+      mcpServers.push(newServer);
+      save();
+      return { ok: true, server: newServer, mcpServers, message: `MCP 服务「${newServer.name}」已成功添加！` };
+    });
+
+    ctx.ipc.handle('resetMcpServers', () => {
+      mcpServers = DEFAULT_MCP_SERVERS.map(s => ({ ...s }));
+      for (const id of mcpConns.keys()) disposeMcpConn(id);
       save();
       return { ok: true, mcpServers };
     });
@@ -913,9 +968,12 @@ module.exports = {
         id: genId('msg_ast'),
         role: 'assistant',
         content: '',
+        contentSteps: [],
         reasoning: '',
+        reasoningSteps: [],
         usage: null,
         toolCalls: null,
+        toolResults: {},
         timestamp: Date.now()
       };
       session.messages.push(assistantMsg);
@@ -928,7 +986,7 @@ module.exports = {
       const agentWorkDir = session.workDir || config.agentWorkDir || os.homedir();
       let systemContent = persona ? persona.prompt : '';
       if (enableAgent) {
-        systemContent += `\n\n[本地 Agent 环境] 工作目录: ${agentWorkDir}。相对路径一律基于工作目录解析。你可以连续多轮调用工具：每轮工具结果会回传给你，基于结果继续推理或再次调用工具，直到任务完成给出最终回答。\n[可用工具] 文件: list_dir / read_file / grep_search / edit_file / write_file / search_files；执行: run_command (Windows 为 cmd)；外部 AI 调度: list_available_ai_ides / dispatch_task_to_ai_ide (支持自动调度分派给本地已安装的 Claude Code, Codex CLI, 反重力 Antigravity, Qoder, WorkBuddy/CodeBuddy, ZCode, Cursor 等)；长期记忆: memory_write / memory_search / memory_list / memory_delete；任务规划: update_task_list；技能: list_skills / read_skill；以及已连接的 MCP 工具。\n[工作准则]\n1. 多步骤任务（约 3 步以上）先调用 update_task_list 制定计划，随进度即时更新状态（同一时刻仅一项 in_progress）。\n2. 修改已有文件：grep_search / search_files 定位 → read_file 读取上下文 → edit_file 精确替换（old_text 须与原文逐字符一致）；write_file 仅用于新建文件或整体重写。\n3. 改动后如可验证，用 run_command 运行测试/构建确认结果。\n4. 当用户要求调度或分派任务给外部专业 AI IDE / Agent 时，先调用 list_available_ai_ides 探测可用工具，再调用 dispatch_task_to_ai_ide 下发任务。\n5. 值得跨会话记住的信息（用户偏好与习惯、项目约定、用户纠正的反馈）用 memory_write 保存；仅本次会话有意义的细节不要入库。\n6. 写文件、执行系统命令与外部任务调度属高危操作，需用户审批。`;
+        systemContent += `\n\n[本地 Agent 环境] 工作目录: ${agentWorkDir}。相对路径一律基于工作目录解析。你可以连续多轮调用工具：每轮工具结果会回传给你，基于结果继续推理或再次调用工具，直到任务完成给出最终回答。\n[可用工具] 文件: list_dir / read_file / grep_search / edit_file / write_file / search_files；执行: run_command (Windows 为 cmd)；浏览器自动化与网页 (Playwright MCP): 若启用了 Playwright 服务，可调用 mcp__Playwright__* 工具直接导航网页、提取无障碍快照、点击交互、表单填报与生成网页截图；外部 AI 调度: list_available_ai_ides / dispatch_task_to_ai_ide (支持自动调度分派给本地已安装的 Claude Code, Codex CLI, 反重力 Antigravity, Qoder, WorkBuddy/CodeBuddy, ZCode, Cursor 等)；长期记忆: memory_write / memory_search / memory_list / memory_delete；任务规划: update_task_list；技能: list_skills / read_skill；以及已连接的 MCP 工具。\n[工作准则]\n1. 多步骤任务（约 3 步以上）先调用 update_task_list 制定计划，随进度即时更新状态（同一时刻仅一项 in_progress）。\n2. 修改已有文件：grep_search / search_files 定位 → read_file 读取上下文 → edit_file 精确替换（old_text 须与原文逐字符一致）；write_file 仅用于新建文件或整体重写。\n3. 改动后如可验证，用 run_command 运行测试/构建确认结果。\n4. 当用户要求调度或分派任务给外部专业 AI IDE / Agent 时，先调用 list_available_ai_ides 探测可用工具，再调用 dispatch_task_to_ai_ide 下发任务。\n5. 值得跨会话记住的信息（用户偏好与习惯、项目约定、用户纠正的反馈）用 memory_write 保存；仅本次会话有意义的细节不要入库。\n6. 写文件、执行系统命令与外部任务调度属高危操作，需用户审批。`;
 
         // Recall relevant long-term memories (global + this project's scope)
         const recalled = searchMemories(
@@ -1010,7 +1068,9 @@ module.exports = {
             // Drop the failed primary attempt's partials so they are never
             // mistaken for the fallback model's output
             assistantMsg.content = '';
+            assistantMsg.contentSteps = [];
             assistantMsg.reasoning = '';
+            assistantMsg.reasoningSteps = [];
             assistantMsg.usage = null;
           }
 
@@ -1034,6 +1094,7 @@ module.exports = {
           while (true) {
             const allowTools = enableAgent && round < maxRounds;
             let roundContent = '';
+            let roundReasoning = '';
             let roundUsage = null;
             const roundToolCalls = [];
 
@@ -1047,11 +1108,24 @@ module.exports = {
                 assistantMsg.content = accumulatedContent
                   ? accumulatedContent + '\n\n' + roundContent
                   : roundContent;
-                emitChunk({ type: 'content', delta: event.delta, content: assistantMsg.content });
+                emitChunk({
+                  type: 'content',
+                  round,
+                  delta: event.delta,
+                  roundContent,
+                  content: assistantMsg.content
+                });
               } else if (event.type === 'reasoning') {
+                roundReasoning += event.delta;
                 accumulatedReasoning += event.delta;
                 assistantMsg.reasoning = accumulatedReasoning;
-                emitChunk({ type: 'reasoning', delta: event.delta, reasoning: accumulatedReasoning });
+                emitChunk({
+                  type: 'reasoning',
+                  round,
+                  delta: event.delta,
+                  reasoning: roundReasoning,
+                  totalReasoning: accumulatedReasoning
+                });
               } else if (event.type === 'tool_calls') {
                 // Assemble tool call deltas
                 for (const tc of event.delta) {
@@ -1076,6 +1150,15 @@ module.exports = {
                 emitChunk({ type: 'done' });
               }
             }, controller.signal);
+
+            if (roundReasoning && roundReasoning.trim()) {
+              assistantMsg.reasoningSteps = assistantMsg.reasoningSteps || [];
+              assistantMsg.reasoningSteps.push({ round, reasoning: roundReasoning });
+            }
+            if (roundContent && roundContent.trim()) {
+              assistantMsg.contentSteps = assistantMsg.contentSteps || [];
+              assistantMsg.contentSteps.push({ round, content: roundContent });
+            }
 
             // Each round is billed separately; sum into the turn total
             if (roundUsage) {
@@ -1120,6 +1203,7 @@ module.exports = {
                 while (executedIds.has(nid)) nid += 'x';
                 tc.id = nid;
               }
+              tc.round = round;
               executedIds.add(tc.id);
             }
             assistantMsg.toolCalls = [...(assistantMsg.toolCalls || []), ...toolCalls];
@@ -1157,6 +1241,10 @@ module.exports = {
                   mcpRoutes, workDir: agentWorkDir, streamId, session, emit: emitChunk
                 })
                 : { ok: false, denied: true, error: '用户拒绝执行该工具调用，请改用纯文本回答或调整方案' };
+
+              assistantMsg.toolResults = assistantMsg.toolResults || {};
+              assistantMsg.toolResults[tc.id] = result;
+              tc.result = result;
 
               emitChunk({ type: 'tool_approval_result', toolId: tc.id, approved, asked: permission === 'ask' });
               emitChunk({ type: 'tool_result', toolId: tc.id, toolName, result });

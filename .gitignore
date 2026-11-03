@@ -11,3 +11,7 @@ promo-video/
 .mcp.json.backup.*
 .codex/config.toml
 .codex/config.toml.backup.*
+.playwright-mcp/
+bili_result.yml
+ddg_result.yml
+verge_ai.yml
