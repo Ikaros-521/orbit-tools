@@ -2,7 +2,7 @@ const assert = require('assert');
 const path = require('path');
 
 // Load exported functions from panel.js
-const { renderMarkdown, splitTableRow, parseTableDelimiterRow } = require('../src/plugins/ai-chat/panel');
+const { renderMarkdown, splitTableRow, parseTableDelimiterRow, extractTasksFromContent } = require('../src/plugins/ai-chat/panel');
 
 console.log('Testing GFM Table and Mermaid parsing in AI Chat panel...');
 
@@ -114,4 +114,34 @@ console.log(answer);
   console.log('PASS: Normal code block rendering preserved');
 }
 
-console.log('\nALL MARKDOWN & MERMAID TESTS PASSED!');
+
+// 7. extractTasksFromContent (Floating Task Panel)
+{
+  const textWithTasks = `
+这是一段助手回复：
+### 任务规划
+- [x] 完成架构方案设计与审核
+- [ ] 开发侧边悬浮任务清单卡片
+- [ ] 调整气泡宽度与圆角间隙
+- [x] 验证测试套件
+
+请确认以上计划。
+`.trim();
+
+  const extracted = extractTasksFromContent(textWithTasks);
+  assert.strictEqual(extracted.length, 4, 'Should extract 4 tasks');
+  assert.strictEqual(extracted[0].content, '完成架构方案设计与审核');
+  assert.strictEqual(extracted[0].status, 'completed');
+  assert.strictEqual(extracted[1].content, '开发侧边悬浮任务清单卡片');
+  assert.strictEqual(extracted[1].status, 'pending');
+  assert.strictEqual(extracted[2].status, 'pending');
+  assert.strictEqual(extracted[3].status, 'completed');
+
+  const textWithoutTasks = '这里是一段普通文本，没有任何清单项。';
+  assert.deepStrictEqual(extractTasksFromContent(textWithoutTasks), []);
+  assert.deepStrictEqual(extractTasksFromContent(null), []);
+
+  console.log('PASS: extractTasksFromContent for floating task panel');
+}
+
+console.log('\nALL MARKDOWN & MERMAID & TASK TESTS PASSED!');
