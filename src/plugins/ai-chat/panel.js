@@ -1434,6 +1434,8 @@
           images: images.length > 0 ? images : undefined,
           attachments: attachments.length > 0 ? attachments : undefined,
           editMessageId,
+          userMessageId: userMsg.id,
+          assistantMessageId: assistantMsg.id,
           enableReasoning: enableCot,
           enableAgent
         });
@@ -1560,6 +1562,21 @@
       } else if (chunk.type === 'mcp_error') {
         const bubbles = messagesScroll.querySelectorAll('.ai-msg.assistant .ai-msg-bubble');
         msgEl = bubbles.length ? bubbles[bubbles.length - 1].closest('.ai-msg') : null;
+      }
+
+      // Robust fallback: If not found by messageId, bind to the latest active assistant bubble
+      if (!msgEl) {
+        const assistantEls = messagesScroll.querySelectorAll('.ai-msg.assistant');
+        if (assistantEls.length > 0) {
+          msgEl = assistantEls[assistantEls.length - 1];
+          if (messageId && msgEl) {
+            msgEl.dataset.id = messageId;
+            const lastMsg = currentSession?.messages?.[currentSession.messages.length - 1];
+            if (lastMsg && lastMsg.role === 'assistant') {
+              lastMsg.id = messageId;
+            }
+          }
+        }
       }
       if (!msgEl) return;
       const bubble = msgEl.querySelector('.ai-msg-bubble');
@@ -1778,10 +1795,37 @@
         }
         scrollToBottom();
         if (chunk.message && currentSession && currentSession.messages) {
-          const m = currentSession.messages.find(x => x.id === messageId);
+          let m = currentSession.messages.find(x => x.id === messageId);
+          if (!m) {
+            const assts = currentSession.messages.filter(x => x.role === 'assistant');
+            if (assts.length > 0) m = assts[assts.length - 1];
+          }
           if (m) {
+            if (messageId) m.id = messageId;
             m.content = chunk.message.content || m.content;
             m.reasoning = chunk.message.reasoning || m.reasoning;
+          }
+        }
+
+        // Safety Net: If content was not rendered during streaming chunks, force render it now
+        if (chunk.message && chunk.message.content) {
+          let timeline = bubble.querySelector('.ai-bubble-timeline');
+          if (!timeline) {
+            timeline = document.createElement('div');
+            timeline.className = 'ai-bubble-timeline';
+            bubble.appendChild(timeline);
+          }
+          let mdBlock = timeline.querySelector('.ai-md-block');
+          if (!mdBlock) {
+            mdBlock = document.createElement('div');
+            mdBlock.className = 'ai-md-block ai-md-body';
+            timeline.appendChild(mdBlock);
+          }
+          if (!mdBlock.textContent.trim()) {
+            mdBlock.innerHTML = renderMarkdown(chunk.message.content);
+            if (MermaidRenderer) {
+              MermaidRenderer.initMessageDynamicElements(mdBlock, { renderMermaid: true, copyToClipboard });
+            }
           }
         }
         const cotBoxes = bubble.querySelectorAll('.ai-cot-box');

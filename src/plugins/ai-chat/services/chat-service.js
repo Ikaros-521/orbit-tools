@@ -134,6 +134,8 @@ class ChatService {
       images = [],
       attachments = [],
       editMessageId,
+      userMessageId = null,
+      assistantMessageId = null,
       streamId = genId('stream'),
       enableReasoning = config.enableReasoning,
       enableAgent = config.enableAgent,
@@ -155,7 +157,7 @@ class ChatService {
     }
 
     const userMsg = {
-      id: genId('msg_user'),
+      id: userMessageId || genId('msg_user'),
       role: 'user',
       content: String(content || '').trim(),
       images: Array.isArray(images) ? images : [],
@@ -170,7 +172,7 @@ class ChatService {
     }
 
     const assistantMsg = {
-      id: genId('msg_ast'),
+      id: assistantMessageId || genId('msg_ast'),
       role: 'assistant',
       content: '',
       contentSteps: [],
