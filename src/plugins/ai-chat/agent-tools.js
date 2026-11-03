@@ -3,6 +3,7 @@
    and generate / save visual DAG workflows directly into Orbit Toolbox. */
 
 const vm = require('vm');
+const { SUBAGENT_TOOL_DEFINITION } = require('./services/subagent-service');
 
 /* Tool risk metadata: 'low' = read-only / pure compute, 'high' = side effects or arbitrary execution.
    Drives the Agent approval tiers ('ask' | 'auto' | 'full') in backend.js. */
@@ -30,7 +31,9 @@ const AGENT_TOOL_META = {
   update_task_list: { risk: 'low', label: '更新任务清单' },
   // External AI IDE / CLI Dispatcher tools
   list_available_ai_ides: { risk: 'low', label: '检查本地 AI IDE / CLI' },
-  dispatch_task_to_ai_ide: { risk: 'high', label: '分派任务给外部 AI IDE / CLI' }
+  dispatch_task_to_ai_ide: { risk: 'high', label: '分派任务给外部 AI IDE / CLI' },
+  // Subagent derivation tools
+  dispatch_subagent: { risk: 'low', label: '派生专项子智能体' }
   // MCP tools (mcp__server__tool) are dynamic and default to high-risk
   // in resolveToolPermission — they ask in 'ask' and 'auto' tiers.
 };
@@ -54,6 +57,7 @@ function resolveToolPermission(approvalMode, toolName, alwaysAllowedTools) {
 }
 
 const AGENT_TOOLS_DEFINITIONS = [
+  SUBAGENT_TOOL_DEFINITION,
   {
     type: 'function',
     function: {

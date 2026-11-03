@@ -176,10 +176,13 @@
 
 /* --- Main Chat Stage ---------------------------------------------------- */
 .ai-main {
-  flex: 1;
+  flex: 1 1 auto;
   display: flex;
   flex-direction: column;
   height: 100%;
+  width: 100%;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
   background: transparent;
   position: relative;
@@ -3616,4 +3619,22 @@ input.hidden {
 
 .ai-msg-att-badge .ico {
   font-size: 13px;
+}
+
+/* Widescreen / Fullscreen responsive adaptation */
+@media (min-width: 1400px) {
+  .ai-msg {
+    max-width: min(1480px, 95%);
+  }
+  .ai-input-box {
+    max-width: min(1480px, 95%);
+  }
+}
+@media (min-width: 1800px) {
+  .ai-msg {
+    max-width: min(1760px, 94%);
+  }
+  .ai-input-box {
+    max-width: min(1760px, 94%);
+  }
 }

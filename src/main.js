@@ -80,6 +80,20 @@ function createWindow({ show = true } = {}) {
   };
   for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, () => setTimeout(saveBounds, 400));
 
+  const notifyWindowState = () => {
+    if (!win || win.isDestroyed()) return;
+    try {
+      win.webContents.send('window-state-change', {
+        maximized: win.isMaximized(),
+        fullscreen: win.isFullScreen(),
+      });
+    } catch {}
+  };
+  for (const ev of ['maximize', 'unmaximize', 'enter-full-screen', 'leave-full-screen']) {
+    win.on(ev, notifyWindowState);
+  }
+  win.webContents.on('did-finish-load', notifyWindowState);
+
   // Closing hides to tray so the global hotkey stays one keystroke away.
   win.on('close', e => {
     if (quitting) return;

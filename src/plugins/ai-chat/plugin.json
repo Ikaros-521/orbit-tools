@@ -5,10 +5,10 @@
     "en": "AI Chat"
   },
   "desc": {
-    "zh": "本地 Agent 助手：内置 Playwright 浏览器自动化与网页交互、MCP 市场一键安装与生态接入、多轮工具循环 (grep 定位/精确编辑/命令执行)、任务规划清单、跨会话长期记忆 (自动召回+记忆库管理)、审批档位（每次确认/自动审核/完全访问）、技能 Skills、思维等级、多协议 (OpenAI/Responses/Claude) 与工作流自动生成",
-    "en": "Local agent assistant: built-in Playwright browser automation, MCP market one-click install & ecosystem integration, multi-round tool loop (grep/edit/run), task planning list, cross-session memory with auto-recall, approval tiers, skills, thinking levels, multi-protocol chat, and workflow generation"
+    "zh": "本地 Agent 助手：借鉴 DeepSeek Harness 架构机制，内置三段式工具并发管道、子智能体 (Subagent) 派生体系 (Spawn/Fork)、Prefix Caching 前缀缓存优化、工具调用配对平衡切分、Playwright 浏览器自动化、MCP 市场生态、多轮工具循环、任务规划清单、长期记忆与工作流自动生成",
+    "en": "Local agent assistant: Powered by DeepSeek Harness runtime mechanisms, including 3-stage concurrent tool pipeline, subagent derivations (Spawn/Fork), prefix caching optimization, balanced tool pairing cuts, Playwright automation, MCP ecosystem, multi-round tool loop, and memory."
   },
-  "version": "1.6.0",
+  "version": "1.7.0",
   "category": "dev",
   "author": "Ikaros-521",
   "keywords": [

@@ -1,6 +1,6 @@
 /* memo panel internals — sidebar + editor / todo / calendar column.
    All colours flow through the host light-dark() tokens. */
-.memo-root { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; }
+.memo-root { flex: 1 1 auto; min-height: 0; min-width: 0; display: flex; width: 100%; height: 100%; }
 
 /* --- sidebar -------------------------------------------------------------- */
 .memo-side { width: 260px; flex: 0 0 260px; border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; background: var(--bg); }
@@ -54,8 +54,8 @@
 .memo-item.armed .memo-item-del { opacity: 1; }
 
 /* --- main column ----------------------------------------------------------- */
-.memo-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; position: relative; }
-.memo-view-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.memo-main { flex: 1 1 auto; min-width: 0; min-height: 0; display: flex; flex-direction: column; position: relative; width: 100%; height: 100%; }
+.memo-view-pane { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; width: 100%; height: 100%; }
 .memo-view-pane.hidden { display: none !important; }
 
 /* --- notes view ----------------------------------------------------------- */
@@ -80,7 +80,7 @@
 .memo-save-state { margin-left: auto; font-size: 11px; color: var(--ink-faint); letter-spacing: .05em; }
 
 /* editor / preview split */
-.memo-editor-area { flex: 1 1 auto; min-height: 0; display: flex; gap: 0; }
+.memo-editor-area { flex: 1 1 auto; min-height: 0; display: flex; gap: 0; height: 100%; width: 100%; }
 .memo-editor-area[data-mode="edit"] .memo-preview { display: none; }
 .memo-editor-area[data-mode="preview"] .memo-editor { display: none; }
 .memo-editor {

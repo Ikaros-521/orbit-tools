@@ -26,6 +26,8 @@ contextBridge.exposeInMainWorld('host', {
   openPluginFolder: id => ipcRenderer.invoke('open-plugin-folder', id),
   chooseSavePng: () => ipcRenderer.invoke('choose-save-png'),
   win: action => ipcRenderer.send('win', action),
+  getWindowState: () => ipcRenderer.invoke('win-state'),
+  onWindowStateChange: fn => on('window-state-change', fn),
   openWorkbench: opts => ipcRenderer.invoke('open-workbench', opts),
   toggleActionPalette: () => ipcRenderer.invoke('toggle-action-palette'),
   onPluginEvent: (id, fn) => on(`plugin-event:${id}`, fn),

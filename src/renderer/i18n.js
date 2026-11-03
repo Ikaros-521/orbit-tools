@@ -5,7 +5,7 @@ window.I18N = (() => {
     zh: {
       subtitle: '插件化开发工具箱',
       searchPh: '搜索工具…（名称 / 关键词）',
-      tabTools: '工具', tabPlugins: '插件', tabSettings: '设置',
+      tabTools: '工具', tabWorkflows: '工作流', tabPlugins: '插件', tabSettings: '设置',
       back: '返回',
       empty: '没有匹配的工具',
       noTools: '所有插件都被禁用了，到插件板块里开启',
@@ -91,7 +91,7 @@ window.I18N = (() => {
     en: {
       subtitle: 'pluggable developer toolbox',
       searchPh: 'Search tools… (name / keyword)',
-      tabTools: 'Tools', tabPlugins: 'Plugins', tabSettings: 'Settings',
+      tabTools: 'Tools', tabWorkflows: 'Workflows', tabPlugins: 'Plugins', tabSettings: 'Settings',
       back: 'Back',
       empty: 'No tool matches',
       noTools: 'Every plugin is disabled — turn some on in Plugins',

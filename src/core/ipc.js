@@ -251,6 +251,17 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     }
   });
 
+  ipcMain.handle('win-state', (e) => {
+    let win = null;
+    try {
+      win = BrowserWindow.fromWebContents(e.sender);
+    } catch { /* fallback */ }
+    if (!win) win = getHostWindow();
+    return win && !win.isDestroyed()
+      ? { maximized: win.isMaximized(), fullscreen: win.isFullScreen() }
+      : { maximized: false, fullscreen: false };
+  });
+
   ipcMain.on('win', (e, action) => {
     let win = null;
     try {
