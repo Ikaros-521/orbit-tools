@@ -271,6 +271,96 @@
   gap: 8px;
 }
 
+.ai-context-ring-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  padding: 3px 8px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--inset);
+  transition: all 0.15s ease;
+  user-select: none;
+  -webkit-user-select: none;
+  flex-shrink: 0;
+}
+
+.ai-context-ring-wrap:hover {
+  background: var(--panel-hi);
+  border-color: var(--accent);
+}
+
+.ai-context-ring {
+  width: 18px;
+  height: 18px;
+  transform: rotate(-90deg);
+  display: block;
+}
+
+.ai-context-ring-bg {
+  fill: none;
+  stroke: var(--line);
+  stroke-width: 3.6;
+}
+
+.ai-context-ring-meter {
+  fill: none;
+  stroke: var(--accent, #3b82f6);
+  stroke-width: 3.6;
+  stroke-linecap: round;
+  transition: stroke-dasharray 0.35s ease, stroke 0.35s ease;
+}
+
+.ai-context-ring-meter.warning {
+  stroke: var(--amber, #f59e0b);
+}
+
+.ai-context-ring-meter.danger {
+  stroke: var(--red, #ef4444);
+}
+
+.ai-context-ring-text {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1;
+}
+
+.ai-input-with-unit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-input-with-unit input {
+  flex: 1;
+}
+
+.ai-input-unit {
+  font-size: 12px;
+  color: var(--ink-dim);
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.ai-compact-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--panel-hi);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  border-radius: var(--r-sm);
+  padding: 2px 7px;
+  font-size: 11px;
+  font-family: var(--font-display);
+  margin-bottom: 6px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .ai-usage-badge {
   font-size: 11px;
   color: var(--ink-faint);

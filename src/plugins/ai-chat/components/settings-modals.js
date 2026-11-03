@@ -45,6 +45,7 @@
     const cfgTempRange = panelEl.querySelector('#cfgTempRange');
     const cfgTempVal = panelEl.querySelector('#cfgTempVal');
     const cfgMaxContext = panelEl.querySelector('#cfgMaxContext');
+    const cfgMaxContextTokens = panelEl.querySelector('#cfgMaxContextTokens');
     const cfgAgentMaxRounds = panelEl.querySelector('#cfgAgentMaxRounds');
     const cfgAgentWorkDir = panelEl.querySelector('#cfgAgentWorkDir');
     const btnPickAgentWorkDir = panelEl.querySelector('#btnPickAgentWorkDir');
@@ -1341,6 +1342,7 @@
       if (cfgTempRange) cfgTempRange.value = config.temperature ?? 0.7;
       if (cfgTempVal) cfgTempVal.textContent = config.temperature ?? 0.7;
       if (cfgMaxContext) cfgMaxContext.value = config.maxContextMessages ?? 16;
+      if (cfgMaxContextTokens) cfgMaxContextTokens.value = config.maxContextTokens ?? 200000;
       if (cfgAgentMaxRounds) cfgAgentMaxRounds.value = config.agentMaxRounds ?? 8;
       if (cfgAgentWorkDir) cfgAgentWorkDir.value = config.agentWorkDir || '';
       if (modelSearchPanel) modelSearchPanel.classList.add('hidden');
@@ -1374,6 +1376,7 @@
           fallbackModel: cfgFallbackModel.value.trim(),
           temperature: Number(cfgTempRange.value),
           maxContextMessages: Number(cfgMaxContext.value) || 16,
+          maxContextTokens: Math.max(4000, Number(cfgMaxContextTokens ? cfgMaxContextTokens.value : 200000) || 200000),
           agentMaxRounds: Math.min(40, Math.max(1, Number(cfgAgentMaxRounds.value) || 8)),
           agentWorkDir: cfgAgentWorkDir.value.trim()
         };

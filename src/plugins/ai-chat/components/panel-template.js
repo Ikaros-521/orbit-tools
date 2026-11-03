@@ -29,6 +29,23 @@
               <span class="ai-header-model-pill ai-header-workdir" id="headerWorkDirPill" title="Agent 工作目录，点击修改">📁</span>
             </div>
             <div class="ai-header-right">
+              <!-- 上下文容量环形进度圈 -->
+              <div class="ai-context-ring-wrap" id="contextRingWrap" title="当前上下文用量：点击一键压缩上下文">
+                <svg class="ai-context-ring" viewBox="0 0 36 36">
+                  <path class="ai-context-ring-bg"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                  <path class="ai-context-ring-meter" id="contextRingMeter"
+                    stroke-dasharray="0, 100"
+                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                  />
+                </svg>
+                <span class="ai-context-ring-text" id="contextRingText">0%</span>
+              </div>
+
+              <!-- 一键压缩上下文按钮 -->
+              <button type="button" class="ai-header-btn" id="btnCompactContext" title="一键压缩历史上下文，精简 Token 占用">🗜️ 压缩上下文</button>
+
               <span class="ai-usage-badge" id="sessionUsageBadge" title="会话累计 Token 消耗">0 tokens</span>
               <button class="ai-header-btn" id="btnClearSession" title="清空当前会话消息">清空</button>
               <button class="ai-header-btn" id="btnOpenSettings" title="模型与协议设置">⚙️ 设置</button>
@@ -270,6 +287,15 @@
               <div class="ai-form-group">
                 <label class="ai-form-label">最大携带上下文轮数 (Max Context Messages)</label>
                 <input type="number" class="ai-form-input" id="cfgMaxContext" min="2" max="64" value="16">
+              </div>
+
+              <div class="ai-form-group">
+                <label class="ai-form-label">模型最大上下文容量 (Max Context Window)</label>
+                <div class="ai-input-with-unit">
+                  <input type="number" class="ai-form-input" id="cfgMaxContextTokens" min="4000" max="2000000" step="1000" value="200000">
+                  <span class="ai-input-unit">Tokens</span>
+                </div>
+                <span class="ai-form-hint">单次模型请求支持的最大上下文 Token 窗口上限（默认 200,000，即 200k），用于计算当前上下文容量占用率</span>
               </div>
 
               <div class="ai-form-group">

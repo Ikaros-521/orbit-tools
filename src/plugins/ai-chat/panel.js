@@ -106,6 +106,10 @@
     const headerModelPill = el.querySelector('#headerModelPill');
     const headerWorkDirPill = el.querySelector('#headerWorkDirPill');
     const sessionUsageBadge = el.querySelector('#sessionUsageBadge');
+    const contextRingWrap = el.querySelector('#contextRingWrap');
+    const contextRingMeter = el.querySelector('#contextRingMeter');
+    const contextRingText = el.querySelector('#contextRingText');
+    const btnCompactContext = el.querySelector('#btnCompactContext');
     const btnClearSession = el.querySelector('#btnClearSession');
     const btnOpenSettings = el.querySelector('#btnOpenSettings');
     const messagesScroll = el.querySelector('#messagesScroll');
@@ -920,12 +924,147 @@
       }
     });
 
+    // Context Compaction & Token Usage Calculation
+    function calculateCurrentContextTokens(session) {
+      if (!session || !Array.isArray(session.messages) || session.messages.length === 0) {
+        return 0;
+      }
+      const msgs = session.messages;
+      let lastAsstWithUsageIdx = -1;
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].role === 'assistant' && msgs[i].usage && typeof msgs[i].usage.promptTokens === 'number') {
+          lastAsstWithUsageIdx = i;
+          break;
+        }
+      }
+      if (lastAsstWithUsageIdx !== -1) {
+        const baseUsage = msgs[lastAsstWithUsageIdx].usage;
+        const baseTokens = (baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0);
+        let trailingChars = 0;
+        for (let i = lastAsstWithUsageIdx + 1; i < msgs.length; i++) {
+          trailingChars += String(msgs[i].content || '').length;
+        }
+        return baseTokens + Math.ceil(trailingChars / 3.2);
+      }
+      let totalChars = 0;
+      for (const m of msgs) {
+        totalChars += String(m.content || '').length;
+      }
+      return Math.max(150, Math.ceil(totalChars / 3.2) + 150);
+    }
+
+    function updateContextProgress() {
+      if (!contextRingMeter || !contextRingText) return;
+      const maxTokens = (config && Number(config.maxContextTokens)) || 200000;
+      if (!currentSession || !Array.isArray(currentSession.messages) || currentSession.messages.length === 0) {
+        contextRingMeter.setAttribute('stroke-dasharray', '0, 100');
+        contextRingText.textContent = '0%';
+        contextRingMeter.classList.remove('warning', 'danger');
+        if (contextRingWrap) {
+          contextRingWrap.title = `当前上下文: 0 / ${maxTokens.toLocaleString()} tokens (0%)\n点击一键压缩上下文`;
+        }
+        return;
+      }
+
+      const currentTokens = calculateCurrentContextTokens(currentSession);
+      const rawPct = (currentTokens / maxTokens) * 100;
+      const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
+
+      contextRingMeter.setAttribute('stroke-dasharray', `${pct}, 100`);
+      contextRingText.textContent = `${pct}%`;
+
+      if (pct >= 85) {
+        contextRingMeter.classList.add('danger');
+        contextRingMeter.classList.remove('warning');
+      } else if (pct >= 60) {
+        contextRingMeter.classList.add('warning');
+        contextRingMeter.classList.remove('danger');
+      } else {
+        contextRingMeter.classList.remove('warning', 'danger');
+      }
+
+      if (contextRingWrap) {
+        contextRingWrap.title = `当前上下文: ${currentTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pct}%)\n点击一键压缩上下文`;
+      }
+    }
+
+    async function triggerCompactContext() {
+      if (!currentSession) {
+        alert('当前没有活跃的会话');
+        return;
+      }
+      if (isGenerating && generatingSessionId === currentSession.id) {
+        alert('当前会话正在生成回复中，请等待生成完毕或中断后再压缩上下文。');
+        return;
+      }
+      const msgs = currentSession.messages || [];
+      const userOrAsstMsgs = msgs.filter(m => m.role === 'user' || m.role === 'assistant');
+      if (userOrAsstMsgs.length < 2) {
+        alert('当前会话历史记录较短，暂无需压缩上下文。');
+        return;
+      }
+
+      const confirmMsg = '确定要对当前会话进行一键压缩上下文吗？\n\n系统将保留最新对话轮次，把较早的历史对话高密度提炼为结构化摘要，大幅释放模型上下文窗口空间。';
+      if (!confirm(confirmMsg)) {
+        return;
+      }
+
+      if (btnCompactContext) {
+        btnCompactContext.disabled = true;
+        btnCompactContext.textContent = '压缩中…';
+      }
+      if (contextRingWrap) {
+        contextRingWrap.style.opacity = '0.6';
+        contextRingWrap.style.pointerEvents = 'none';
+      }
+
+      try {
+        const res = await ctx.call('compactContext', { sessionId: currentSession.id });
+        if (res && res.ok && res.session) {
+          currentSession = res.session;
+          const sIdx = sessions.findIndex(s => s.id === currentSession.id);
+          if (sIdx !== -1) {
+            sessions[sIdx] = currentSession;
+          }
+          renderMessages();
+          updateHeader();
+          renderSessionsList();
+        } else {
+          alert('压缩上下文失败: ' + ((res && res.error) || '未知错误'));
+        }
+      } catch (err) {
+        alert('压缩上下文请求异常: ' + (err.message || String(err)));
+      } finally {
+        if (btnCompactContext) {
+          btnCompactContext.disabled = false;
+          btnCompactContext.textContent = '🗜️ 压缩上下文';
+        }
+        if (contextRingWrap) {
+          contextRingWrap.style.opacity = '';
+          contextRingWrap.style.pointerEvents = '';
+        }
+      }
+    }
+
+    if (btnCompactContext) {
+      btnCompactContext.addEventListener('click', () => {
+        triggerCompactContext();
+      });
+    }
+
+    if (contextRingWrap) {
+      contextRingWrap.addEventListener('click', () => {
+        triggerCompactContext();
+      });
+    }
+
     function updateHeader() {
       if (!currentSession) {
         headerTitle.textContent = '暂无对话';
         sessionUsageBadge.textContent = '0 tokens';
         headerWorkDirPill.textContent = '📁';
         headerWorkDirPill.title = 'Agent 工作目录';
+        updateContextProgress();
         return;
       }
       headerTitle.textContent = currentSession.title || '新对话';
@@ -946,6 +1085,7 @@
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
       sessionUsageBadge.textContent = `${tokens.toLocaleString()} tokens`;
       updateActivePersonaPill();
+      updateContextProgress();
     }
 
     // Scroll Control
@@ -1130,6 +1270,13 @@
           fbBadge.className = 'ai-msg-fallback-badge';
           fbBadge.textContent = `⚠️ 主模型 [${msg.fallbackFrom}] 异常，已自动降级至备用模型`;
           bubble.appendChild(fbBadge);
+        }
+
+        if (msg.isCompacted) {
+          const compactBadge = document.createElement('div');
+          compactBadge.className = 'ai-compact-badge';
+          compactBadge.innerHTML = '<span>🗜️</span> <span>历史上下文压缩检查点</span>';
+          bubble.appendChild(compactBadge);
         }
 
         const formatToolResultForDisplay = (res) => {
@@ -1362,6 +1509,7 @@
             currentSession = res.session;
             renderMessages();
             renderSessionsList();
+            updateHeader();
           }
         });
       }
@@ -1498,6 +1646,7 @@
 
       renderMessages();
       renderSessionsList();
+      updateHeader();
 
       const enableCot = pillCot.classList.contains('active');
       const enableAgent = pillAgent.classList.contains('active');
@@ -1966,7 +2115,9 @@
         });
         if (chunk.sessionTotalTokens) {
           sessionUsageBadge.textContent = `${chunk.sessionTotalTokens.totalTokens.toLocaleString()} tokens`;
+          if (currentSession) currentSession.totalTokens = chunk.sessionTotalTokens;
         }
+        updateContextProgress();
         if (chunk.type === 'error') {
           const errDiv = document.createElement('div');
           errDiv.style.color = 'var(--red)';

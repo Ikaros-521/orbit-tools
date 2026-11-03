@@ -21,6 +21,7 @@ const McpService = require('./services/mcp-service');
 const { SkillsService, DEFAULT_SKILLS } = require('./services/skills-service');
 const { ChatService } = require('./services/chat-service');
 const { processManager } = require('./services/process-manager');
+const { compactionService } = require('./services/compaction-service');
 
 const DEFAULT_CONFIG = {
   channel: 'openai',
@@ -34,6 +35,7 @@ const DEFAULT_CONFIG = {
   enableReasoning: true,
   thinkingBudget: 2048,
   maxContextMessages: 16,
+  maxContextTokens: 200000,
   enableAgent: true,
   agentApprovalMode: 'ask',
   agentMaxRounds: 8,
@@ -84,6 +86,7 @@ const genId = (prefix = 'id') => `${prefix}_${Date.now().toString(36)}_${Math.ra
 let disposeAll = null;
 
 module.exports = {
+  DEFAULT_CONFIG,
   activate(ctx) {
     const rawData = ctx.data.get() || {};
     let config = { ...DEFAULT_CONFIG, ...(rawData.config || {}) };
@@ -555,6 +558,28 @@ module.exports = {
       s.updatedAt = Date.now();
       save();
       return { ok: true, session: s };
+    });
+
+    /* --- Context Compaction & Token Metrics --- */
+
+    ctx.ipc.handle('compactContext', async args => {
+      const sessionId = args && args.sessionId;
+      const s = findSession(sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      if (chatService.isSessionStreaming(s.id)) {
+        return { ok: false, error: '该会话正在生成中，请先等待或中断生成' };
+      }
+      const res = await compactionService.compactSession(s, { config, getPersona, genId });
+      if (res && res.ok) {
+        save();
+      }
+      return res;
+    });
+
+    ctx.ipc.handle('getContextTokens', args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, tokens: 0 };
+      return { ok: true, tokens: compactionService.calculateContextTokens(s) };
     });
 
     /* --- External AI IDEs --- */
