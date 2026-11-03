@@ -273,6 +273,8 @@
       () => { window.host.win('hide'); window.host.openWorkbench({ view: 'workflows' }); });
     sys('⚙️', isZh ? '打开偏好设置' : 'Preferences', 'Workbench', 'settings 设置 偏好', 'sys:settings',
       () => { window.host.win('hide'); window.host.openWorkbench({ view: 'settings' }); });
+    sys('🚀', isZh ? '检查软件更新' : 'Check for Updates', 'Workbench', 'update 更新 检查更新 版本 升级 upgrade', 'sys:update',
+      () => { window.host.win('hide'); window.host.openWorkbench({ view: 'settings', action: 'check-update' }); });
     sys('🔄', isZh ? '重新扫描插件' : 'Rescan Plugins', 'Action', 'rescan 重新扫描 刷新插件', 'sys:rescan',
       async () => {
         const res = await window.host.rescanPlugins();

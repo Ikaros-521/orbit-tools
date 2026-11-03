@@ -58,6 +58,13 @@ const els = {
   btnResetPluginData: $('btnResetPluginData'),
   btnGotoPlugins: $('btnGotoPlugins'),
   aboutVer: $('aboutVer'), btnRepo: $('btnRepo'),
+  btnCheckUpdate: $('btnCheckUpdate'), updateBadge: $('updateBadge'), chkAutoUpdate: $('chkAutoUpdate'),
+  updateModalMask: $('updateModalMask'), updateModal: $('updateModal'), btnUpdateModalClose: $('btnUpdateModalClose'),
+  updatePubDate: $('updatePubDate'), updateCurVer: $('updateCurVer'), updateNewVer: $('updateNewVer'),
+  updateNotesBox: $('updateNotesBox'), updateDownloadArea: $('updateDownloadArea'),
+  updateProgressText: $('updateProgressText'), updateProgressSpeed: $('updateProgressSpeed'),
+  updateProgressFill: $('updateProgressFill'), updateErrorText: $('updateErrorText'),
+  btnUpdateCancel: $('btnUpdateCancel'), btnUpdateOpenBrowser: $('btnUpdateOpenBrowser'), btnUpdateAction: $('btnUpdateAction'),
   // Context menu elements
   cardContextMenu: $('cardContextMenu'), ctxTitle: $('ctxTitle'),
   ctxLaunch: $('ctxLaunch'), ctxConfig: $('ctxConfig'),
@@ -73,6 +80,10 @@ const state = {
   hotkeys: [],           // [{key, accel, ok, conflictKey}] from main
   view: 'home',          // home | plugins | settings | panel
   openId: null,          // plugin whose panel is showing
+  updateInfo: null,
+  isCheckingUpdate: false,
+  downloadingUpdate: false,
+  downloadedFilePath: null,
   mounted: null,         // {def, ctx, unsubscribers[]}
   query: '',
   smartPeekData: null,
@@ -914,6 +925,10 @@ function renderSettings() {
       els.actionPaletteHotkeyCtrl.appendChild(chip);
     }
   }
+
+  if (els.chkAutoUpdate) {
+    els.chkAutoUpdate.checked = state.config.autoCheckUpdate !== false;
+  }
 }
 
 /* --- boot ------------------------------------------------------------------------------ */
@@ -1047,6 +1062,185 @@ els.btnRescan.addEventListener('click', async () => {
 els.btnUserPlugins.addEventListener('click', () => window.host.openUserPlugins());
 els.btnRepo.addEventListener('click', () => window.host.openExternal('https://github.com/Ikaros-521/orbit-tools'));
 els.btnGotoPlugins.addEventListener('click', () => setView('plugins'));
+
+/* --- update & release manager ----------------------------------------------------------- */
+function hideUpdateModal() {
+  if (els.updateModalMask) els.updateModalMask.hidden = true;
+}
+
+function showUpdateModal(info) {
+  if (!els.updateModalMask || !info) return;
+  state.updateInfo = info;
+  state.downloadedFilePath = null;
+  state.downloadingUpdate = false;
+
+  if (els.updatePubDate) {
+    els.updatePubDate.textContent = info.publishedAt
+      ? I18N.t('updateModalReleaseDate', { date: new Date(info.publishedAt).toLocaleDateString() })
+      : '';
+  }
+  if (els.updateCurVer) els.updateCurVer.textContent = `v${info.currentVersion}`;
+  if (els.updateNewVer) els.updateNewVer.textContent = `v${info.latestVersion}`;
+  if (els.updateNotesBox) els.updateNotesBox.textContent = info.releaseNotes || '暂无详细更新说明';
+
+  if (els.updateDownloadArea) els.updateDownloadArea.hidden = true;
+  if (els.updateProgressFill) els.updateProgressFill.style.width = '0%';
+  if (els.updateErrorText) {
+    els.updateErrorText.hidden = true;
+    els.updateErrorText.textContent = '';
+  }
+
+  if (info.asset && info.asset.downloadUrl) {
+    els.btnUpdateAction.hidden = false;
+    els.btnUpdateAction.disabled = false;
+    els.btnUpdateAction.textContent = I18N.t('btnDownloadUpdate');
+  } else {
+    els.btnUpdateAction.hidden = true;
+  }
+
+  els.updateModalMask.hidden = false;
+}
+
+async function checkForUpdates(manual = false) {
+  if (state.isCheckingUpdate) return;
+  state.isCheckingUpdate = true;
+  if (els.btnCheckUpdate) {
+    els.btnCheckUpdate.disabled = true;
+    els.btnCheckUpdate.textContent = I18N.t('checkingUpdate');
+  }
+  try {
+    const res = await window.host.checkUpdate({ manual });
+    state.updateInfo = res;
+    if (res && res.hasUpdate) {
+      if (els.updateBadge) {
+        els.updateBadge.hidden = false;
+        els.updateBadge.className = 'update-badge has-update';
+        els.updateBadge.textContent = I18N.t('updateFound', { version: `v${res.latestVersion}` });
+      }
+      showUpdateModal(res);
+    } else if (res && res.ok) {
+      if (els.updateBadge) {
+        els.updateBadge.hidden = false;
+        els.updateBadge.className = 'update-badge';
+        els.updateBadge.textContent = I18N.t('updateLatest');
+        setTimeout(() => { if (els.updateBadge && !state.updateInfo?.hasUpdate) els.updateBadge.hidden = true; }, 4000);
+      }
+    } else {
+      if (manual && els.updateBadge) {
+        els.updateBadge.hidden = false;
+        els.updateBadge.className = 'update-badge warn';
+        els.updateBadge.textContent = I18N.t('updateCheckFailed');
+        setTimeout(() => { if (els.updateBadge && !state.updateInfo?.hasUpdate) els.updateBadge.hidden = true; }, 4000);
+      }
+    }
+  } catch (err) {
+    console.error('Update check failed:', err);
+  } finally {
+    state.isCheckingUpdate = false;
+    if (els.btnCheckUpdate) {
+      els.btnCheckUpdate.disabled = false;
+      els.btnCheckUpdate.textContent = I18N.t('checkUpdate');
+    }
+  }
+}
+
+async function handleUpdateAction() {
+  if (!state.updateInfo) return;
+  if (state.downloadedFilePath) {
+    try {
+      await window.host.installUpdate(state.downloadedFilePath);
+    } catch (err) {
+      if (els.updateErrorText) {
+        els.updateErrorText.hidden = false;
+        els.updateErrorText.textContent = `启动安装失败: ${err.message || err}`;
+      }
+    }
+    return;
+  }
+
+  const asset = state.updateInfo.asset;
+  if (!asset || !asset.downloadUrl) {
+    window.host.openExternal(state.updateInfo.releaseUrl);
+    return;
+  }
+
+  state.downloadingUpdate = true;
+  if (els.updateDownloadArea) els.updateDownloadArea.hidden = false;
+  if (els.updateErrorText) els.updateErrorText.hidden = true;
+  els.btnUpdateAction.disabled = true;
+  els.btnUpdateAction.textContent = I18N.t('btnDownloadingUpdate', { percent: 0 });
+
+  try {
+    const res = await window.host.downloadUpdate({
+      downloadUrl: asset.downloadUrl,
+      fileName: asset.name,
+    });
+    if (res && res.ok && res.filePath) {
+      state.downloadedFilePath = res.filePath;
+      state.downloadingUpdate = false;
+      if (els.updateProgressFill) els.updateProgressFill.style.width = '100%';
+      if (els.updateProgressText) els.updateProgressText.textContent = '下载完成！安装包已就绪';
+      if (els.updateProgressSpeed) els.updateProgressSpeed.textContent = '';
+      els.btnUpdateAction.disabled = false;
+      els.btnUpdateAction.textContent = I18N.t('btnInstallUpdate');
+    } else {
+      throw new Error(res && res.error ? res.error : '下载中断');
+    }
+  } catch (err) {
+    state.downloadingUpdate = false;
+    els.btnUpdateAction.disabled = false;
+    els.btnUpdateAction.textContent = I18N.t('btnDownloadUpdate');
+    if (els.updateErrorText) {
+      els.updateErrorText.hidden = false;
+      els.updateErrorText.textContent = `${I18N.t('updateModalDownloadFailed')} (${err.message || err})`;
+    }
+  }
+}
+
+if (els.btnCheckUpdate) els.btnCheckUpdate.addEventListener('click', () => checkForUpdates(true));
+if (els.chkAutoUpdate) {
+  els.chkAutoUpdate.addEventListener('change', () => {
+    window.host.setPref('autoCheckUpdate', els.chkAutoUpdate.checked);
+  });
+}
+if (els.btnUpdateAction) els.btnUpdateAction.addEventListener('click', handleUpdateAction);
+if (els.btnUpdateOpenBrowser) {
+  els.btnUpdateOpenBrowser.addEventListener('click', () => {
+    window.host.openExternal(state.updateInfo ? state.updateInfo.releaseUrl : 'https://github.com/Ikaros-521/orbit-tools/releases');
+  });
+}
+if (els.btnUpdateModalClose) els.btnUpdateModalClose.addEventListener('click', hideUpdateModal);
+if (els.btnUpdateCancel) els.btnUpdateCancel.addEventListener('click', hideUpdateModal);
+if (els.updateModalMask) {
+  els.updateModalMask.addEventListener('click', e => {
+    if (e.target === els.updateModalMask && !state.downloadingUpdate) hideUpdateModal();
+  });
+}
+
+if (window.host.onUpdaterProgress) {
+  window.host.onUpdaterProgress(prog => {
+    if (!state.downloadingUpdate) return;
+    if (els.updateProgressFill) els.updateProgressFill.style.width = `${prog.percent}%`;
+    if (els.updateProgressText) els.updateProgressText.textContent = I18N.t('btnDownloadingUpdate', { percent: prog.percent });
+    if (els.updateProgressSpeed && prog.speed) {
+      const speedMb = (prog.speed / (1024 * 1024)).toFixed(1);
+      els.updateProgressSpeed.textContent = `${speedMb} MB/s`;
+    }
+  });
+}
+
+if (window.host.onUpdaterHasUpdate) {
+  window.host.onUpdaterHasUpdate(info => {
+    if (info && info.hasUpdate) {
+      state.updateInfo = info;
+      if (els.updateBadge) {
+        els.updateBadge.hidden = false;
+        els.updateBadge.className = 'update-badge has-update';
+        els.updateBadge.textContent = I18N.t('updateFound', { version: `v${info.latestVersion}` });
+      }
+    }
+  });
+}
 
 /* --- plugin center filters & pagination events ------------------------------------------ */
 els.pluginSearch.addEventListener('input', () => {
@@ -2724,6 +2918,9 @@ if (window.host.onNavigateTo) {
     } else if (opts.view) {
       closePanel();
       setView(opts.view);
+      if (opts.action === 'check-update') {
+        setTimeout(() => checkForUpdates(true), 120);
+      }
     }
   });
 }
@@ -2927,6 +3124,8 @@ async function collectActionPaletteItems() {
     () => { closePanel(); setView('workflows'); });
   sys('⚙️', isZh ? '打开偏好设置' : 'Preferences', 'View', 'settings 设置 偏好', 'sys:settings',
     () => { closePanel(); setView('settings'); });
+  sys('🚀', isZh ? '检查软件更新' : 'Check for Updates', 'System', 'update 更新 检查更新 版本 升级 upgrade', 'sys:update',
+    () => checkForUpdates(true));
   sys('🔄', isZh ? '重新扫描插件' : 'Rescan Plugins', 'Action', 'rescan 重新扫描 刷新插件', 'sys:rescan',
     async () => {
       const res = await window.host.rescanPlugins();

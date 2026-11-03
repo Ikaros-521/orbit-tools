@@ -285,6 +285,18 @@ if (!app.requestSingleInstanceLock()) {
     createWindow();
     createPaletteWindow();
     createTray();
+
+    if (cfg.data.autoCheckUpdate !== false && manager.updateManager) {
+      setTimeout(async () => {
+        try {
+          const res = await manager.updateManager.checkForUpdates({ manual: false });
+          if (res && res.hasUpdate && win && !win.isDestroyed()) {
+            win.webContents.send('updater-has-update', res);
+          }
+        } catch { /* silent background check failure */ }
+      }, 4500);
+    }
+
     app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); else toggleWindow(); });
   });
 

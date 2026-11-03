@@ -3,8 +3,12 @@
 const { ipcMain, shell, dialog, BrowserWindow } = require('electron');
 const fs = require('fs');
 const { WorkflowManager } = require('./workflows');
+const { UpdateManager, RELEASES_PAGE_URL } = require('./updater');
 
 module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindow, getPaletteWindow, openWorkbench, toggleActionPalette }) {
+  const updateManager = new UpdateManager({ cfg, appVersion: app && app.getVersion ? app.getVersion() : '0.0.0' });
+  manager.updateManager = updateManager;
+
   const workflowManager = new WorkflowManager(cfg, manager, {
     // auto-runs (clipboard triggers etc.) are mirrored to the host window so
     // the workflow console can show them live while the canvas is open
@@ -19,7 +23,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     platform: process.platform,
     appVersion: app.getVersion(),
     name: { en: 'Orbit Toolbox', zh: '轨道工具箱' },
-    config: { hotkey: cfg.data.hotkey, actionPaletteHotkey: cfg.data.actionPaletteHotkey || null, lang: cfg.data.lang, theme: cfg.data.theme, deckSort: cfg.data.deckSort },
+    config: { hotkey: cfg.data.hotkey, actionPaletteHotkey: cfg.data.actionPaletteHotkey || null, lang: cfg.data.lang, theme: cfg.data.theme, deckSort: cfg.data.deckSort, autoCheckUpdate: cfg.data.autoCheckUpdate !== false },
     plugins: manager.serialize(),
     hotkeys: hotkeys.status,
     workflows: workflowManager.list(),
@@ -91,6 +95,10 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     // stale value, so fall back rather than store a mode nothing renders
     if (k === 'deckSort') {
       cfg.set({ deckSort: ['default', 'frequent', 'recent', 'name'].includes(v) ? v : 'default' });
+      return cfg.data;
+    }
+    if (k === 'autoCheckUpdate') {
+      cfg.set({ autoCheckUpdate: Boolean(v) });
       return cfg.data;
     }
     if (!['lang', 'theme'].includes(k)) return cfg.data;
@@ -211,6 +219,36 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
   ipcMain.handle('toggle-action-palette', () => {
     if (typeof toggleActionPalette === 'function') toggleActionPalette();
     return true;
+  });
+
+  ipcMain.handle('updater-check', async (e, opts) => {
+    return await updateManager.checkForUpdates(opts);
+  });
+
+  ipcMain.handle('updater-download', async (e, { downloadUrl, fileName }) => {
+    const host = getHostWindow && getHostWindow();
+    try {
+      const res = await updateManager.downloadUpdate(downloadUrl, fileName, progress => {
+        if (host && !host.isDestroyed()) {
+          host.webContents.send('updater-progress', progress);
+        }
+      });
+      return res;
+    } catch (err) {
+      return { ok: false, error: String(err && err.message || err) };
+    }
+  });
+
+  ipcMain.handle('updater-cancel-download', () => {
+    return updateManager.cancelDownload();
+  });
+
+  ipcMain.handle('updater-install', async (e, filePath) => {
+    try {
+      return await updateManager.installUpdate(filePath);
+    } catch (err) {
+      return { ok: false, error: String(err && err.message || err) };
+    }
   });
 
   ipcMain.on('win', (e, action) => {

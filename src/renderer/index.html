@@ -284,8 +284,24 @@
       <div class="set-group">
         <div class="etiquette">ABOUT<span class="cn" data-i18n="setAbout">／ 关于</span></div>
         <div class="set-row about-row">
-          <span id="aboutVer" class="mono"></span>
-          <button type="button" class="btn ghost" id="btnRepo">GitHub</button>
+          <div class="about-ver-wrap">
+            <span id="aboutVer" class="mono"></span>
+            <span id="updateBadge" class="update-badge" hidden></span>
+          </div>
+          <div class="about-actions">
+            <button type="button" class="btn small" id="btnCheckUpdate" data-i18n="checkUpdate">检查更新</button>
+            <button type="button" class="btn ghost small" id="btnRepo">GitHub</button>
+          </div>
+        </div>
+        <div class="set-row">
+          <div class="set-label">
+            <b data-i18n="autoCheckUpdate">启动时自动检查更新</b>
+            <span data-i18n="autoCheckUpdateHint">启动数秒后在后台静默检测 GitHub 最新版本</span>
+          </div>
+          <label class="switch-wrap">
+            <input type="checkbox" id="chkAutoUpdate" checked>
+            <span class="switch-slider"></span>
+          </label>
         </div>
       </div>
     </section>
@@ -407,6 +423,52 @@
       <span><kbd>Enter</kbd> 触发</span>
       <span><kbd>Alt</kbd>+<kbd>1-9</kbd> 快速触发</span>
       <span><kbd>Esc</kbd> 关闭</span>
+    </div>
+  </div>
+</div>
+
+<!-- 更新提示与下载模态框 / Update Modal -->
+<div id="updateModalMask" class="modal-mask" hidden>
+  <div class="modal update-modal" id="updateModal">
+    <div class="modal-header">
+      <div class="modal-title-group">
+        <span class="modal-icon">🚀</span>
+        <div>
+          <b class="modal-title" data-i18n="updateModalTitle">发现软件新版本</b>
+          <span class="update-pub-date mono" id="updatePubDate"></span>
+        </div>
+      </div>
+      <button type="button" class="modal-close" id="btnUpdateModalClose" title="关闭">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="update-ver-banner">
+        <div class="ver-box current">
+          <span class="ver-label" data-i18n="updateModalCurrentVer">当前版本</span>
+          <span class="ver-val mono" id="updateCurVer"></span>
+        </div>
+        <div class="ver-arrow">➔</div>
+        <div class="ver-box latest">
+          <span class="ver-label" data-i18n="updateModalLatestVer">最新版本</span>
+          <span class="ver-val mono highlight" id="updateNewVer"></span>
+        </div>
+      </div>
+      <div class="update-notes-title" data-i18n="updateModalChangelog">更新日志</div>
+      <div class="update-notes-box" id="updateNotesBox"></div>
+      <div class="update-download-area" id="updateDownloadArea" hidden>
+        <div class="progress-info">
+          <span id="updateProgressText">正在下载…</span>
+          <span id="updateProgressSpeed" class="mono"></span>
+        </div>
+        <div class="progress-bar-bg">
+          <div class="progress-bar-fill" id="updateProgressFill" style="width: 0%"></div>
+        </div>
+      </div>
+      <div class="update-error-text" id="updateErrorText" hidden></div>
+    </div>
+    <div class="modal-footer">
+      <button type="button" class="btn ghost" id="btnUpdateCancel" data-i18n="updateModalCancel">稍后提醒</button>
+      <button type="button" class="btn ghost" id="btnUpdateOpenBrowser" data-i18n="btnOpenReleasePage">前往 GitHub 发布页</button>
+      <button type="button" class="btn primary" id="btnUpdateAction" data-i18n="btnDownloadUpdate">一键下载更新</button>
     </div>
   </div>
 </div>

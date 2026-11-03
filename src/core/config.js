@@ -15,6 +15,7 @@ const DEFAULTS = {
   workflows: [],        // visual DAG workflows
   workflowsSeeded: false, // true once the demo workflows have been seeded once
   usage: {},            // actionUsageId -> {n: count, t: lastUsedAt} for palette frecency
+  autoCheckUpdate: true, // 启动时是否自动检查更新
 };
 
 /* A hand-edited or corrupted config.json (e.g. "enabled": null) must never

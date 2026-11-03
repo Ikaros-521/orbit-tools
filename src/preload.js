@@ -45,4 +45,10 @@ contextBridge.exposeInMainWorld('host', {
   deleteWorkflow: id => ipcRenderer.invoke('workflow-delete', id),
   runWorkflow: (id, input) => ipcRenderer.invoke('workflow-run', { id, input }),
   onWorkflowEvent: fn => on('workflow-event', fn),
+  checkUpdate: opts => ipcRenderer.invoke('updater-check', opts),
+  downloadUpdate: ({ downloadUrl, fileName }) => ipcRenderer.invoke('updater-download', { downloadUrl, fileName }),
+  cancelDownloadUpdate: () => ipcRenderer.invoke('updater-cancel-download'),
+  installUpdate: filePath => ipcRenderer.invoke('updater-install', filePath),
+  onUpdaterProgress: fn => on('updater-progress', fn),
+  onUpdaterHasUpdate: fn => on('updater-has-update', fn),
 });

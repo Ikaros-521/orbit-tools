@@ -1,6 +1,6 @@
 {
   "name": "orbit-tools",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "description": "A uTools-style pluggable developer toolbox — 截图悬浮 / 画板 / 端口进程 / 编码转换，皆可插拔",
   "main": "src/main.js",
   "author": {
@@ -17,8 +17,9 @@
     "test:workflows": "electron tools/test-workflows.js",
     "test:workflow-ui": "electron tools/test-workflow-ui.js",
     "test:responsive": "electron tools/test-card-responsive.js",
+    "test:updater": "node tools/test-updater-flow.js",
     "test:ai": "node tools/test-ai-protocols.js && node tools/test-ai-ide-dispatch.js && node tools/test-ai-markdown-mermaid.js",
-    "test:all": "node tools/test-color-math.js && node tools/test-ai-protocols.js && node tools/test-ai-ide-dispatch.js && node tools/test-ai-markdown-mermaid.js && electron tools/smoke-plugins.js && electron tools/test-renderer-boot.js && electron tools/test-deck-sort.js && electron tools/test-workflows.js && electron tools/test-workflow-ui.js && electron tools/test-card-responsive.js",
+    "test:all": "node tools/test-color-math.js && node tools/test-updater-flow.js && node tools/test-ai-protocols.js && node tools/test-ai-ide-dispatch.js && node tools/test-ai-markdown-mermaid.js && electron tools/smoke-plugins.js && electron tools/test-renderer-boot.js && electron tools/test-deck-sort.js && electron tools/test-workflows.js && electron tools/test-workflow-ui.js && electron tools/test-card-responsive.js",
     "icon": "node tools/make-icon.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --x64",
