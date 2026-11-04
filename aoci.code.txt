@@ -58,7 +58,7 @@ capabilities.js[DG8M]: F:宿主系统与本地环境能力探测器，检测命�
 config.js[DC8T]: F:全局配置管理模块，负责config.json读取、深合并、形状校验与原子化持久化（tmp+rename），覆盖插件启用、热键、主题、排序、工作流与自动更新开关 | R:- | A:load,save,set | S:每个字段经shapeOk形状校验，损坏配置静默重置默认值而非阻断启动；actionPaletteHotkey允许显式null（用户已清空热键）不被复活为Ctrl+K；save失败仅告警不抛——它会被定时器回调调用，裸抛等于主进程崩溃
 hotkeys.js[DU8M]: F:全局热键注册与防冲突管理，校验外部软件独占并提供启动降级fallback | R:code:src/core/config.js | A:registerAll,registerHotkey,unregisterAll | S:准确捕获被外部独占的失败状态，注册失败时自动标黄提示并降级备用键
 ipc.js[MB8M]: F:核心IPC通道集中注册表，分发插件调用、剪贴板、热键、用户偏好、工作流DAG与自动更新（检查/下载/安装）通道 | R:code:src/core/config.js,code:src/core/hotkeys.js,code:src/core/plugin-manager.js,code:src/core/workflows.js,code:src/core/updater.js | A:registerIpc | S:UpdateManager与WorkflowManager实例挂到manager上复用（manager.updateManager），main.js启动后台检查更新依赖此挂载点；插件启停/重扫/换目录触发的registerAll均带allowFallback:false——仅启动路径允许降级改键，日常IPC重挂静默改写用户热键曾是真实缺陷
-plugin-manager.js[DE9L]: F:插件系统生命周期管理器，扫描src/plugins并按plugin.json加载前后端、分配上下文与管理状态 | R:code:src/core/plugin-protocol.js | A:loadAll,getPlugins,invokeBackend | S:注入受控的PluginContext给后端，阻止全栈插件直接逃逸主进程沙箱；activate用statSync.isFile校验backend并整目录清空require缓存（含子模块），畸形manifest只记loadErrors不击穿启动链；onPluginEvent订阅记入state.busSubs由deactivate统一退订
+plugin-manager.js[DE9L]: F:插件系统生命周期管理器，扫描src/plugins并按plugin.json加载前后端、分配上下文与管理状态 | R:code:src/core/plugin-protocol.js | A:loadAll,getPlugins,invokeBackend | S:注入受控的PluginContext给后端，阻止全栈插件直接逃逸主进程沙箱；activate用statSync.isFile校验backend并整目录清空require缓存（含子模块），畸形manifest只记loadErrors不击穿启动链；onPluginEvent订阅记入state.busSubs由deactivate统一退订；ctx.data.set为tmp+rename原子写且读损坏文件先改名.corrupt-<ts>备份——直接吞掉会让插件重播种覆写原数据
 plugin-protocol.js[IE7T]: F:orbit-plugin自定义协议处理器，安全映射插件静态资源目录到本地文件系统 | R:code:src/core/plugin-manager.js | A:registerPluginProtocol | S:路径校验限制在允许的插件根目录下，杜绝路径穿越访问敏感文件
 selection-reader.cs[IU6T]: F:Windows原生C#控制台辅助源码，通过UI Automation安全提取当前前台窗口选中文本 | R:code:src/core/selection.js | A:Main | S:针对不支持快捷键复制的无障碍应用直接读取选区文本
 selection.js[DU7M]: F:跨进程当前屏幕选区内容获取模块，组合按键模拟与原生无障碍API提取选区 | R:code:src/core/selection-reader.cs,code:src/core/send_copy.vbs | A:getSelectedText,captureSelection | S:获取前先备份剪贴板并在操作后恢复，避免破坏用户原本的剪贴板内容；timeoutMs同时约束UIA子进程与剪贴板轮询两条路径，UIA超预算即回退按键模拟路径
@@ -67,12 +67,12 @@ workflows.js[DW8L]: F:自动化工作流编排与执行引擎，支持触发器�
 updater.js[OV8L]: F:应用自动更新管理器，检查GitHub Releases最新版、语义化版本比较（先行版本按semver数值段比较）、按平台架构匹配安装包Asset并支持分片断点续传下载与安装（写流错误兜底+30秒空闲超时） | R:code:src/core/config.js,code:src/core/ipc.js,code:src/main.js | A:checkForUpdates,compareVersions,matchPlatformAsset | S:下载分片缓存在%TEMP%/orbit-update；应用退出路径必须调用cancelDownload终止活动请求，否则悬挂的net请求会延迟退出；先行版本比较勿改回localeCompare——字典序会把beta.10误判小于beta.2
 
 ===E:/Github_Pro/orbit-tools/src/renderer/===
-app.js[EU9L]: F:渲染层主控制器：装配deck/命令抽屉/插件中心/设置/更新/工作流视图模块，驱动插件卡片列表、视图切换与全局事件协调 | R:code:src/renderer/modules/deck-view.js,code:src/renderer/modules/action-palette-view.js,code:src/renderer/modules/plugin-center.js,code:src/renderer/modules/settings-view.js,code:src/renderer/i18n.js,code:src/renderer/style.css | A:initApp,renderPlugins,switchTab | S:纯原生JS无框架；视图模块经window.Orbit*命名空间注入并由app.js统一传入共享ctx（state/els/I18N/escapeHtml），新模块勿自建全局状态
-i18n.js[CL6S]: F:国际化多语言翻译字典与文本替换辅助模块，支持zh-CN与en-US无缝切换，含更新器等新增词条 | R:code:src/renderer/app.js | A:t,setLocale,getLocale | S:-
+app.js[EU9L]: F:渲染层主控制器：装配deck/命令抽屉/插件中心/设置/更新/工作流视图模块，驱动插件卡片列表、视图切换与全局事件协调 | R:code:src/renderer/modules/deck-view.js,code:src/renderer/modules/action-palette-view.js,code:src/renderer/modules/plugin-center.js,code:src/renderer/modules/settings-view.js,code:src/renderer/i18n.js,code:src/renderer/style.css | A:initApp,renderPlugins,switchTab | S:纯原生JS无框架；视图模块经window.Orbit*命名空间注入并由app.js统一传入共享ctx（state/els/I18N/escapeHtml），新模块勿自建全局状态；openPlugin入口先closePanel（palette/桌宠/smart-peek直切面板不经过setView，不卸载旧面板会永久泄漏onEvent订阅）；动作抽屉热键只按用户配置匹配且插件面板输入区不拦截（豁免工作台自身搜索框）
+i18n.js[CL6S]: F:国际化多语言翻译字典与文本替换辅助模块，支持zh-CN与en-US无缝切换，含更新器等新增词条 | R:code:src/renderer/app.js | A:t,setLocale,getLocale | S:t()对缺失key返回key本身且恒truthy，消费方的||兜底永不生效——新增消费点（如热键冲突labelForKey的hostSummon/actionPaletteSummon）必须同步补双语词条
 index.html[EU7L]: F:Orbit Toolbox主窗口结构骨架：侧边导航、插件主内容区、设置抽屉、更新弹窗与工作流画布容器 | R:code:src/renderer/app.js,code:src/renderer/style.css | A:- | S:-
 palette-search.js[KU6T]: F:快捷指令命令面板搜索算法，结合拼音首字母与关键词权重实现模糊匹配过滤 | R:code:src/renderer/pinyin.js | A:matchQuery,rankResults | S:-
 palette.html[EU6T]: F:快捷呼出Spotlight式命令面板结构HTML，提供极简单行输入与悬浮搜索卡片 | R:code:src/renderer/palette.js | A:- | S:-
-palette.js[EU8L]: F:悬浮动作抽屉前端：拼音/关键词模糊搜索、键盘导航、剪贴板载荷类型嗅探前置与插件/工作流快速执行 | R:code:src/renderer/palette-search.js,code:src/renderer/payload-type.js | A:initPalette,handleKeydown,executeAction | S:动作推荐三级排序：划选文本>剪贴板内容>其他动作，pinned不被最近使用压序
+palette.js[EU8L]: F:悬浮动作抽屉前端：拼音/关键词模糊搜索、键盘导航、剪贴板载荷类型嗅探前置与插件/工作流快速执行 | R:code:src/renderer/palette-search.js,code:src/renderer/payload-type.js | A:initPalette,handleKeydown,executeAction | S:动作推荐三级排序：划选文本>剪贴板内容>其他动作，pinned不被最近使用压序；refreshItems跨多个await必须有refreshSeq序号守卫（照deck-view的peekCheckSeq模式），否则旧刷新后完成会回写过期列表
 payload-type.js[DU6S]: F:剪贴板输入载荷类型自动嗅探器，判定文本、JSON、URL、色彩代码或Base64 | R:code:src/renderer/palette.js | A:detectType | S:-
 pinyin.js[CL5T]: F:拼音映射查询轻量工具，提供常用汉字首字母转换供快速输入检索 | R:code:src/renderer/palette-search.js | A:getPinyinInitials | S:-
 style.css[CU7L]: F:主界面全局核心样式表：CSS变量主题令牌（light-dark双主题）、网格布局、按钮弹窗与更新器样式 | R:code:src/renderer/index.html | A:- | S:全部颜色经light-dark()令牌定义，插件面板样式也引用这套宿主令牌，勿写死单主题色
@@ -131,9 +131,9 @@ plugin-capabilities.js[TW5S]: F:工作流场景测试：插件能力调用与IPC
 agent-tools.js[DA8M]: F:Agent工具定义与执行引擎：run_javascript沙箱、工作流生成、技能读取、IDE派发、子代理派生工具及AGENT_TOOL_META风险分级表驱动审批档位 | R:code:src/plugins/ai-chat/local-tools.js,code:src/plugins/ai-chat/mcp-client.js,code:src/plugins/ai-chat/services/subagent-service.js | A:executeAgentTool,resolveToolPermission | S:AGENT_TOOL_META是审批档位判据，未登记的新工具默认high风险（ask/auto档都先询问）；新增无害工具（如submit_plan）必须显式登记为low，否则会与自身交互卡形成双重审批
 backend.js[EB9L]: F:AI对话插件主进程facade：组装services层（会话/审批/压缩/MCP/技能/进程/子代理/计划评审）并注册约50个IPC通道，含steerMessage插话、resolvePlanReview计划评审与resolveToolApproval审批 | R:code:src/plugins/ai-chat/services/chat-service.js,code:src/plugins/ai-chat/protocols.js,code:src/plugins/ai-chat/agent-tools.js,code:src/plugins/ai-chat/memory.js | A:activate,deactivate | S:disposeAll退出路径同步终止agent子进程与MCP连接（spawnSync语义），防孤儿孙进程；插件数据统一经ctx.data持久化到plugin-data/ai-chat.json；ide-dispatcher导入经别名映射（listAvailableIDEs→listAvailableAiIdes），IPC通道名是渲染层契约，勿按模块导出名"纠正"
 icon.svg[CU1T]: F:AI对话插件SVG图标资源 | R:- | A:- | S:-
-ide-dispatcher.js[IA8L]: F:外部AI IDE调度器，生成一键接手Prompt并唤起对应编辑器 | R:- | A:dispatchToIDE | S:通过URI Scheme或命令行启动外部IDE，并自动拷贝上下文到剪贴板
-local-tools.js[DA8L]: F:本地确定性Agent工具集：受控目录内文件读写/精确替换编辑/glob与内容检索、命令执行（超时转后台+OEM解码+进程树清理）、进程查看与停止 | R:code:src/plugins/ai-chat/agent-tools.js | A:executeLocalTool,killRunningCommands | S:内置危险命令拦截黑名单，文件操作仅限会话工作区内；命令与streamId绑定，中断生成时按streamId杀整棵进程树
-mcp-client.js[IA8L]: F:标准stdio MCP客户端实现，连接第三方MCP Server并映射其Tools到Agent上下文 | R:- | A:connectServer,callTool | S:隔离MCP子进程生命周期，通信异常时平滑重连
+ide-dispatcher.js[IA8L]: F:外部AI IDE调度器，生成一键接手Prompt并唤起对应编辑器（open_ide/terminal/headless三模式） | R:- | A:dispatchTask,buildCliSpawn | S:task是模型输出：headless/open_ide绝不shell:true——.cmd走显式cmd.exe /d /s /c+cmdQuote包装（同mcp-client buildSpawnArgs）；terminal模式task入PS双引号串须先psDoubleQuote（$()会执行）、目录入单引号须''转义；terminal模式非Windows显式拒绝而非落未知执行模式
+local-tools.js[DA8L]: F:本地确定性Agent工具集：受控目录内文件读写/精确替换编辑/glob与内容检索、命令执行（超时转后台+OEM解码+进程树清理）、进程查看与停止 | R:code:src/plugins/ai-chat/agent-tools.js | A:executeLocalTool,killRunningCommands | S:内置危险命令拦截黑名单，文件操作仅限会话工作区内；命令与streamId绑定，中断生成时按streamId杀整棵进程树；run_command超时时若主进程已死但孙进程持有stdio管道，close可能永不触发——orphanPipeFallbackTimer 2秒后强制收尾，勿删
+mcp-client.js[IA8L]: F:标准stdio MCP客户端实现，连接第三方MCP Server并映射其Tools到Agent上下文 | R:code:src/plugins/ai-chat/services/mcp-service.js | A:connectServer,callTool,buildMcpToolName,resetMcpToolNames | S:隔离MCP子进程生命周期，通信异常时平滑重连；工具名去重集合是模块级，每轮全量重建工具表前必须resetMcpToolNames()——重连后listTools返回新对象WeakMap必未命中，不重置会让同名工具每重连一次漂移成_2/_3；.cmd shim走cmd.exe /d /s /c+cmdQuote显式包装，绝不shell:true
 memory.js[PA7M]: F:对话历史与长短期记忆存储器，支持会话归档与上下文摘要提炼 | R:- | A:saveMemory,loadMemory | S:-
 panel.css[CU8L]: F:AI对话前端样式表：消息气泡、Markdown排版、工具卡（参数/结果/审批内联）、Turn折叠分组与页脚、计划评审卡、插话角标与hljs令牌配色 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/components/panel-template.js | A:- | S:全部配色走宿主light-dark()令牌，含hljs令牌颜色——禁止写死单主题色或引入hljs官方主题CSS
 panel.js[EU9L]: F:AI对话前端主控制器：会话/消息流式渲染管线（StreamSlot增量渲染+轮折叠+Turn页脚）、工具卡与审批内联、steering插话上屏、计划评审卡与附件上下文popover | R:code:src/plugins/ai-chat/components/panel-template.js,code:src/plugins/ai-chat/components/tool-cards.js,code:src/plugins/ai-chat/lib/stream-renderer.js,code:src/plugins/ai-chat/panel.css | A:mount,renderMessages,createMessageElement | S:严格隔离用户输入与代码高亮防XSS；Enter有isComposing守卫，改键盘逻辑勿破坏IME选词；会话切换后旧StreamSlot会因host失联被丢弃重建
@@ -152,7 +152,7 @@ plugin.json[FE6T]: F:反重力启动器插件清单配置 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/antigravity-launcher/core/===
 detect.js[DI7S]: F:Antigravity IDE安装路径与运行中进程状态探测逻辑 | R:- | A:detectInstallation,isProcessRunning | S:-
-launch.js[DI8M]: F:Antigravity进程启动器，组装进程环境变量、网络代理参数并安全拉起 | R:code:src/plugins/antigravity-launcher/core/proxy.js | A:launchAntigravity | S:确保代理端口联通后再启动目标进程，避免握手失败
+launch.js[DI8M]: F:Antigravity进程启动器，组装进程环境变量、网络代理参数并安全拉起（含代理终端拉起） | R:code:src/plugins/antigravity-launcher/core/proxy.js | A:launchAntigravity,openTerminal | S:确保代理端口联通后再启动目标进程，避免握手失败；openTerminal拼shell脚本时目录必须按目标shell转义（PS单引号''、POSIX '\'、cmd双引号""）——目录名允许含引号，未转义即提前闭合字符串把目录片段当命令执行
 proxy.js[IN8M]: F:网络代理诊断与连通性握手测试器，探测HTTP/SOCKS5代理有效性 | R:- | A:testProxyConnection | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/calculator/===
@@ -164,17 +164,17 @@ panel.js[EU7M]: F:计算器前端界面逻辑，处理键盘输入、历史记�
 plugin.json[FE5T]: F:计算器插件清单元数据 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/clip-history/===
-backend.js[PB8L]: F:剪贴板历史记录主进程后台服务，监听剪贴板变化、持久化历史记录并支持快捷键回填 | R:- | A:init,getHistory,pasteItem | S:针对密码等敏感内容支持正则过滤脱敏
+backend.js[PB8L]: F:剪贴板历史记录主进程后台服务，监听剪贴板变化、防抖持久化历史记录并支持快捷键回填 | R:- | A:init,getHistory,pasteItem | S:针对密码等敏感内容支持正则过滤脱敏；持久化含多MB图片dataURL，save为250ms防抖+deactivate同步冲盘，勿改回逐次同步写（主进程会周期性卡顿）；记录图片时须失效lastText，否则文本→图片→同文本的第三次复制被去重吞掉
 icon.svg[CU1T]: F:剪贴板历史插件图标 | R:- | A:- | S:-
 panel.css[CU7L]: F:剪贴板历史记录面板样式表，包含卡片列表与搜索框 | R:code:src/plugins/clip-history/panel.js | A:- | S:-
-panel.js[EU8L]: F:剪贴板历史前端交互控制器，实现条目搜索、置顶收藏、图片预览与一键回填 | R:code:src/plugins/clip-history/panel.css | A:initPanel,renderList | S:-
+panel.js[EU8L]: F:剪贴板历史前端交互控制器，实现条目搜索、置顶收藏、图片预览与一键回填 | R:code:src/plugins/clip-history/panel.css | A:initPanel,renderList | S:new-clip事件本地列表须同步按maxItems裁剪（pin除外），否则面板比后端多显示直到下次全量刷新
 plugin.json[FE6T]: F:剪贴板历史插件清单配置 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/codec-lab/===
 backend.js[EB6S]: F:编解码实验室主进程后端，提供常用文本转换与加密解密IPC服务 | R:- | A:init,transform | S:-
 icon.svg[CU1T]: F:编解码实验室矢量图标 | R:- | A:- | S:-
 panel.css[CU6S]: F:编解码实验室界面样式表 | R:code:src/plugins/codec-lab/panel.js | A:- | S:-
-panel.js[EU8L]: F:编解码实验室前端交互逻辑，支持Base64、URL、Hex、Unicode、JWT与时间戳转换 | R:code:src/plugins/codec-lab/panel.css | A:initPanel,convert | S:-
+panel.js[EU8L]: F:编解码实验室前端交互逻辑，支持Base64、URL、Hex、Unicode、JWT与时间戳转换 | R:code:src/plugins/codec-lab/panel.css | A:initPanel,convert | S:codec/hash/cipher三视图的异步结果回写都必须校验seq序号（含成功分支）——大输入gzip耗时期间旧请求后到会把过期结果写进输出框
 plugin.json[FE6T]: F:编解码实验室插件清单配置 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/json-editor/===
@@ -197,11 +197,11 @@ picker.js[EU8L]: F:屏幕取色放大镜交互逻辑，跟随鼠标移动绘制�
 plugin.json[FE6T]: F:色彩工坊插件清单元数据，注册Ctrl+Shift+E全局取色热键 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/draw-board/===
-backend.js[EB8M]: F:屏幕画板主进程后端，管理全屏透明绘图窗口与悬浮贴图窗口创建 | R:- | A:init,openBoard,pinImage | S:-
+backend.js[EB8M]: F:屏幕画板主进程后端，管理全屏透明绘图窗口与悬浮贴图窗口创建 | R:- | A:init,openBoard,pinImage | S:start()入口有starting重入守卫：getSources约1秒空窗内双击热键/按钮会叠开两个全屏画板且首个成孤儿（isOpen报false再开第三个）；勿删守卫
 board-preload.js[EU6T]: F:绘图画板透明全屏窗口预加载脚本 | R:- | A:- | S:-
 board.css[CU6S]: F:画板工具栏浮动面板、画笔粗细选择与颜色选择器样式 | R:code:src/plugins/draw-board/board.js | A:- | S:-
 board.html[EU6T]: F:全屏画板DOM结构，包含透明Canvas与悬浮控制条 | R:code:src/plugins/draw-board/board.js | A:- | S:-
-board.js[EU9L]: F:屏幕画板Canvas绘图引擎，实现画笔、荧光笔、直线、箭头、矩形、椭圆与橡皮擦撤销重做 | R:code:src/plugins/draw-board/board.css | A:initBoard,handleDraw,exportPNG | S:Canvas支持多图层双缓冲绘制与PNG导出
+board.js[EU9L]: F:屏幕画板Canvas绘图引擎，实现画笔、荧光笔、直线、箭头、矩形、椭圆与橡皮擦撤销重做 | R:code:src/plugins/draw-board/board.css | A:initBoard,handleDraw,exportPNG | S:Canvas支持多图层双缓冲绘制与PNG导出；文字编辑器textarea的Esc要stopPropagation——否则冒泡到window keydown被当成普通Esc把工具切走
 icon.svg[CU1T]: F:画板插件矢量图标 | R:- | A:- | S:-
 panel.css[CU4T]: F:画板主界面启动入口小面板样式 | R:code:src/plugins/draw-board/panel.js | A:- | S:-
 panel.js[EU5T]: F:画板面板快速启动脚本，触发全屏画板打开 | R:- | A:initPanel | S:-
@@ -212,14 +212,14 @@ pin.js[EU6S]: F:贴图置顶悬浮窗口交互，支持滚轮缩放与透明度�
 plugin.json[FE6T]: F:画板插件清单配置，注册Ctrl+Shift+D画板热键 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/memo/===
-backend.js[PB8M]: F:备忘录与待办主进程后台，负责本地JSON数据持久化、到期定时提醒调度与日历联动 | R:- | A:init,loadMemos,saveMemos,scheduleNotification | S:注册系统Notification提醒，待办完成状态双向同步
+backend.js[PB8L]: F:备忘录与待办主进程后台，负责本地JSON数据持久化、到期定时提醒调度与日历联动 | R:- | A:init,loadMemos,saveMemos,scheduleNotification | S:注册系统Notification提醒，待办完成状态双向同步；统计/播种用localDateStr()本地日期——dueDate全链路本地存储，toISOString()的UTC日期会让东八区每晚问8小时今日待办数错一天
 icon.svg[CU1T]: F:备忘录插件矢量图标 | R:- | A:- | S:-
 panel.css[CU6M]: F:备忘录插件样式表：三栏布局、导航标签、便签卡片、待办清单与日历网格样式 | R:code:src/plugins/memo/panel.js | A:- | S:全部配色走宿主light-dark()令牌，不写死单主题色
-panel.js[EU8L]: F:备忘录前端主控制器：装配模板/Markdown引擎/待办日历模块、笔记CRUD与搜索、提醒调度联动，纯原生JS无框架 | R:code:src/plugins/memo/components/memo-template.js,code:src/plugins/memo/lib/memo-markdown.js,code:src/plugins/memo/modules/memo-todo-calendar.js,code:src/plugins/memo/panel.css | A:initPanel,renderMemos,filterMemos | S:子模块脚本经loadScript按序注入，新增模块必须在panel.js登记加载顺序否则引用undefined
+panel.js[EU8L]: F:备忘录前端主控制器：装配模板/Markdown引擎/待办日历模块、笔记CRUD与搜索、提醒调度联动，纯原生JS无框架 | R:code:src/plugins/memo/components/memo-template.js,code:src/plugins/memo/lib/memo-markdown.js,code:src/plugins/memo/modules/memo-todo-calendar.js,code:src/plugins/memo/panel.css | A:initPanel,renderMemos,filterMemos | S:子模块脚本经loadScript按序注入，新增模块必须在panel.js登记加载顺序否则引用undefined；changed事件的activeId切换前先flushSave（幂等）——否则另一入口新建笔记会把编辑中的内容静默丢弃；localNow两种语言都用本地时间分量
 plugin.json[FE6T]: F:备忘录插件清单配置 | R:- | A:- | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/mirror-hub/===
-backend.js[EB7M]: F:镜像源助手后端：检测npm/pip/docker等包管理器配置、测速调度、镜像URL写入与PowerShell/CMD双 shell 命令生成 | R:code:src/plugins/mirror-hub/proxy-detect.js | A:init,getMirrorConfigs,setMirror | S:切换镜像前先备份用户配置文件（.npmrc/pip.ini等）；命令生成区分shellType（powershell/cmd），用户偏好持久化在插件数据
+backend.js[EB7M]: F:镜像源助手后端：检测npm/pip/docker等包管理器配置、限并发分批测速调度、镜像URL写入与PowerShell/CMD双 shell 命令生成 | R:code:src/plugins/mirror-hub/proxy-detect.js | A:init,getMirrorConfigs,setMirror | S:切换镜像前先备份用户配置文件（.npmrc/pip.ini等）；命令生成区分shellType（powershell/cmd），用户偏好持久化在插件数据；pingMirrors限并发5分批——全开TCP+HTTP会互相争抢带宽让测速结果自扰
 icon.svg[CU1T]: F:镜像源助手矢量图标 | R:- | A:- | S:-
 panel.css[CU7L]: F:镜像源助手面板样式：源卡片、测速延迟柱状标识、分类筛选与docker源支持UI样式 | R:code:src/plugins/mirror-hub/panel.js | A:- | S:-
 panel.js[EU8L]: F:镜像源助手前端：npm/pip/docker多管理器源并发测速、延迟可视化、一键应用与shell命令复制 | R:code:src/plugins/mirror-hub/panel.css,code:src/plugins/mirror-hub/backend.js | A:initPanel,pingMirrors,applyMirror | S:docker镜像源测速走registry协议路径，与npm/pip的HTTP测速通道不同，新增管理器须对应探测实现
@@ -235,7 +235,7 @@ plugin.json[FE6T]: F:端口与进程查看器插件清单配置 | R:- | A:- | S:
 ports.js[DO7S]: F:Windows原生网络连接与端口占用信息提取器，解析netstat输出并关联PID与进程名 | R:- | A:listActivePorts,killPid | S:-
 
 ===E:/Github_Pro/orbit-tools/src/plugins/screenshot-pin/===
-backend.js[EB9L]: F:截图悬浮钉主进程后端，协调全屏选区遮罩创建、截图采集与置顶贴图窗口 | R:- | A:init,startCapture,createPinWindow | S:支持多显示器虚拟屏幕坐标合流截取
+backend.js[EB9L]: F:截图悬浮钉主进程后端，协调全屏选区遮罩创建、截图采集与置顶贴图窗口 | R:- | A:init,startCapture,createPinWindow | S:支持多显示器虚拟屏幕坐标合流截取；startCapture有capturing重入守卫；await grabDisplays必须色catch（teardownOverlays+restoreHost）——DIJI在静止桌面/RDP会reject，不兑底则全屏overlay残留盖屏+主窗口永久隐藏
 icon.svg[CU1T]: F:截图悬浮钉矢量图标 | R:- | A:- | S:-
 overlay-preload.js[EU6T]: F:截图选区全屏遮罩预加载脚本 | R:- | A:- | S:-
 panel.css[CU4T]: F:截图悬浮钉控制面板样式表 | R:code:src/plugins/screenshot-pin/panel.js | A:- | S:-
@@ -243,31 +243,31 @@ panel.js[EU6T]: F:截图悬浮钉面板交互，提供手动截屏触发与热�
 pin-preload.js[EU6T]: F:截图置顶悬浮贴图窗口预加载脚本 | R:- | A:- | S:-
 pin.css[CU6M]: F:置顶悬浮图片卡片样式表，含阴影、工具栏与缩放边框 | R:code:src/plugins/screenshot-pin/pin.js | A:- | S:-
 pin.html[EU6S]: F:置顶悬浮贴图窗口HTML结构，包含操作工具条与图像容器 | R:code:src/plugins/screenshot-pin/pin.js | A:- | S:-
-pin.js[EU8L]: F:置顶贴图交互逻辑，实现鼠标滚轮缩放、透明度滑动、翻转、文字OCR提取与保存 | R:code:src/plugins/screenshot-pin/pin.css | A:initPin,zoomImage,copyImage | S:-
+pin.js[EU8L]: F:置顶贴图交互逻辑，实现鼠标滚轮缩放、透明度滑动、翻转、文字OCR提取与保存 | R:code:src/plugins/screenshot-pin/pin.css | A:initPin,zoomImage,copyImage | S:窗口拖动用stage.setPointerCapture（对照draw-board/pin.js）——无捕获时快速拖动光标跑出小窗外事件断流，isMoving卡死回窗后贴图跳位
 plugin.json[FE7T]: F:截图悬浮钉插件清单，注册Ctrl+Shift+A全局截图热键 | R:- | A:- | S:-
 selection.css[CU6M]: F:屏幕选区框选遮罩样式，包含十字光标、尺寸标注与操作按钮样式 | R:code:src/plugins/screenshot-pin/selection.js | A:- | S:-
 selection.html[EU6S]: F:屏幕框选截屏窗口HTML结构 | R:code:src/plugins/screenshot-pin/selection.js | A:- | S:-
-selection.js[EU9L]: F:屏幕选区框选交互引擎，支持拖拽矩形框选、边界拖动微调与选区捕捉 | R:code:src/plugins/screenshot-pin/selection.css | A:initSelection,confirmCapture | S:严格处理DPI缩放比率，避免高分屏截图偏移错位
+selection.js[EU9L]: F:屏幕选区框选交互引擎，支持拖拽矩形框选、边界拖动微调与选区捕捉 | R:code:src/plugins/screenshot-pin/selection.css | A:initSelection,confirmCapture | S:严格处理DPI缩放比率，避免高分屏截图偏移错位；文字编辑器textarea的Esc要stopPropagation——否则冒泡到window keydown把“取消文字输入”放大成放弃整个选区
 
 ===E:/Github_Pro/orbit-tools/src/plugins/ai-chat/components/===
 panel-template.js[EU8L]: F:AI对话面板HTML模板：侧栏、消息区、输入pills条（附件/深度思考/Agent/计划模式/人设/审批档位/思维等级）、排队按钮、输入footer（工作目录/上下文环/模型选择）与设置弹窗骨架 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/panel.css | A:getAiChatTemplate | S:模板是纯字符串骨架且无事件绑定，新增控件必须同步panel.js的DOM引用与panel.css样式，否则控件静默无功能
-prompt-queue.js[DU7M]: F:多模态附件与消息排队组件：图片/文件/目录附件条、灯箱预览、粘贴拖放接入、FIFO待发队列及发送/停止/排队三态按钮状态机 | R:code:src/plugins/ai-chat/panel.js | A:initLightbox,renderAttachmentsBar,enqueueCurrentInput,updateSendOrStopButton | S:待发队列按会话隔离（sessionPromptQueues键为会话id），生成结束150ms后自动触发当前会话队首，跨会话不串扰
+prompt-queue.js[DU7M]: F:多模态附件与消息排队组件：图片/文件/目录附件条、灯箱预览、粘贴拖放接入、FIFO待发队列及发送/停止/排队三态按钮状态机 | R:code:src/plugins/ai-chat/panel.js | A:initLightbox,renderAttachmentsBar,enqueueCurrentInput,updateSendOrStopButton | S:待发队列按会话隔离（sessionPromptQueues键为会话id），生成结束150ms后自动触发当前会话队首，跨会话不串扰；drain出队后必须同步调sendMessage（守卫→setGeneratingState间无await是原子窗口）——原50ms延迟期间第二个drain会再shift一条且被静默丢弃，消息永久丢失
 settings-modals.js[CU8L]: F:设置弹窗组件：模型通道、人设、记忆库、MCP服务器四标签页的渲染与增删改交互，含预设渠道表、连接测试与MCP市场安装 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/mcp-market.js | A:initSettingsModals | S:-
-task-drawer.js[DU7M]: F:悬浮任务抽屉组件：从最新assistant消息checklist或会话taskList提取任务、渲染悬浮徽标与进度卡并支持点击回写任务状态 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/task-tools.js | A:renderTaskCard,getActiveTasks | S:任务来源优先级为最新assistant文本checklist>显式taskList>历史回溯，用户关闭提取后以会话隐藏标记记忆不再自动弹出
-tool-cards.js[DU7M]: F:统一工具卡组件：TOOL_META元数据表驱动工具呈现（图标/友好标题/参数摘要），可展开参数与结果两段、审批内联挂载与完成态标题，活流与历史渲染共用 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/panel.css | A:createToolCard,applyExecStart,applyToolResult | S:审批UI按callId内联到工具卡approval-slot，找不到已展示卡时才回退独立审批卡——这是dsh式单一事实源约束，勿再复制参数副本
+task-drawer.js[DU7M]: F:悬浮任务抽屉组件：从最新assistant消息checklist或会话taskList提取任务、渲染悬浮徽标与进度卡并支持点击回写任务状态 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/task-tools.js | A:renderTaskCard,getActiveTasks | S:任务来源优先级为最新assistant文本checklist>显式taskList>历史回溯；用户点击提取清单项时立即写_hiddenTasksMessageId接管显示源，否则重渲染会从markdown原文重新提取把刚点的状态冲回；新assistant消息出现后id变化提取自然恢复
+tool-cards.js[DU7M]: F:统一工具卡组件：TOOL_META元数据表驱动工具呈现（图标/友好标题/参数摘要），可展开参数与结果两段、审批内联挂载与完成态标题，活流与历史渲染共用 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/panel.css | A:createToolCard,applyExecStart,applyToolResult | S:审批UI按callId内联到工具卡approval-slot，找不到已展示卡时才回退独立审批卡——这是dsh式单一事实源约束，勿再复制参数副本；createToolCard会把原始arguments写入dataset.args，供无exec_start的迟到tool_result回退展开参数
 
 ===E:/Github_Pro/orbit-tools/src/plugins/ai-chat/lib/===
-context-bounds.js[DB7M]: F:上下文边界与工具配对不变量模块：配对平衡切分算法、显示/模型面隔离（压缩检查点折叠+图片卸载）、推理克隆清洗与steering插话重排 | R:code:src/plugins/ai-chat/services/chat-service.js,code:src/plugins/ai-chat/services/compaction-service.js | A:buildBoundedContext,toolPairingBalancedAt,cloneForInference | S:steered用户消息在推理面被延迟到当前工具轮结束之后，绝不插入assistant tool_calls与其结果之间——否则破坏OpenAI协议配对被400拒绝
+context-bounds.js[DB7M]: F:上下文边界与工具配对不变量模块：配对平衡切分算法、显示/模型面隔离（压缩检查点折叠+图片卸载）、推理克隆清洗与steering插话重排 | R:code:src/plugins/ai-chat/services/chat-service.js,code:src/plugins/ai-chat/services/compaction-service.js | A:buildBoundedContext,toolPairingBalancedAt,cloneForInference | S:steered用户消息在推理面被延迟到当前工具轮结束之后，绝不插入assistant tool_calls与其结果之间——否则破坏OpenAI协议配对被400拒绝；cloneForInference丢弃无内容无工具调用的空assistant（插话后mid-turn重建的空pending尾巴会被Anthropic 400），调用方已处理null返回
 hljs-renderer.js[CU5T]: F:highlight.js懒加载与代码高亮后处理：vendor脚本按需注入、lang-xxx类名映射与语言别名表、vendor缺失或语言未知时优雅降级为纯文本 | R:code:src/plugins/ai-chat/panel.js | A:ensureHljs,highlightContainer | S:令牌配色不在vendor CSS里，由panel.css以light-dark()宿主令牌定义；改主题只动panel.css勿引入hljs官方主题
-markdown-renderer.js[KU7M]: F:自研GFM Markdown渲染引擎：表格对齐、围栏代码（含流式未闭合块）、行内格式、Mermaid占位封装与checklist任务提取，并附预设模型渠道表 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/lib/mermaid-renderer.js | A:renderMarkdown,extractTasksFromContent | S:代码围栏先以\u0001占位符抽离再行行内替换，扩展行内语法必须维持该顺序，否则新规则会破坏代码块内容
-mermaid-renderer.js[CU6S]: F:Mermaid动态加载与图表交互组件：按需注入vendor脚本、宿主主题探测、SVG渲染、源码切换与复制按钮绑定 | R:code:src/plugins/ai-chat/lib/markdown-renderer.js | A:renderMermaidInContainer,initMessageDynamicElements,detectHostTheme | S:主题经getComputedStyle(documentElement).colorScheme解析，auto双值回退prefers-color-scheme；主题变化时渲染前重新initialize而非沿用旧主题
+markdown-renderer.js[KU7M]: F:自研GFM Markdown渲染引擎：表格对齐、围栏代码（含流式未闭合块、c++/c#等扩展语言字符）、行内格式、Mermaid占位封装与checklist任务提取，并附预设模型渠道表 | R:code:src/plugins/ai-chat/panel.js,code:src/plugins/ai-chat/lib/mermaid-renderer.js | A:renderMarkdown,extractTasksFromContent | S:代码围栏先以\u0001占位符抽离再行行内替换，扩展行内语法必须维持该顺序；围栏正则锚定行首且字符集含+#.（否则c++/c#围栏失效、行中围栏会把占位符留在段内丢内容）；入口先剥离字面\u0000/\u0001防模型输出碰撞占位符
+mermaid-renderer.js[CU6S]: F:Mermaid动态加载与图表交互组件：按需注入vendor脚本、宿主主题探测、SVG渲染、源码切换与复制按钮绑定 | R:code:src/plugins/ai-chat/lib/markdown-renderer.js | A:renderMermaidInContainer,initMessageDynamicElements,detectHostTheme | S:主题经getComputedStyle(documentElement).colorScheme解析，auto双值回退prefers-color-scheme；主题变化时渲染前重新initialize而非沿用旧主题；securityLevel必须strict——图源码来自模型输出，loose+htmlLabels会把节点标签当HTML注入构成XSS
 stream-renderer.js[KU6S]: F:增量流式Markdown渲染器：settled前缀/活动尾切分、StreamSlot双层渲染（前缀只渲一次）与rAF合帧节流，dsh delta快路径 | R:code:src/plugins/ai-chat/lib/markdown-renderer.js,code:src/plugins/ai-chat/panel.js | A:splitSettledPrefix,StreamSlot,rafThrottle | S:切分边界只取未闭合围栏外的空行——表格/列表是连续非空行结构永不被切断；「分块渲染与全文渲染字节等价」是回归测试断言，改动切分逻辑须保持
 
 ===E:/Github_Pro/orbit-tools/src/plugins/ai-chat/services/===
 approval-service.js[SS6T]: F:工具审批服务：按streamId+toolCallId挂起Promise等待前端决议，支持allow/deny/alwaysAllow三档、会话级白名单回写、signal中止监听与中断时批量拒绝 | R:code:src/plugins/ai-chat/services/tool-pipeline.js,code:src/plugins/ai-chat/agent-tools.js | A:requestApproval,resolveApproval,denyPendingApprovals | S:任何异常路径都必须以拒绝决议收尾——挂起的Promise不resolve会永久卡死agent循环（fail-closed）；requestApproval必须接收stream signal：清扫(denyPendingApprovals)之后才挂起的审批只能靠abort监听兜底，新调用点漏传signal会重新打开悬挂窗口
 chat-service.js[DA9L]: F:会话核心服务：多轮agent循环（流式聚合/工具调度/上下文重建）、steering轮边界插话消费、截断调用安全丢弃、降级模型与上下文超限三级恢复、自动压缩触发与Turn元数据产出 | R:code:src/plugins/ai-chat/services/tool-pipeline.js,code:src/plugins/ai-chat/services/compaction-service.js,code:src/plugins/ai-chat/services/runtime-context-service.js,code:src/plugins/ai-chat/lib/context-bounds.js,code:src/plugins/ai-chat/protocols.js | A:sendMessage,steerMessage,dispatchAgentTool | S:系统提示词是不可变前缀缓存锚点，动态事实只经system-reminder附到最新user消息——把变化内容写进system prompt会摧毁KV缓存命中；submit_plan工具仅在session.planMode时注入；子代理toolDispatcher经toolPipeline复用审批并硬阻断递归dispatch_subagent，勿改回直连dispatchAgentTool（fail-open）；流收尾按streamId条件删streamBySession，无条件删会误删中断后新流的注册
 compaction-service.js[DR7M]: F:上下文压缩服务：Token压力计算、head-middle-tail工具结果剪枝、历史图片卸载、LLM结构化摘要（离线规则兜底）与isShadowed显示/模型面隔离检查点 | R:code:src/plugins/ai-chat/services/chat-service.js,code:src/plugins/ai-chat/protocols.js,code:src/plugins/ai-chat/lib/context-bounds.js | A:compactSession,calculateContextTokens,pruneSessionToolResults | S:LLM摘要读syncCompletion的content字段（res.text是已修过的历史bug）；压缩只标记isShadowed不删历史，显示面永远保留完整记录
-mcp-service.js[IE7S]: F:MCP运行时服务：子进程连接池复用、工具发现与OpenAI schema转换路由、服务器增删改查校验、市场检索安装与连通性测试 | R:code:src/plugins/ai-chat/mcp-client.js,code:src/plugins/ai-chat/mcp-market.js | A:getMcpRuntime,saveMcpServer,testMcpServer | S:连接按serverId池化复用，保存/删除配置会主动dispose旧连接强制下次重连；已退出的连接在getMcpRuntime入口被淘汰重建
+mcp-service.js[IE7S]: F:MCP运行时服务：子进程连接池复用、工具发现与OpenAI schema转换路由、服务器增删改查校验、市场检索安装与连通性测试 | R:code:src/plugins/ai-chat/mcp-client.js,code:src/plugins/ai-chat/mcp-market.js | A:getMcpRuntime,saveMcpServer,testMcpServer | S:连接按serverId池化复用，保存/删除配置会主动dispose旧连接强制下次重连；已退出的连接在getMcpRuntime入口被淘汰重建；getMcpRuntime每轮先resetMcpToolNames——工具名稳定性依赖重建前重置，历史对话里的旧名才能持续路由到
 plan-service.js[DU6T]: F:计划评审服务（轻量计划模式）：submit_plan挂起等待用户批准或反馈修订，批准/继续规划/中断三态决议与批量拒绝兜底 | R:code:src/plugins/ai-chat/services/chat-service.js,code:src/plugins/ai-chat/task-tools.js | A:requestPlanReview,resolvePlanReview | S:与审批服务同构的挂起模式；流中断时必须denyPendingReviews，否则agent循环永久等待用户决议
 process-manager.js[RP6S]: F:后台进程管理服务：登记run_command派生的后台进程、按会话过滤列表与终止进程树，死记录延迟5分钟自动清理 | R:code:src/plugins/ai-chat/local-tools.js,code:src/plugins/ai-chat/backend.js | A:listProcesses,killProcess,killAll | S:终止走taskkill进程树语义，单杀主PID会留下孤儿孙进程；退出路径killAll(true)同步执行；killProcess只接受本管理器登记的PID——pid来自模型输出，无归属校验会被幻觉/注入用来杀任意用户进程；死记录5分钟后删除，PID复用不会复活旧记录
 runtime-context-service.js[DC7S]: F:运行时上下文服务：不可变静态系统提示词锚点构建、动态事实投影（工作目录/计划模式指令/记忆召回/任务清单）与状态指纹缓存 | R:code:src/plugins/ai-chat/memory.js,code:src/plugins/ai-chat/task-tools.js,code:src/plugins/ai-chat/services/chat-service.js | A:assembleContext,buildStaticSystemPrompt | S:静态锚点跨会话逐字节不变是prefix cache前提；计划模式指令走动态system-reminder而非system prompt
@@ -288,16 +288,16 @@ memo-markdown.js[KU6S]: F:备忘录专用轻量Markdown引擎：行内格式、�
 memo-todo-calendar.js[DU7L]: F:备忘录待办与日历模块：待办清单渲染/过滤/完成切换、月历渲染与日期任务创建、提醒时间策略计算与角标联动 | R:code:src/plugins/memo/panel.js,code:src/plugins/memo/backend.js | A:createTodoCalendarManager,renderTodos,renderCalendar | S:待办与日历共享同一数据源，任一视图变更后两个视图都需重渲；提醒时间由策略字符串换算为具体时间戳存储
 
 ===E:/Github_Pro/orbit-tools/src/renderer/modules/===
-action-palette-view.js[AU7M]: F:窗口内Ctrl+K动作抽屉视图：动作搜索、管线载荷路由、插件快捷动作、工作流触发与键盘导航 | R:code:src/renderer/app.js | A:init,matchHotkey | S:-
-deck-view.js[DU7M]: F:插件卡片组视图：卡片渲染、frecency排序（frequent/recent/name多档）、smart-peek剪贴板零点击预览与右键菜单 | R:code:src/renderer/app.js,code:src/renderer/style.css | A:init | S:排序档位经config.deckSort持久化；smart-peek按插件能力声明顺序探测展示
+action-palette-view.js[AU7M]: F:窗口内动作抽屉视图：动作搜索、管线载荷路由、插件快捷动作、工作流触发与键盘导航 | R:code:src/renderer/app.js | A:init,matchHotkey | S:close时清空apList DOM且open时collect前先归零index——否则重开瞬间旧列表闪现、闪烁期按键索引错位
+deck-view.js[DU7M]: F:插件卡片组视图：卡片渲染、frecency排序（frequent/recent/name多档）、smart-peek剪贴板零点击预览与右键菜单 | R:code:src/renderer/app.js,code:src/renderer/style.css | A:init | S:排序档位经config.deckSort持久化；smart-peek按插件能力声明顺序探测展示；无面板的动作型插件useDeckTool路由到首个action（与独立抽屉一致），否则计入使用计数却无任何响应
 plugin-center.js[EU6M]: F:插件中心视图：目录过滤分页、启用/禁用开关、插件热键绑定与开发者指南入口 | R:code:src/renderer/app.js | A:init,renderPlugins | S:-
 settings-view.js[CU6M]: F:设置视图：应用偏好项、全局/插件热键录制器与用户插件目录、数据目录选择 | R:code:src/renderer/app.js,code:src/core/hotkeys.js | A:init,accelFromEvent | S:热键经accelFromEvent统一格式化后写入，保存前经hotkeys校验防冲突与被外部独占
-updater-view.js[OU6M]: F:更新视图：检查更新、下载进度展示、停止下载、发行说明弹窗与安装执行 | R:code:src/renderer/app.js,code:src/core/updater.js | A:init | S:停止下载会终止活动请求并彻底清理%TEMP%/orbit-update分片缓存，残留会误判为可续传
+updater-view.js[OU6M]: F:更新视图：检查更新、下载进度展示、停止下载、发行说明弹窗与安装执行 | R:code:src/renderer/app.js,code:src/core/updater.js | A:init | S:停止下载会终止活动请求并彻底清理%TEMP%/orbit-update分片缓存，残留会误判为可续传；取消时置downloadCancelled标记，挂起的downloadUpdate错误分支不再覆盖「已停止下载」文案
 
 ===E:/Github_Pro/orbit-tools/src/renderer/modules/workflows/===
-graph.js[DU7L]: F:工作流画布图形渲染：DAG节点/边DOM与SVG贝塞尔连线、端口吸附与撤销重做历史栈 | R:code:src/renderer/modules/workflows/index.js,code:src/core/workflows.js | A:wfSnapshot,pushWfHistory | S:撤销历史栈按workflowId隔离，切换工作流时旧快照失效需重置
-index.js[EU7M]: F:工作流画布子系统facade：协调viewport/graph/library/inspector/runner，暴露OrbitWorkflows控制器与__wfTestApi测试桥 | R:code:src/renderer/app.js,code:src/renderer/modules/workflows/graph.js,code:src/renderer/modules/workflows/viewport.js,code:src/renderer/modules/workflows/runner.js | A:init | S:子模块共享单一ctx对象（state/els/I18N/坐标变换），新能力经facade注册到OrbitWorkflows而非另建全局
-inspector.js[DU6M]: F:节点属性检查器：按节点类型生成表单、配置摘要展示与双向实时同步 | R:code:src/renderer/modules/workflows/index.js | A:wfNodeConfigSummary | S:-
-library.js[DU6S]: F:节点库目录：内置触发器/动作模板清单、插件动态能力接入、库内搜索与拖拽建节点 | R:code:src/renderer/modules/workflows/index.js,code:src/core/plugin-manager.js | A:renderWorkflowLib,addNodeToCanvas | S:触发器类型选项表WF_TRIGGER_TYPE_OPTIONS同时驱动库渲染与检查器摘要，新增类型须两处同步
-runner.js[AU6S]: F:工作流执行运行器：运行调度、控制台日志、自动保存、选中节点同步与测试API桥 | R:code:src/renderer/modules/workflows/index.js,code:src/core/workflows.js | A:runCurrentWorkflow,logToWfConsole,initWorkflowsView | S:自动保存经定时器防抖，工作流切换/销毁时必须清除定时器否则写回旧工作流
+graph.js[DU7L]: F:工作流画布图形渲染：DAG节点/边DOM与SVG贝塞尔连线、端口吸附与撤销重做历史栈 | R:code:src/renderer/modules/workflows/index.js,code:src/core/workflows.js | A:wfSnapshot,pushWfHistory | S:撤销历史栈按workflowId隔离，切换工作流时旧快照失效需重置；增删节点/连线/拖动位移后都须调度scheduleWfAutosave，漏调度等于编辑丢失
+index.js[EU7M]: F:工作流画布子系统facade：协调viewport/graph/library/inspector/runner，暴露OrbitWorkflows控制器与__wfTestApi测试桥 | R:code:src/renderer/app.js,code:src/renderer/modules/workflows/graph.js,code:src/renderer/modules/workflows/viewport.js,code:src/renderer/modules/workflows/runner.js | A:init | S:子模块共享单一ctx对象（state/els/I18N/坐标变换），新能力经facade注册到OrbitWorkflows而非另建全局；Delete/Backspace删除节点/连线后也调度自动保存
+inspector.js[DU6M]: F:节点属性检查器：按节点类型生成表单、配置摘要展示与双向实时同步 | R:code:src/renderer/modules/workflows/index.js | A:wfNodeConfigSummary | S:每个writeVal变更后都调度scheduleWfAutosave——检查器改的正则/模板/AI prompt是用户手工输入最密集的地方，漏保存损失最大
+library.js[DU6S]: F:节点库目录：内置触发器/动作模板清单、插件动态能力接入、库内搜索与拖拽建节点 | R:code:src/renderer/modules/workflows/index.js,code:src/core/plugin-manager.js | A:renderWorkflowLib,addNodeToCanvas | S:触发器类型选项表WF_TRIGGER_TYPE_OPTIONS同时驱动库渲染与检查器摘要，新增类型须两处同步；addNodeToCanvas后调度自动保存
+runner.js[AU6S]: F:工作流执行运行器：运行调度、控制台日志、自动保存（调度时捕获目标+切换冲盘）、选中节点同步与测试API桥 | R:code:src/renderer/modules/workflows/index.js,code:src/core/workflows.js | A:runCurrentWorkflow,logToWfConsole,initWorkflowsView | S:自动保存防抖在调度时捕获目标工作流对象而非触发时读取（否则切换后保存到新工作流，旧编辑丢盘）；loadCurrentWorkflow先runWfAutosaveNow冲盘上一个工作流；销毁时清除定时器
 viewport.js[KU6M]: F:工作流画布视口与坐标变换：平移缩放、屏幕↔画布坐标映射与面板分隔条拖拽 | R:code:src/renderer/modules/workflows/index.js | A:screenToCanvas,applyCanvasTransform,fitWorkflowCanvas | S:所有节点定位必须经screenToCanvas换算而非直接用clientX/Y，否则缩放状态下坐标漂移
