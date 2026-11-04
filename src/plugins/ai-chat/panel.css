@@ -995,6 +995,312 @@
   letter-spacing: .04em;
 }
 
+/* --- Input Bar Footer (WorkDir, Context Progress & Compact Context) --- */
+.ai-input-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 8px;
+  padding: 0 2px;
+  flex-wrap: wrap;
+}
+
+.ai-input-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-footer-workdir-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  background: var(--inset);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s ease;
+  max-width: 280px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.ai-footer-workdir-btn:hover {
+  background: var(--panel-hi);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ai-input-hint-inline {
+  font-size: 11px;
+  color: var(--ink-faint);
+  letter-spacing: .03em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-input-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.ai-footer-btn {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  color: var(--ink-dim);
+  border-radius: var(--r-sm);
+  padding: 3px 9px;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.ai-footer-btn:hover {
+  color: var(--ink);
+  border-color: var(--line-strong);
+  background: var(--panel-hi);
+}
+
+.ai-footer-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* --- Model Quick Picker Popover (Bottom-Right Input Area) ---------------- */
+.ai-model-picker-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.ai-footer-model-btn,
+.ai-pill-btn.model-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--amber-soft);
+  border: 1px solid light-dark(rgba(185, 106, 0, .35), rgba(255, 171, 46, .45));
+  color: var(--amber);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 3px 9px;
+  border-radius: var(--r-sm);
+  transition: all 0.15s ease;
+  user-select: none;
+  font-size: 11px;
+}
+
+.ai-footer-model-btn:hover,
+.ai-pill-btn.model-picker:hover {
+  background: light-dark(rgba(185, 106, 0, .18), rgba(255, 171, 46, .22));
+  border-color: var(--amber);
+  transform: translateY(-1px);
+}
+
+.ai-model-picker-icon {
+  font-size: 12px;
+  line-height: 1;
+}
+
+.ai-model-picker-name {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: .02em;
+  max-width: 170px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  width: 330px;
+  max-width: 90vw;
+  background: var(--panel-hi);
+  border: 1px solid var(--amber);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  z-index: 50;
+  animation: ai-fade-in 0.15s ease-out;
+  overflow: hidden;
+}
+
+.ai-model-popover.hidden {
+  display: none;
+}
+
+.ai-model-popover-header {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel-lo);
+}
+
+.ai-model-popover-search {
+  width: 100%;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 5px 24px 5px 26px;
+  font-size: 12px;
+  color: var(--ink);
+  outline: none;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+}
+
+.ai-model-popover-search:focus {
+  border-color: var(--amber);
+}
+
+.ai-model-popover-list {
+  max-height: 240px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px;
+}
+
+.ai-model-popover-group-title {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--ink-faint);
+  padding: 6px 8px 2px 8px;
+  user-select: none;
+}
+
+.ai-model-popover-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.ai-model-popover-item:hover {
+  background: var(--inset);
+}
+
+.ai-model-popover-item.active {
+  background: var(--amber-soft);
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.ai-model-item-main {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  flex: 1;
+}
+
+.ai-model-item-icon {
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.ai-model-item-name {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-model-item-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--line);
+  color: var(--ink-dim);
+  flex-shrink: 0;
+}
+
+.ai-model-item-check {
+  font-size: 12px;
+  color: var(--amber);
+  font-weight: bold;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.ai-model-popover-custom-opt {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  background: var(--inset);
+  color: var(--amber);
+  font-size: 11.5px;
+  font-weight: 500;
+  margin-top: 4px;
+}
+
+.ai-model-popover-custom-opt:hover {
+  background: var(--amber-soft);
+}
+
+.ai-model-popover-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-lo);
+}
+
+.ai-model-popover-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: transparent;
+  border: none;
+  color: var(--ink-dim);
+  font-size: 11.5px;
+  cursor: pointer;
+  padding: 3px 6px;
+  border-radius: var(--r-sm);
+  transition: all 0.12s;
+  width: 100%;
+  justify-content: center;
+}
+
+.ai-model-popover-settings-btn:hover {
+  background: var(--inset);
+  color: var(--ink);
+}
+
 /* --- Settings Modal ------------------------------------------------------ */
 .ai-modal-overlay {
   position: absolute;

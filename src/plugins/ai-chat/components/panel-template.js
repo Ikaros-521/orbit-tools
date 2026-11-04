@@ -25,27 +25,8 @@
             <div class="ai-header-left">
               <button class="ai-btn-toggle-sidebar" id="btnToggleSidebar" title="收起/展开侧边栏">☰</button>
               <span class="ai-header-title" id="headerTitle" title="双击重命名">新对话</span>
-              <span class="ai-header-model-pill" id="headerModelPill">gpt-4o-mini</span>
-              <span class="ai-header-model-pill ai-header-workdir" id="headerWorkDirPill" title="Agent 工作目录，点击修改">📁</span>
             </div>
             <div class="ai-header-right">
-              <!-- 上下文容量环形进度圈 -->
-              <div class="ai-context-ring-wrap" id="contextRingWrap" title="当前上下文用量：点击一键压缩上下文">
-                <svg class="ai-context-ring" viewBox="0 0 36 36">
-                  <path class="ai-context-ring-bg"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                  <path class="ai-context-ring-meter" id="contextRingMeter"
-                    stroke-dasharray="0, 100"
-                    d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
-                  />
-                </svg>
-                <span class="ai-context-ring-text" id="contextRingText">0%</span>
-              </div>
-
-              <!-- 一键压缩上下文按钮 -->
-              <button type="button" class="ai-header-btn" id="btnCompactContext" title="一键压缩历史上下文，精简 Token 占用">🗜️ 压缩上下文</button>
-
               <span class="ai-usage-badge" id="sessionUsageBadge" title="会话累计 Token 消耗">0 tokens</span>
               <button class="ai-header-btn" id="btnClearSession" title="清空当前会话消息">清空</button>
               <button class="ai-header-btn" id="btnOpenSettings" title="模型与协议设置">⚙️ 设置</button>
@@ -179,7 +160,54 @@
                 </svg>
               </button>
             </div>
-            <div class="ai-input-hint">Orbit Toolbox AI · 兼容 OpenAI / Responses / Claude · 支持流式推理</div>
+            <!-- 输入框底部：工作目录、技术提示、上下文容量环与压缩操作 -->
+            <div class="ai-input-footer">
+              <div class="ai-input-footer-left">
+                <!-- Agent 工作目录胶囊按钮 -->
+                <button type="button" class="ai-footer-workdir-btn" id="headerWorkDirPill" title="Agent 工作目录，点击修改">📁 默认</button>
+                <span class="ai-input-hint-inline">Orbit Toolbox AI · 兼容 OpenAI / Claude · 支持流式推理</span>
+              </div>
+              <div class="ai-input-footer-right">
+                <!-- 上下文容量环形进度圈 -->
+                <div class="ai-context-ring-wrap" id="contextRingWrap" title="当前上下文用量：点击一键压缩上下文">
+                  <svg class="ai-context-ring" viewBox="0 0 36 36">
+                    <path class="ai-context-ring-bg"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                    <path class="ai-context-ring-meter" id="contextRingMeter"
+                      stroke-dasharray="0, 100"
+                      d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+                    />
+                  </svg>
+                  <span class="ai-context-ring-text" id="contextRingText">0%</span>
+                </div>
+
+                <!-- 一键压缩上下文按钮 -->
+                <button type="button" class="ai-footer-btn" id="btnCompactContext" title="一键压缩历史上下文，精简 Token 占用">🗜️ 压缩上下文</button>
+
+                <!-- 模型快速选择与直接切换胶囊及下拉浮层 (右下角) -->
+                <div class="ai-model-picker-wrap">
+                  <button type="button" class="ai-footer-model-btn" id="btnToggleModelPicker" title="当前使用模型，点击直接切换">
+                    <span class="ai-model-picker-icon">🤖</span>
+                    <span class="ai-model-picker-name" id="headerModelPill">gpt-4o-mini</span>
+                    <span class="ai-pill-caret">▾</span>
+                  </button>
+                  <div class="ai-model-popover hidden" id="modelPopover">
+                    <div class="ai-model-popover-header">
+                      <span class="ai-search-ico">🔍</span>
+                      <input type="text" class="ai-model-popover-search" id="inputModelQuickSearch" placeholder="搜索或输入模型名称…" autocomplete="off">
+                      <button type="button" class="ai-model-search-clear hidden" id="btnClearModelQuickSearch">×</button>
+                    </div>
+                    <div class="ai-model-popover-list" id="modelPopoverList"></div>
+                    <div class="ai-model-popover-footer">
+                      <button type="button" class="ai-model-popover-settings-btn" id="btnModelPopoverOpenSettings">
+                        <span>⚙️</span> <span>更多模型与通道设置…</span>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
           </footer>
         </main>
 

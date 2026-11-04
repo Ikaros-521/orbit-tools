@@ -158,6 +158,14 @@
     const popoverPageText = el.querySelector('#popoverPageText');
     const btnPopoverNextPage = el.querySelector('#btnPopoverNextPage');
 
+    // Model Quick Picker (Chat Footer) DOM
+    const btnToggleModelPicker = el.querySelector('#btnToggleModelPicker');
+    const modelPopover = el.querySelector('#modelPopover');
+    const inputModelQuickSearch = el.querySelector('#inputModelQuickSearch');
+    const btnClearModelQuickSearch = el.querySelector('#btnClearModelQuickSearch');
+    const modelPopoverList = el.querySelector('#modelPopoverList');
+    const btnModelPopoverOpenSettings = el.querySelector('#btnModelPopoverOpenSettings');
+
     // Agent WorkDir Modal DOM
     const workDirModal = el.querySelector('#workDirModal');
     const btnCloseWorkDirModal = el.querySelector('#btnCloseWorkDirModal');
@@ -721,6 +729,211 @@
       updateActivePersonaPill();
       renderPopoverPersonas();
     }
+
+    /* --- Model Quick Picker Controller ---------------------------------- */
+    let modelQuickSearchText = '';
+
+    function getPresetChannels() {
+      if (typeof window !== 'undefined' && window.AiChatMarkdown && Array.isArray(window.AiChatMarkdown.PRESET_CHANNELS)) {
+        return window.AiChatMarkdown.PRESET_CHANNELS;
+      }
+      try {
+        const md = require('./lib/markdown-renderer');
+        return md.PRESET_CHANNELS || [];
+      } catch {}
+      return [];
+    }
+
+    function renderModelPopoverList() {
+      if (!modelPopoverList) return;
+      modelPopoverList.innerHTML = '';
+      const presetChannels = getPresetChannels();
+      const currChannelId = (config && config.channel) || 'openai';
+      const currModel = ((config && config.model) || 'gpt-4o-mini').trim();
+      const currentChannel = presetChannels.find(ch => ch.id === currChannelId);
+
+      const q = modelQuickSearchText.trim().toLowerCase();
+      if (btnClearModelQuickSearch) {
+        btnClearModelQuickSearch.classList.toggle('hidden', !q);
+      }
+
+      // 汇总候选列表
+      // 1. 当前渠道推荐模型
+      const currChannelModels = (currentChannel && currentChannel.models) ? currentChannel.models : [];
+      // 2. 其它渠道预设模型（带渠道标志）
+      const otherChannelModels = [];
+      presetChannels.forEach(ch => {
+        if (ch.id === currChannelId) return;
+        (ch.models || []).forEach(m => {
+          if (!currChannelModels.includes(m) && !otherChannelModels.some(x => x.model === m)) {
+            otherChannelModels.push({ model: m, channelName: ch.name.split(' ')[0], icon: ch.icon || '🤖' });
+          }
+        });
+      });
+
+      const matchedCurr = currChannelModels.filter(m => !q || m.toLowerCase().includes(q));
+      const matchedOther = otherChannelModels.filter(item => !q || item.model.toLowerCase().includes(q) || item.channelName.toLowerCase().includes(q));
+
+      const totalMatched = matchedCurr.length + matchedOther.length;
+
+      // 如果当前使用的模型既不在当前渠道也不在其他渠道，置顶显示
+      if (currModel && !currChannelModels.includes(currModel) && !otherChannelModels.some(x => x.model === currModel)) {
+        if (!q || currModel.toLowerCase().includes(q)) {
+          const groupTitle = document.createElement('div');
+          groupTitle.className = 'ai-model-popover-group-title';
+          groupTitle.textContent = '当前自定义模型';
+          modelPopoverList.appendChild(groupTitle);
+
+          appendModelItem(currModel, '当前', '✨', true);
+        }
+      }
+
+      // 渲染当前渠道模型
+      if (matchedCurr.length > 0) {
+        const groupTitle = document.createElement('div');
+        groupTitle.className = 'ai-model-popover-group-title';
+        groupTitle.textContent = currentChannel ? `${currentChannel.name.split(' ')[0]} 推荐` : '当前通道推荐';
+        modelPopoverList.appendChild(groupTitle);
+
+        matchedCurr.forEach(m => {
+          appendModelItem(m, currentChannel ? currentChannel.name.split(' ')[0] : '推荐', (currentChannel && currentChannel.icon) || '⚡', m === currModel);
+        });
+      }
+
+      // 渲染常用/其它渠道模型
+      if (matchedOther.length > 0) {
+        const groupTitle = document.createElement('div');
+        groupTitle.className = 'ai-model-popover-group-title';
+        groupTitle.textContent = '其它预设模型';
+        modelPopoverList.appendChild(groupTitle);
+
+        matchedOther.forEach(item => {
+          appendModelItem(item.model, item.channelName, item.icon, item.model === currModel);
+        });
+      }
+
+      // 如果有搜索词且当前搜索词不在已知模型中，提供一键使用自定义模型
+      if (q && !currChannelModels.some(m => m.toLowerCase() === q) && !otherChannelModels.some(x => x.model.toLowerCase() === q) && currModel.toLowerCase() !== q) {
+        const customOpt = document.createElement('div');
+        customOpt.className = 'ai-model-popover-custom-opt';
+        customOpt.innerHTML = `<span>➕</span> <span>使用模型 <b>"${escapeHtml(modelQuickSearchText.trim())}"</b></span>`;
+        customOpt.addEventListener('click', () => {
+          applyQuickModel(modelQuickSearchText.trim());
+        });
+        modelPopoverList.appendChild(customOpt);
+      } else if (totalMatched === 0 && !q) {
+        const empty = document.createElement('div');
+        empty.className = 'ai-model-empty-tip';
+        empty.style.padding = '12px';
+        empty.style.textAlign = 'center';
+        empty.style.color = 'var(--ink-faint)';
+        empty.style.fontSize = '12px';
+        empty.textContent = '暂无预设模型，可直接在上方输入模型名称';
+        modelPopoverList.appendChild(empty);
+      }
+
+      function appendModelItem(modelName, badgeText, icon, isActive) {
+        const item = document.createElement('div');
+        item.className = 'ai-model-popover-item' + (isActive ? ' active' : '');
+        item.title = `切换为 ${modelName}`;
+        item.innerHTML = `
+          <div class="ai-model-item-main">
+            <span class="ai-model-item-icon">${icon}</span>
+            <span class="ai-model-item-name">${escapeHtml(modelName)}</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:4px;">
+            ${badgeText ? `<span class="ai-model-item-badge">${escapeHtml(badgeText)}</span>` : ''}
+            ${isActive ? '<span class="ai-model-item-check">✓</span>' : ''}
+          </div>
+        `;
+        item.addEventListener('click', () => {
+          applyQuickModel(modelName);
+        });
+        modelPopoverList.appendChild(item);
+      }
+    }
+
+    async function applyQuickModel(newModel) {
+      if (!newModel) return;
+      if (modelPopover) modelPopover.classList.add('hidden');
+      if (config && config.model === newModel) return;
+
+      try {
+        const res = await ctx.call('saveConfig', { model: newModel });
+        if (res && res.ok && res.config) {
+          config = res.config;
+          if (headerModelPill) headerModelPill.textContent = config.model;
+          updateHeader();
+        } else {
+          alert('切换模型失败: ' + ((res && res.error) || '未知错误'));
+        }
+      } catch (err) {
+        alert('切换模型异常: ' + (err.message || String(err)));
+      }
+    }
+
+    if (btnToggleModelPicker) {
+      btnToggleModelPicker.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (!modelPopover) return;
+        const isHidden = modelPopover.classList.toggle('hidden');
+        if (!isHidden) {
+          modelQuickSearchText = '';
+          if (inputModelQuickSearch) {
+            inputModelQuickSearch.value = '';
+            inputModelQuickSearch.focus();
+          }
+          renderModelPopoverList();
+        }
+      });
+    }
+
+    if (inputModelQuickSearch) {
+      inputModelQuickSearch.addEventListener('input', () => {
+        modelQuickSearchText = inputModelQuickSearch.value;
+        renderModelPopoverList();
+      });
+      inputModelQuickSearch.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          const target = modelQuickSearchText.trim();
+          if (target) {
+            applyQuickModel(target);
+          }
+        }
+      });
+    }
+
+    if (btnClearModelQuickSearch) {
+      btnClearModelQuickSearch.addEventListener('click', () => {
+        modelQuickSearchText = '';
+        if (inputModelQuickSearch) {
+          inputModelQuickSearch.value = '';
+          inputModelQuickSearch.focus();
+        }
+        renderModelPopoverList();
+      });
+    }
+
+    if (btnModelPopoverOpenSettings) {
+      btnModelPopoverOpenSettings.addEventListener('click', () => {
+        if (modelPopover) modelPopover.classList.add('hidden');
+        if (typeof settingsCtrl !== 'undefined' && settingsCtrl && settingsCtrl.openSettings) {
+          settingsCtrl.openSettings('model');
+        } else if (btnOpenSettings) {
+          btnOpenSettings.click();
+        }
+      });
+    }
+
+    const onDocumentClickCloseModelPopover = (e) => {
+      if (modelPopover && !modelPopover.classList.contains('hidden')) {
+        if (!e.target.closest('.ai-model-picker-wrap')) {
+          modelPopover.classList.add('hidden');
+        }
+      }
+    };
+    document.addEventListener('click', onDocumentClickCloseModelPopover);
 
     // Sessions List
     function renderSessionsList() {
