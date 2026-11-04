@@ -220,10 +220,14 @@ class PluginManager extends EventEmitter {
   activate(id) {
     const p = this.plugins.get(id);
     if (!p || this.active.has(id)) return false;
-    const state = { mod: null, handlers: new Map(), windows: new Set(), data: null };
+    const state = { mod: null, handlers: new Map(), windows: new Set(), data: null, busSubs: [] };
     if (p.manifest.backend) {
       const file = path.join(p.root, p.manifest.backend);
-      if (!fs.existsSync(file)) {
+      // statSync().isFile() 而非 existsSync：目录也算"存在"，require.resolve
+      // 会抛 MODULE_NOT_FOUND —— 那行原在 try 外，畸形 manifest 能击穿启动链。
+      let isFile = false;
+      try { isFile = fs.statSync(file).isFile(); } catch {}
+      if (!isFile) {
         // Registering the state below would leave a ghost entry that blocks
         // re-activation forever; surface the reason in the UI instead.
         this.loadErrors.set(id, 'backend file missing');
@@ -233,7 +237,12 @@ class PluginManager extends EventEmitter {
     this.active.set(id, state);
     if (p.manifest.backend) {
       const file = path.join(p.root, p.manifest.backend);
-      delete require.cache[require.resolve(file)];
+      // 清空整个插件目录的模块缓存（含 backend 内部 require 的子模块），
+      // 否则 rescan/重新启用后子模块仍是旧代码。
+      for (const key of Object.keys(require.cache)) {
+        if (key.startsWith(p.root + path.sep)) delete require.cache[key];
+      }
+      try { delete require.cache[require.resolve(file)]; } catch { /* 非常规扩展名：交给下方 require 统一报错 */ }
       try {
         state.mod = require(file);
       } catch (err) {
@@ -258,6 +267,8 @@ class PluginManager extends EventEmitter {
     for (const win of [...state.windows]) { if (!win.isDestroyed()) win.destroy(); }
     state.windows.clear();
     state.handlers.clear();
+    // 退订插件经 ctx.onPluginEvent 挂在 manager 上的监听
+    for (const unsub of state.busSubs.splice(0)) { try { unsub(); } catch { /* plugin's own problem */ } }
     for (const key of [...this.extraRoots.keys()]) {
       if (key.startsWith(`${id}/`)) this.extraRoots.delete(key);
     }
@@ -379,7 +390,15 @@ class PluginManager extends EventEmitter {
           if (ev.id === targetId && typeof fn === 'function') fn({ channel: ev.channel, payload: ev.payload });
         };
         this.on('plugin-event', handler);
-        return () => this.removeListener('plugin-event', handler);
+        // 订阅随 state 记账：deactivate 统一退订，杜绝 enable/disable 循环
+        // 在 EventEmitter 上累积泄漏旧 state 闭包
+        const unsub = () => {
+          this.removeListener('plugin-event', handler);
+          const i = state.busSubs.indexOf(unsub);
+          if (i >= 0) state.busSubs.splice(i, 1);
+        };
+        state.busSubs.push(unsub);
+        return unsub;
       },
       openPluginPanel: (id, payload) => {
         const host = this.getHostWindow();

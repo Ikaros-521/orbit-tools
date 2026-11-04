@@ -35,6 +35,10 @@ class SSEParser {
   constructor(onEvent) {
     this.onEvent = onEvent;
     this.buffer = '';
+    // 事件组装状态必须跨 feed() 调用保留：TCP 分块可能把 event:/data:
+    // 行切在两个 chunk 里，局部变量会把前半段直接丢掉。
+    this.pendingEvent = null;
+    this.pendingData = [];
   }
 
   feed(chunkText) {
@@ -43,47 +47,46 @@ class SSEParser {
     // keep incomplete tail in buffer
     this.buffer = lines.pop() || '';
 
-    let currentEvent = null;
-    let currentData = [];
-
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) {
-        if (currentData.length > 0) {
-          const rawData = currentData.join('\n');
-          if (rawData === '[DONE]') {
-            this.onEvent({ type: 'done' });
-          } else {
-            try {
-              const parsed = JSON.parse(rawData);
-              this.onEvent({ type: currentEvent || 'message', data: parsed });
-            } catch {
-              this.onEvent({ type: currentEvent || 'message', raw: rawData });
-            }
-          }
-          currentData = [];
-          currentEvent = null;
-        }
+        this._flushEvent();
         continue;
       }
 
       if (line.startsWith('event:')) {
-        currentEvent = line.slice(6).trim();
+        this.pendingEvent = line.slice(6).trim();
       } else if (line.startsWith('data:')) {
-        currentData.push(line.slice(5).trim());
+        this.pendingData.push(line.slice(5).trim());
+      }
+    }
+  }
+
+  _flushEvent() {
+    if (this.pendingData.length === 0) return;
+    const rawData = this.pendingData.join('\n');
+    const eventName = this.pendingEvent;
+    this.pendingData = [];
+    this.pendingEvent = null;
+    if (rawData === '[DONE]') {
+      this.onEvent({ type: 'done' });
+    } else {
+      try {
+        const parsed = JSON.parse(rawData);
+        this.onEvent({ type: eventName || 'message', data: parsed });
+      } catch {
+        this.onEvent({ type: eventName || 'message', raw: rawData });
       }
     }
   }
 
   finish() {
     if (this.buffer.trim().startsWith('data:')) {
-      const raw = this.buffer.trim().slice(5).trim();
-      if (raw === '[DONE]') {
-        this.onEvent({ type: 'done' });
-      } else {
-        try { this.onEvent({ type: 'message', data: JSON.parse(raw) }); } catch {}
-      }
+      // 流结束时把残留的未完成行并入待决数据后统一冲刷
+      this.pendingData.push(this.buffer.trim().slice(5).trim());
+      this.buffer = '';
     }
+    this._flushEvent();
   }
 }
 
@@ -251,7 +254,17 @@ const OpenAIResponsesAdapter = {
 
     if (typeof opts.temperature === 'number') body.temperature = opts.temperature;
     if (Array.isArray(opts.tools) && opts.tools.length > 0) {
-      body.tools = opts.tools;
+      // Tool definitions arrive in OpenAI-chat nested shape ({type:'function',
+      // function:{...}}); the Responses API requires the flat shape — without
+      // this mapping the API rejects every agent request with a 400.
+      body.tools = opts.tools
+        .filter(t => t && t.type === 'function' && t.function)
+        .map(t => ({
+          type: 'function',
+          name: t.function.name,
+          description: t.function.description,
+          parameters: t.function.parameters
+        }));
     }
     // Thinking level for reasoning models
     if (opts.enableReasoning && ['low', 'medium', 'high'].includes(opts.thinkingLevel)) {
@@ -792,8 +805,9 @@ async function fetchRemoteModels({ protocol, baseUrl, apiKey }, externalSignal) 
 
   const timeoutCtrl = new AbortController();
   const timer = setTimeout(() => timeoutCtrl.abort(), 8000);
+  const onExternalAbort = () => timeoutCtrl.abort();
   if (externalSignal) {
-    externalSignal.addEventListener('abort', () => timeoutCtrl.abort(), { once: true });
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
   }
 
   let res;
@@ -840,6 +854,8 @@ async function fetchRemoteModels({ protocol, baseUrl, apiKey }, externalSignal) 
     return Array.from(new Set(list)).sort();
   } finally {
     clearTimeout(timer);
+    // 长寿的外部 signal 不会随本函数结束而中止，监听器需主动摘除
+    if (externalSignal) externalSignal.removeEventListener('abort', onExternalAbort);
   }
 }
 

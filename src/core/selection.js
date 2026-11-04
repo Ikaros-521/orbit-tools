@@ -160,7 +160,9 @@ async function captureActiveSelection({ restoreClipboard = true, timeoutMs = 90 
   // 首选 UI Automation：直接读焦点控件的选区，不注入按键、不动剪贴板，
   // 在 VS Code / Cursor 这类忽略合成 Ctrl+C 的编辑器里也能拿到
   try {
-    const uia = await readSelectionViaUia();
+    // timeoutMs 同样约束 UIA 子进程（默认 800ms 冷启动偏慢），
+    // 否则热键呼出抽屉的等待会远超调用方设定的预算
+    const uia = await readSelectionViaUia(Math.max(1, Math.min(Number(timeoutMs) || 90, 800)));
     if (uia.supported) return { ok: !!uia.text, text: uia.text || null };
   } catch { /* fall through to the clipboard path */ }
 

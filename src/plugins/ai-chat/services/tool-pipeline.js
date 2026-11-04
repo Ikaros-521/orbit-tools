@@ -78,7 +78,7 @@ class ToolExecutionPipeline {
    * Stage 1: Pre-Execute
    * Validates arguments, checks permissions, and requests user approval if required.
    */
-  async preExecute(tc, { approvalService, agentApprovalMode, session, streamId, emitChunk }) {
+  async preExecute(tc, { approvalService, agentApprovalMode, session, streamId, emitChunk, signal }) {
     const toolName = tc?.function?.name || '';
     const rawArgs = tc?.function?.arguments;
 
@@ -101,7 +101,14 @@ class ToolExecutionPipeline {
     );
 
     if (permission === 'ask') {
-      const decision = await approvalService.requestApproval(streamId, tc, emitChunk);
+      // 流已中止就不再进入审批等待：一次性清扫结束后新挂起的审批
+      // 无人决议，会把整条 dispatchBatch 永久吊死。
+      if (signal && signal.aborted) {
+        const abortErr = new Error('已中断生成');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+      const decision = await approvalService.requestApproval(streamId, tc, emitChunk, signal);
       if (decision.approved && decision.alwaysAllow && session) {
         session.alwaysAllowTools = Array.from(new Set([...(session.alwaysAllowTools || []), toolName]));
       }
@@ -242,7 +249,8 @@ class ToolExecutionPipeline {
       agentApprovalMode,
       session,
       streamId,
-      emitChunk
+      emitChunk,
+      signal
     });
 
     if (!preResult.approved) {

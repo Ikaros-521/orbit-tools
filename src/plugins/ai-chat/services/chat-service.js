@@ -178,6 +178,33 @@ class ChatService {
         config: rt.config || config,
         availableTools: rt.availableTools || [],
         toolDispatcher: async (subToolName, subArgs) => {
+          // 硬阻断递归派生：子代理工具表虽已过滤 dispatch_subagent，模型仍
+          // 可能幻觉调用未声明工具名，不能只依赖软过滤。
+          if (subToolName === 'dispatch_subagent') {
+            return { ok: false, error: '子智能体内禁止再次派生子智能体（已达到派生深度限制）' };
+          }
+          // 子代理工具必须走与主循环相同的三段管线：直连 dispatchAgentTool
+          // 会绕过 preExecute 审批，形成 fail-open。
+          if (rt.approvalService) {
+            const subTc = {
+              id: `subtc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+              type: 'function',
+              function: { name: subToolName, arguments: JSON.stringify(subArgs || {}) }
+            };
+            const [res] = await this.toolPipeline.dispatchBatch(
+              [subTc],
+              (n, parsedArgs) => this.dispatchAgentTool(n, parsedArgs, rt, { skills, memories, save, ctx, config }),
+              {
+                approvalService: rt.approvalService,
+                agentApprovalMode: rt.agentApprovalMode || 'ask',
+                session: rt.session,
+                streamId: rt.streamId,
+                emitChunk: rt.emit,
+                signal: rt.signal
+              }
+            );
+            return res ? res.postResult.rawResult : { ok: false, error: '子代理工具调度失败' };
+          }
           return await this.dispatchAgentTool(subToolName, subArgs, rt, { skills, memories, save, ctx, config });
         },
         emitChunk: rt.emit,
@@ -587,7 +614,10 @@ class ChatService {
                 emit: emitChunk,
                 signal: controller.signal,
                 config,
-                availableTools: agentToolDefs
+                availableTools: agentToolDefs,
+                // 子代理 toolDispatcher 复用同一 rt，审批服务/档位须随行
+                approvalService,
+                agentApprovalMode
               }, { skills, memories, save, ctx, config });
             },
             {
@@ -738,7 +768,12 @@ class ChatService {
         this.planService.denyPendingReviews(streamId, 'aborted');
         killRunningCommands(streamId);
         this.activeStreams.delete(streamId);
-        this.streamBySession.delete(sessionId);
+        // abortStream already dropped the mapping synchronously; by the time
+        // this stale loop unwinds, a NEW stream may own the session — only
+        // delete when this stream still holds the registration.
+        if (this.streamBySession.get(sessionId) === streamId) {
+          this.streamBySession.delete(sessionId);
+        }
 
         // Turn 页脚元数据收尾
         assistantMsg.endedAt = Date.now();

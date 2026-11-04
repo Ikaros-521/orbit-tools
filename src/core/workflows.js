@@ -113,7 +113,7 @@ class WorkflowRunner {
     this.hooks = hooks;
   }
 
-  async runNode(node, inputEnvelope) {
+  async runNode(node, inputEnvelope, context = { variables: {}, nodes: {} }) {
     const start = Date.now();
     const type = node.type || '';
     const inputText = inputEnvelope ? String(inputEnvelope.value ?? '') : '';
@@ -147,12 +147,12 @@ class WorkflowRunner {
         .replaceAll('{{value}}', inputText)
         .replaceAll('{{type}}', (inputEnvelope && inputEnvelope.type) || 'text/plain')
         .replaceAll('{{date}}', localDateTime());
-      if (this.context) {
-        if (this.context.variables) {
-          value = value.replace(/\{\{variables\.([a-zA-Z0-9_-]+)\}\}/g, (_, k) => (this.context.variables[k] !== undefined ? this.context.variables[k] : ''));
+      if (context) {
+        if (context.variables) {
+          value = value.replace(/\{\{variables\.([a-zA-Z0-9_-]+)\}\}/g, (_, k) => (context.variables[k] !== undefined ? context.variables[k] : ''));
         }
-        if (this.context.nodes) {
-          value = value.replace(/\{\{nodes\.([a-zA-Z0-9_-]+)\.value\}\}/g, (_, id) => (this.context.nodes[id] ? this.context.nodes[id].value : ''));
+        if (context.nodes) {
+          value = value.replace(/\{\{nodes\.([a-zA-Z0-9_-]+)\.value\}\}/g, (_, id) => (context.nodes[id] ? context.nodes[id].value : ''));
         }
       }
       return done({ output: { type: 'text/plain', value } });
@@ -162,8 +162,8 @@ class WorkflowRunner {
       const vm = require('vm');
       const code = String(cfg.code || '').trim();
       if (!code) throw new Error('未配置 JavaScript 执行脚本');
-      const contextVars = (this.context && this.context.variables) || {};
-      const contextNodes = (this.context && this.context.nodes) || {};
+      const contextVars = (context && context.variables) || {};
+      const contextNodes = (context && context.nodes) || {};
       const sandbox = {
         input: inputText,
         value: inputText,
@@ -206,8 +206,8 @@ class WorkflowRunner {
       let prompt = inputText;
       if (cfg.promptTemplate) {
         prompt = String(cfg.promptTemplate).replaceAll('{{value}}', inputText);
-        if (this.context && this.context.variables) {
-          prompt = prompt.replace(/\{\{variables\.([a-zA-Z0-9_-]+)\}\}/g, (_, k) => (this.context.variables[k] !== undefined ? this.context.variables[k] : ''));
+        if (context && context.variables) {
+          prompt = prompt.replace(/\{\{variables\.([a-zA-Z0-9_-]+)\}\}/g, (_, k) => (context.variables[k] !== undefined ? context.variables[k] : ''));
         }
       }
 
@@ -223,8 +223,8 @@ class WorkflowRunner {
 
       const res = await this.manager.call('ai-chat', 'chatComplete', callArgs);
       const outText = (res && typeof res.value !== 'undefined') ? String(res.value) : (typeof res === 'string' ? res : JSON.stringify(res));
-      if (cfg.outputVariable && this.context && this.context.variables) {
-        this.context.variables[cfg.outputVariable] = outText;
+      if (cfg.outputVariable && context && context.variables) {
+        context.variables[cfg.outputVariable] = outText;
       }
       return done({
         output: { type: 'text/plain', value: outText },
@@ -445,7 +445,9 @@ class WorkflowRunner {
     // Each node's output is tracked per-node so branched workflows feed every
     // successor its OWN predecessor's output, not "whatever node ran last".
     const outputs = new Map(); // nodeId -> output envelope (non-halted nodes only)
-    this.context = { variables: {}, nodes: {} };
+    // 变量/节点输出表为每次执行私有：runner 是共享单例，落在实例字段上会被
+    // 并发的另一次执行（手动运行 × 剪贴板触发）整体清空/串写。
+    const context = { variables: {}, nodes: {} };
     let finalOutput = initialEnvelope || { type: 'text/plain', value: '' };
     const executed = new Set();
     const halted = new Set(); // condition-failed (or fully-blocked) node ids
@@ -479,16 +481,14 @@ class WorkflowRunner {
       }
 
       try {
-        const step = await this.runNode(node, nodeInput);
+        const step = await this.runNode(node, nodeInput, context);
         finalOutput = step.output !== undefined ? step.output : nodeInput;
         if (step.halt) halted.add(nodeId);
         else {
           outputs.set(nodeId, step.output);
-          if (this.context) {
-            this.context.nodes[nodeId] = step.output;
-            if (node.config && node.config.outputVariable) {
-              this.context.variables[node.config.outputVariable] = step.output ? step.output.value : null;
-            }
+          context.nodes[nodeId] = step.output;
+          if (node.config && node.config.outputVariable) {
+            context.variables[node.config.outputVariable] = step.output ? step.output.value : null;
           }
         }
         logs.push({

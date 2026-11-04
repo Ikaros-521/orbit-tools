@@ -40,7 +40,30 @@ function compareVersions(v1, v2) {
   // 若核心版本相等，检查先行版本号（无先行版本 > 有先行版本，如 1.0.0 > 1.0.0-beta）
   if (!pre1 && pre2) return 1;
   if (pre1 && !pre2) return -1;
-  if (pre1 && pre2) return pre1.localeCompare(pre2);
+  if (pre1 && pre2) {
+    // semver 规范：数字段按数值比较（beta.10 > beta.2），字典段才按字符串，
+    // 否则 localeCompare 的字典序会把 beta.10 误判为小于 beta.2
+    const seg1 = pre1.split('.');
+    const seg2 = pre2.split('.');
+    const segLen = Math.max(seg1.length, seg2.length);
+    for (let i = 0; i < segLen; i++) {
+      const a = seg1[i];
+      const b = seg2[i];
+      if (a === undefined) return -1; // 段少者优先级低：beta < beta.1
+      if (b === undefined) return 1;
+      const aNum = /^\d+$/.test(a) ? parseInt(a, 10) : null;
+      const bNum = /^\d+$/.test(b) ? parseInt(b, 10) : null;
+      if (aNum !== null && bNum !== null) {
+        if (aNum > bNum) return 1;
+        if (aNum < bNum) return -1;
+      } else {
+        if (aNum !== null) return -1; // 数字段 < 字典段（semver 规则）
+        if (bNum !== null) return 1;
+        const cmp = a.localeCompare(b);
+        if (cmp !== 0) return cmp > 0 ? 1 : -1;
+      }
+    }
+  }
 
   return 0;
 }
@@ -250,6 +273,16 @@ class UpdateManager {
 
     return new Promise((resolve, reject) => {
       const fileStream = fs.createWriteStream(partFile);
+      // 写流失败（磁盘满 ENOSPC、%TEMP% 只读）以异步 'error' 事件抛出，
+      // 无监听会直接击穿主进程 —— 在此兜住并终止下载。
+      fileStream.on('error', err => {
+        try { if (this.activeDownloadRequest) this.activeDownloadRequest.abort(); } catch {}
+        this._safeDeleteFile(partFile, fileStream);
+        this.currentPartFile = null;
+        this.activeDownloadRequest = null;
+        this.downloadAbortController = null;
+        reject(new Error(`写入下载文件失败: ${err.message}`));
+      });
       let transferred = 0;
       let total = 0;
       let startTime = Date.now();
@@ -311,6 +344,7 @@ class UpdateManager {
 
           res.on('end', () => {
             fileStream.end(() => {
+              try { req.setTimeout(0); } catch {} // 传输已完成，停用空闲超时
               this.activeDownloadRequest = null;
               this.downloadAbortController = null;
               if (isCancelled) {
@@ -345,6 +379,12 @@ class UpdateManager {
         });
 
         req.setHeader('User-Agent', `Orbit-Toolbox-Updater/${this.appVersion}`);
+        // 空闲超时守卫：代理断流/Wi-Fi 切换等静默挂死的 socket 会让 promise
+        // 永远 pending 并锁死后续下载（activeDownloadRequest 永不释放）。
+        // destroy(err) 会走下方 req.on('error') 统一清理。
+        req.setTimeout(30000, () => {
+          req.destroy(new Error('下载连接超时（30 秒无数据进度）'));
+        });
         req.on('error', err => {
           this._safeDeleteFile(partFile, fileStream);
           this.currentPartFile = null;

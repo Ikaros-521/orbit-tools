@@ -5,6 +5,11 @@
 
 const { spawn, spawnSync } = require('child_process');
 
+// Dead records linger briefly so the UI/tool can still inspect the last exit,
+// then drop. Without this the registry grows forever and stale PIDs get reused
+// by unrelated OS processes (probe would then report them as ours-alive).
+const DEAD_RECORD_TTL_MS = 5 * 60 * 1000;
+
 class ProcessManager {
   constructor() {
     this.processes = new Map(); // pid -> record
@@ -39,6 +44,7 @@ class ProcessManager {
         record.exitCode = code;
         record.endTime = Date.now();
       }
+      this._scheduleDeadRecordCleanup(pid, record);
     };
 
     child.once('exit', onExitOrClose);
@@ -47,9 +53,16 @@ class ProcessManager {
       record.status = 'error';
       record.error = err.message;
       record.endTime = Date.now();
+      this._scheduleDeadRecordCleanup(pid, record);
     });
 
     return record;
+  }
+
+  _scheduleDeadRecordCleanup(pid, record) {
+    setTimeout(() => {
+      if (this.processes.get(pid) === record) this.processes.delete(pid);
+    }, DEAD_RECORD_TTL_MS).unref();
   }
 
   unregister(pid) {
@@ -65,15 +78,19 @@ class ProcessManager {
     const list = [];
     for (const [pid, rec] of this.processes.entries()) {
       if (sessionId && rec.sessionId && rec.sessionId !== sessionId) continue;
-      // Probe if process is actually still alive
+      // Probe liveness only for records still marked running; dead records
+      // keep their stored status (a recycled PID must never resurrect one).
       let isAlive = false;
-      try {
-        isAlive = process.kill(pid, 0);
-      } catch {
-        isAlive = false;
+      if (rec.status === 'running') {
+        try {
+          isAlive = process.kill(pid, 0);
+        } catch {
+          isAlive = false;
+        }
       }
       if (!isAlive && rec.status === 'running') {
         rec.status = 'exited';
+        this._scheduleDeadRecordCleanup(pid, rec);
       }
       list.push({
         pid: rec.pid,
@@ -94,6 +111,12 @@ class ProcessManager {
     const numPid = Number(pid);
     if (!numPid) return { ok: false, error: '无效的 PID' };
     const record = this.processes.get(numPid);
+    // Fail-closed: the pid comes from model output — never taskkill an OS
+    // process this manager did not register (model hallucination / prompt
+    // injection must not be able to kill arbitrary user processes).
+    if (!record) {
+      return { ok: false, pid: numPid, error: '该 PID 不属于 AI 助手管理的进程，已拒绝停止' };
+    }
     const isWin = process.platform === 'win32';
 
     try {

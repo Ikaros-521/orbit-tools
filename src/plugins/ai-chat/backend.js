@@ -14,7 +14,7 @@ const { dialog } = require('electron');
 const { fetchRemoteModels } = require('./protocols');
 const { normalizeMemoryRecord } = require('./memory');
 const { DEFAULT_MCP_SERVERS } = require('./mcp-market');
-const { listAvailableAiIdes, dispatchTaskToAiIde } = require('./ide-dispatcher');
+const { listAvailableIDEs: listAvailableAiIdes, dispatchTask: dispatchTaskToAiIde } = require('./ide-dispatcher');
 
 const ApprovalService = require('./services/approval-service');
 const McpService = require('./services/mcp-service');

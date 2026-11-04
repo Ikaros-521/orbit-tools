@@ -9,10 +9,25 @@ class ApprovalService {
     this.pendingApprovals = new Map(); // `${streamId}::${toolCallId}` -> { resolve, toolName }
   }
 
-  requestApproval(streamId, tc, emitChunk) {
+  requestApproval(streamId, tc, emitChunk, signal) {
     return new Promise(resolve => {
+      // 已中断的流直接拒绝：此刻挂起的审批永远不会有人决议
+      if (signal && signal.aborted) {
+        resolve({ approved: false, reason: 'aborted' });
+        return;
+      }
       const key = `${streamId}::${tc.id}`;
-      this.pendingApprovals.set(key, { resolve, toolName: tc.function.name });
+      const settle = (value) => {
+        this.pendingApprovals.delete(key);
+        if (onAbort && signal) signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      };
+      // denyPendingApprovals 是一次性快照清扫；若本请求在清扫之后才挂起
+      // （worker 仍在收尾），没有这个 abort 监听它将永久 pending 并卡死
+      // agent 循环 —— fail-closed。
+      const onAbort = () => settle({ approved: false, reason: 'aborted' });
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      this.pendingApprovals.set(key, { resolve: settle, toolName: tc.function.name });
       if (typeof emitChunk === 'function') {
         emitChunk({
           type: 'tool_approval_request',

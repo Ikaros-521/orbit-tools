@@ -49,7 +49,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
 
   ipcMain.handle('plugin-set-enabled', (e, payload) => {
     manager.setEnabled(payload.id, payload.on);
-    hotkeys.registerAll();
+    hotkeys.registerAll({ allowFallback: false }); // 仅启动路径允许降级改键，日常 IPC 重挂不得静默改写用户热键
     return { plugins: manager.serialize(), hotkeys: hotkeys.status };
   });
 
@@ -57,7 +57,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     manager.deactivateAll();
     manager.discover();
     for (const p of manager.plugins.values()) if (p.enabled) manager.activate(p.id);
-    hotkeys.registerAll();
+    hotkeys.registerAll({ allowFallback: false }); // 仅启动路径允许降级改键，日常 IPC 重挂不得静默改写用户热键
     return { plugins: manager.serialize(), hotkeys: hotkeys.status };
   });
 
@@ -159,7 +159,7 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
 
   ipcMain.handle('set-user-plugins-dir', (e, newDir) => {
     const dirInfo = manager.setUserPluginsDir(newDir);
-    hotkeys.registerAll();
+    hotkeys.registerAll({ allowFallback: false }); // 仅启动路径允许降级改键，日常 IPC 重挂不得静默改写用户热键
     return {
       plugins: manager.serialize(),
       hotkeys: hotkeys.status,

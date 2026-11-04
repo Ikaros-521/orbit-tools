@@ -233,7 +233,7 @@ async function main() {
     const hugeText = 'x'.repeat(30 * 1024);
     const clipped = clipToolContent(hugeText, 1024);
     assert.ok(clipped.length < 2000);
-    assert.ok(clipped.includes('已自动截断'));
+    assert.ok(clipped.includes('已省略中间'));
 
     console.log('PASS: Three-Stage Tool Pipeline & Concurrency verified');
   }
