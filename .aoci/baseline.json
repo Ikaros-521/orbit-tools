@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-03T01:46:23Z",
-  "updated_at": "2026-11-04T14:34:29Z",
+  "updated_at": "2026-11-04T16:09:30Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -47,9 +47,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "1875ff386f84ffe5a399eb38f66ef98eea2a945b62b18b417fdaa0e873634114",
-      "size": 54361,
-      "normalized_sha256": "1875ff386f84ffe5a399eb38f66ef98eea2a945b62b18b417fdaa0e873634114"
+      "sha256": "c79419d1ef9bdbf5b01fe52d8ac07e3b9b4259a176b5eac3ffb35dfea6ce3f9c",
+      "size": 56765,
+      "normalized_sha256": "c79419d1ef9bdbf5b01fe52d8ac07e3b9b4259a176b5eac3ffb35dfea6ce3f9c"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -77,9 +77,9 @@
     },
     "package.json": {
       "role": "index",
-      "sha256": "f307127e317455d29485f955abf13999d93ca008bfdf57d4a43835de00c144b0",
+      "sha256": "abbf8d04617bcb47f2f2f086132fd2d8846156be49be1b491af3d653ea7af4bb",
       "size": 4609,
-      "normalized_sha256": "f307127e317455d29485f955abf13999d93ca008bfdf57d4a43835de00c144b0"
+      "normalized_sha256": "abbf8d04617bcb47f2f2f086132fd2d8846156be49be1b491af3d653ea7af4bb"
     },
     "promo-video/assets/gsap.min.js": {
       "role": "observe",
@@ -245,9 +245,9 @@
     },
     "src/core/config.js": {
       "role": "index",
-      "sha256": "20e58c9d3d842a36cd5d86381727c3467e4002af187fdd60e4512632150b4256",
-      "size": 2141,
-      "normalized_sha256": "20e58c9d3d842a36cd5d86381727c3467e4002af187fdd60e4512632150b4256"
+      "sha256": "5c2c8bdeed345883abc5cd69dd42d3045affe2ab3c32a7ad5268a58d7bf6b219",
+      "size": 2849,
+      "normalized_sha256": "5c2c8bdeed345883abc5cd69dd42d3045affe2ab3c32a7ad5268a58d7bf6b219"
     },
     "src/core/hotkeys.js": {
       "role": "index",
@@ -257,15 +257,15 @@
     },
     "src/core/ipc.js": {
       "role": "index",
-      "sha256": "0a5d39572e2fb44be9131337417532a2ba7f5522008eff7546b8c304a6eb9e0a",
-      "size": 10508,
-      "normalized_sha256": "0a5d39572e2fb44be9131337417532a2ba7f5522008eff7546b8c304a6eb9e0a"
+      "sha256": "4d45e6e80860ae2b967b8d9dff8b5cd6492f022f7ac930cb5dc98aa652da613e",
+      "size": 10841,
+      "normalized_sha256": "4d45e6e80860ae2b967b8d9dff8b5cd6492f022f7ac930cb5dc98aa652da613e"
     },
     "src/core/plugin-manager.js": {
       "role": "index",
-      "sha256": "5cf7d5e5af2fc26dcc8df7155e088a1db9e92a5aa946de949e86d3daec1c5003",
-      "size": 17549,
-      "normalized_sha256": "5cf7d5e5af2fc26dcc8df7155e088a1db9e92a5aa946de949e86d3daec1c5003"
+      "sha256": "a1672db60bbf6f3568573537bb0c1763f521459380c8a7f723be6086da65d26a",
+      "size": 18716,
+      "normalized_sha256": "a1672db60bbf6f3568573537bb0c1763f521459380c8a7f723be6086da65d26a"
     },
     "src/core/plugin-protocol.js": {
       "role": "index",
@@ -281,9 +281,9 @@
     },
     "src/core/selection.js": {
       "role": "index",
-      "sha256": "17e1ddae6909e7280fddd4866f494c3cb43a74767e627f7f39231f0b9413141f",
-      "size": 7596,
-      "normalized_sha256": "17e1ddae6909e7280fddd4866f494c3cb43a74767e627f7f39231f0b9413141f"
+      "sha256": "9ab08b581c84888ecd60c0cae4644b8cabac7f5fc0081c73a2b83c4dfd449571",
+      "size": 7802,
+      "normalized_sha256": "9ab08b581c84888ecd60c0cae4644b8cabac7f5fc0081c73a2b83c4dfd449571"
     },
     "src/core/send_copy.vbs": {
       "role": "index",
@@ -293,15 +293,15 @@
     },
     "src/core/updater.js": {
       "role": "index",
-      "sha256": "4adfd95e15ab26c793c4396fe93613b95eea3a82799e09ff71d94fa4f9fcffdd",
-      "size": 16398,
-      "normalized_sha256": "4adfd95e15ab26c793c4396fe93613b95eea3a82799e09ff71d94fa4f9fcffdd"
+      "sha256": "a9da39ccdda0a750bfada007b4dca66fbf92249790682ef32d1c9033ca22b498",
+      "size": 18394,
+      "normalized_sha256": "a9da39ccdda0a750bfada007b4dca66fbf92249790682ef32d1c9033ca22b498"
     },
     "src/core/workflows.js": {
       "role": "index",
-      "sha256": "ae199b8e6c8401f336306aa03b51a5c50f9b6da33ea787200ede5bb292858b82",
-      "size": 30941,
-      "normalized_sha256": "ae199b8e6c8401f336306aa03b51a5c50f9b6da33ea787200ede5bb292858b82"
+      "sha256": "ebd9fa7b1d7210cccd903328222c4daea28915a96bfb7b10423e9e20ebb7e13b",
+      "size": 31038,
+      "normalized_sha256": "ebd9fa7b1d7210cccd903328222c4daea28915a96bfb7b10423e9e20ebb7e13b"
     },
     "src/main.js": {
       "role": "index",
@@ -317,9 +317,9 @@
     },
     "src/plugins/ai-chat/backend.js": {
       "role": "index",
-      "sha256": "637b34c36b05f09d603a383b8287a9fc454dc8a039af326eefb6ccdfd1c3c787",
-      "size": 24150,
-      "normalized_sha256": "637b34c36b05f09d603a383b8287a9fc454dc8a039af326eefb6ccdfd1c3c787"
+      "sha256": "27dadc04bbab48a5659de7fbbcc293ee03ec5f6fe73916398cb6a6d4a0b37597",
+      "size": 24183,
+      "normalized_sha256": "27dadc04bbab48a5659de7fbbcc293ee03ec5f6fe73916398cb6a6d4a0b37597"
     },
     "src/plugins/ai-chat/components/panel-template.js": {
       "role": "index",
@@ -437,21 +437,21 @@
     },
     "src/plugins/ai-chat/protocols.js": {
       "role": "index",
-      "sha256": "421f61ca558fd5a7e1b41a133cdb8f0fb89298551755fe1a522d5bee85e30377",
-      "size": 30923,
-      "normalized_sha256": "7d8cadb69914cf2e3653493084175797a54f8c5beb7daad27efe5cc1d43e1229"
+      "sha256": "d18e12da323770e07dfb051f5abf41e82e6b40dd2769e539d88dd24f743236cc",
+      "size": 30932,
+      "normalized_sha256": "d18e12da323770e07dfb051f5abf41e82e6b40dd2769e539d88dd24f743236cc"
     },
     "src/plugins/ai-chat/services/approval-service.js": {
       "role": "index",
-      "sha256": "bc1c9e39295fdd448f5408fa5d3b240d1db83738fc44037f5d87628d4695c797",
-      "size": 1937,
-      "normalized_sha256": "bc1c9e39295fdd448f5408fa5d3b240d1db83738fc44037f5d87628d4695c797"
+      "sha256": "77c127cffd338c565eb751933bb1bfd5926aabd5dfce2d84017be2ec32f88b7c",
+      "size": 2728,
+      "normalized_sha256": "77c127cffd338c565eb751933bb1bfd5926aabd5dfce2d84017be2ec32f88b7c"
     },
     "src/plugins/ai-chat/services/chat-service.js": {
       "role": "index",
-      "sha256": "9fb19bf917dd9f3356f17a9059696e7f8ee0ccd3a234c20554e952d2020c212d",
-      "size": 33988,
-      "normalized_sha256": "9fb19bf917dd9f3356f17a9059696e7f8ee0ccd3a234c20554e952d2020c212d"
+      "sha256": "ef0cb4ea6e62254337c44149ef8eacd7f206928b5041950f3980c90a83efab9f",
+      "size": 35900,
+      "normalized_sha256": "ef0cb4ea6e62254337c44149ef8eacd7f206928b5041950f3980c90a83efab9f"
     },
     "src/plugins/ai-chat/services/compaction-service.js": {
       "role": "index",
@@ -473,9 +473,9 @@
     },
     "src/plugins/ai-chat/services/process-manager.js": {
       "role": "index",
-      "sha256": "727da49632c1eb44c843eb85c977c567a1315ef8442d22bf0700065b5987570d",
-      "size": 4337,
-      "normalized_sha256": "727da49632c1eb44c843eb85c977c567a1315ef8442d22bf0700065b5987570d"
+      "sha256": "f34936e7caa6ed8aa06b36b379bad628c2e1bc3f65c89b4c6ec07ee0f9871f88",
+      "size": 5468,
+      "normalized_sha256": "f34936e7caa6ed8aa06b36b379bad628c2e1bc3f65c89b4c6ec07ee0f9871f88"
     },
     "src/plugins/ai-chat/services/runtime-context-service.js": {
       "role": "index",
@@ -497,9 +497,9 @@
     },
     "src/plugins/ai-chat/services/tool-pipeline.js": {
       "role": "index",
-      "sha256": "14f807798d3c8563b96af1c82818b4938ec2566646610145bb71c921868643b4",
-      "size": 8860,
-      "normalized_sha256": "14f807798d3c8563b96af1c82818b4938ec2566646610145bb71c921868643b4"
+      "sha256": "84dd3f64dd812ffb77cc8ce8042a853a3b3021ce1a740f780ef9c326f9cba524",
+      "size": 9214,
+      "normalized_sha256": "84dd3f64dd812ffb77cc8ce8042a853a3b3021ce1a740f780ef9c326f9cba524"
     },
     "src/plugins/ai-chat/skills-util.js": {
       "role": "index",
@@ -1288,9 +1288,9 @@
     },
     "tools/test-ai-runtime-harness.js": {
       "role": "index",
-      "sha256": "11ffc0b6ee7224035f94782e8d50cd0ae62d27310669fe96d52599cf4bcff42f",
+      "sha256": "73b05f1f4ad03973e145c07c46220d868551e2d3c3afdad69a0be53ac642425c",
       "size": 13685,
-      "normalized_sha256": "11ffc0b6ee7224035f94782e8d50cd0ae62d27310669fe96d52599cf4bcff42f"
+      "normalized_sha256": "73b05f1f4ad03973e145c07c46220d868551e2d3c3afdad69a0be53ac642425c"
     },
     "tools/test-ai-skills-live.js": {
       "role": "index",
