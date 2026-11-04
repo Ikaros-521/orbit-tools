@@ -1145,14 +1145,16 @@
       const msgs = session.messages;
       let lastAsstWithUsageIdx = -1;
       for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].role === 'assistant' && msgs[i].usage && typeof msgs[i].usage.promptTokens === 'number') {
+        if (msgs[i].role === 'assistant' && msgs[i].usage && (typeof msgs[i].usage.contextTokens === 'number' || typeof msgs[i].usage.promptTokens === 'number')) {
           lastAsstWithUsageIdx = i;
           break;
         }
       }
       if (lastAsstWithUsageIdx !== -1) {
         const baseUsage = msgs[lastAsstWithUsageIdx].usage;
-        const baseTokens = (baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0);
+        const baseTokens = (typeof baseUsage.contextTokens === 'number')
+          ? baseUsage.contextTokens
+          : ((baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0));
         let trailingChars = 0;
         for (let i = lastAsstWithUsageIdx + 1; i < msgs.length; i++) {
           trailingChars += String(msgs[i].content || '').length;
@@ -1163,7 +1165,10 @@
       for (const m of msgs) {
         totalChars += String(m.content || '').length;
       }
-      return Math.max(150, Math.ceil(totalChars / 3.2) + 150);
+      // 历史消息无 usage 时的合理估算：包含系统 Prompt 基础开销及 Agent 工具声明开销
+      const isAgent = config && config.enableAgent !== false;
+      const baseOverhead = isAgent ? 1800 : 350;
+      return Math.max(150, Math.ceil(totalChars / 3.2) + baseOverhead);
     }
 
     function updateContextProgress() {
@@ -1174,7 +1179,7 @@
         contextRingText.textContent = '0%';
         contextRingMeter.classList.remove('warning', 'danger');
         if (contextRingWrap) {
-          contextRingWrap.title = `当前上下文: 0 / ${maxTokens.toLocaleString()} tokens (0%)\n点击一键压缩上下文`;
+          contextRingWrap.title = `当前上下文: 0 / ${maxTokens.toLocaleString()} tokens (0%)\n【说明】模型单轮工作记忆负载；不同于右上角多轮累计总账\n点击一键压缩上下文`;
         }
         return;
       }
@@ -1205,7 +1210,7 @@
 
       const pctDetail = rawPct >= 1 ? `${pct}%` : `${rawPct.toFixed(2)}%`;
       if (contextRingWrap) {
-        contextRingWrap.title = `当前上下文: ${currentTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctDetail})\n点击一键压缩上下文`;
+        contextRingWrap.title = `当前上下文窗口: ${currentTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctDetail})\n【说明】当前单轮发给模型的活跃工作记忆（含系统设定、工具定义及最近上下文）；\n与右上角「会话累计账单」不同，此处反映窗口拥挤度，接近上限时建议压缩\n点击一键压缩上下文`;
       }
     }
 
@@ -1306,11 +1311,8 @@
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
       const cached = currentSession.totalTokens && currentSession.totalTokens.cachedTokens ? currentSession.totalTokens.cachedTokens : 0;
       sessionUsageBadge.textContent = `${tokens.toLocaleString()} tokens`;
-      if (cached > 0) {
-        sessionUsageBadge.title = `会话累计 Token 消耗: ${tokens.toLocaleString()} tokens\n(其中命中缓存: ${cached.toLocaleString()} tokens)`;
-      } else {
-        sessionUsageBadge.title = '会话累计 Token 消耗';
-      }
+      const cacheNote = cached > 0 ? `\n(其中命中缓存: ${cached.toLocaleString()} tokens)` : '';
+      sessionUsageBadge.title = `会话累计消耗: ${tokens.toLocaleString()} tokens (总账单)${cacheNote}\n【说明】本会话多轮历史对话累计消耗的 API Token 总和（单调递增）；\n与右下角「当前上下文窗口」不同，右下角反映当前单轮工作记忆负载`;
       updateActivePersonaPill();
       updateContextProgress();
     }

@@ -334,7 +334,8 @@ class ChatService {
               roundUsage = {
                 promptTokens: u.promptTokens || (roundUsage ? roundUsage.promptTokens : 0),
                 completionTokens: u.completionTokens || (roundUsage ? roundUsage.completionTokens : 0),
-                totalTokens: u.totalTokens || (((roundUsage ? roundUsage.promptTokens : 0) + (u.promptTokens || 0)) + (u.completionTokens || 0))
+                totalTokens: u.totalTokens || (((roundUsage ? roundUsage.promptTokens : 0) + (u.promptTokens || 0)) + (u.completionTokens || 0)),
+                cachedTokens: u.cachedTokens || (roundUsage ? roundUsage.cachedTokens : 0)
               };
             } else if (event.type === 'done') {
               emitChunk({ type: 'done' });
@@ -356,7 +357,9 @@ class ChatService {
               promptTokens: (prev.promptTokens || 0) + (roundUsage.promptTokens || 0),
               completionTokens: (prev.completionTokens || 0) + (roundUsage.completionTokens || 0),
               totalTokens: (prev.totalTokens || 0) + (roundUsage.totalTokens || ((roundUsage.promptTokens || 0) + (roundUsage.completionTokens || 0))),
-              cachedTokens: (prev.cachedTokens || 0) + (roundUsage.cachedTokens || 0)
+              cachedTokens: (prev.cachedTokens || 0) + (roundUsage.cachedTokens || 0),
+              // contextTokens represents the single-round context window occupied during this latest round
+              contextTokens: (roundUsage.promptTokens || 0) + (roundUsage.completionTokens || 0)
             };
             emitChunk({ type: 'usage', usage: assistantMsg.usage });
           }

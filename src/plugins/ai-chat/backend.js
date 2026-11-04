@@ -579,7 +579,7 @@ module.exports = {
     ctx.ipc.handle('getContextTokens', args => {
       const s = findSession(args && args.sessionId);
       if (!s) return { ok: false, tokens: 0 };
-      return { ok: true, tokens: compactionService.calculateContextTokens(s) };
+      return { ok: true, tokens: compactionService.calculateContextTokens(s, { enableAgent: config.enableAgent !== false }) };
     });
 
     /* --- External AI IDEs --- */

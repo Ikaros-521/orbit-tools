@@ -10,7 +10,7 @@ class CompactionService {
    * If the latest assistant message has usage stats, uses its promptTokens + completionTokens;
    * otherwise estimates based on message content length (~3.2 chars per token).
    */
-  calculateContextTokens(session) {
+  calculateContextTokens(session, { enableAgent = true } = {}) {
     if (!session || !Array.isArray(session.messages) || session.messages.length === 0) {
       return 0;
     }
@@ -18,7 +18,7 @@ class CompactionService {
     const msgs = session.messages;
     let lastAsstWithUsageIdx = -1;
     for (let i = msgs.length - 1; i >= 0; i--) {
-      if (msgs[i].role === 'assistant' && msgs[i].usage && typeof msgs[i].usage.promptTokens === 'number') {
+      if (msgs[i].role === 'assistant' && msgs[i].usage && (typeof msgs[i].usage.contextTokens === 'number' || typeof msgs[i].usage.promptTokens === 'number')) {
         lastAsstWithUsageIdx = i;
         break;
       }
@@ -26,7 +26,9 @@ class CompactionService {
 
     if (lastAsstWithUsageIdx !== -1) {
       const baseUsage = msgs[lastAsstWithUsageIdx].usage;
-      const baseTokens = (baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0);
+      const baseTokens = (typeof baseUsage.contextTokens === 'number')
+        ? baseUsage.contextTokens
+        : ((baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0));
       let trailingChars = 0;
       for (let i = lastAsstWithUsageIdx + 1; i < msgs.length; i++) {
         trailingChars += String(msgs[i].content || '').length;
@@ -39,8 +41,9 @@ class CompactionService {
     for (const m of msgs) {
       totalChars += String(m.content || '').length;
     }
-    // Include approximate system prompt overhead (~150 tokens)
-    return Math.max(150, Math.ceil(totalChars / 3.2) + 150);
+    // Include approximate system prompt overhead (~350) + agent tools overhead (~1450) when enabled
+    const baseOverhead = enableAgent ? 1800 : 350;
+    return Math.max(150, Math.ceil(totalChars / 3.2) + baseOverhead);
   }
 
   /**

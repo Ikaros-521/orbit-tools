@@ -96,72 +96,66 @@ console.log('✓ Test 2 通过');
 // [Test 3] 验证多轮对话中上下文 Token 随新轮次刷新
 console.log('[Test 3] 验证多轮对话中上下文 Token 计算能够随新轮次真实刷新...');
 
-function calculateCurrentContextTokens(session) {
-  if (!session || !Array.isArray(session.messages) || session.messages.length === 0) {
-    return 0;
-  }
-  const msgs = session.messages;
-  let lastAsstWithUsageIdx = -1;
-  for (let i = msgs.length - 1; i >= 0; i--) {
-    if (msgs[i].role === 'assistant' && msgs[i].usage && typeof msgs[i].usage.promptTokens === 'number') {
-      lastAsstWithUsageIdx = i;
-      break;
-    }
-  }
-  if (lastAsstWithUsageIdx !== -1) {
-    const baseUsage = msgs[lastAsstWithUsageIdx].usage;
-    const baseTokens = (baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0);
-    let trailingChars = 0;
-    for (let i = lastAsstWithUsageIdx + 1; i < msgs.length; i++) {
-      trailingChars += String(msgs[i].content || '').length;
-    }
-    return baseTokens + Math.ceil(trailingChars / 3.2);
-  }
-  let totalChars = 0;
-  for (const m of msgs) {
-    totalChars += String(m.content || '').length;
-  }
-  return Math.max(150, Math.ceil(totalChars / 3.2) + 150);
-}
+const { compactionService } = require('../src/plugins/ai-chat/services/compaction-service');
 
 // 模拟第一轮对话
 const mockSession = {
   messages: [
     { role: 'user', content: '你好' },
-    { role: 'assistant', content: '你好！有什么我可以帮你的？', usage: { promptTokens: 300, completionTokens: 25, totalTokens: 325 } }
+    { role: 'assistant', content: '你好！有什么我可以帮你的？', usage: { promptTokens: 300, completionTokens: 25, totalTokens: 325, contextTokens: 325 } }
   ]
 };
 
-const round1Tokens = calculateCurrentContextTokens(mockSession);
+const round1Tokens = compactionService.calculateContextTokens(mockSession);
 assert.strictEqual(round1Tokens, 325, '第 1 轮上下文量应为 325');
 
 // 模拟第二轮对话未带 usage (刚发送)
 mockSession.messages.push({ role: 'user', content: '帮我写一个快速排序算法' });
-const round2PendingTokens = calculateCurrentContextTokens(mockSession);
+const round2PendingTokens = compactionService.calculateContextTokens(mockSession);
 assert.ok(round2PendingTokens > round1Tokens, '用户输入后估算上下文应上涨');
 
 // 模拟第二轮大模型回复并携带最新 usage
 mockSession.messages.push({
   role: 'assistant',
   content: '这是快速排序的代码...',
-  usage: { promptTokens: 850, completionTokens: 180, totalTokens: 1030 }
+  usage: { promptTokens: 850, completionTokens: 180, totalTokens: 1030, contextTokens: 1030 }
 });
-const round2CompleteTokens = calculateCurrentContextTokens(mockSession);
+const round2CompleteTokens = compactionService.calculateContextTokens(mockSession);
 assert.strictEqual(round2CompleteTokens, 850 + 180, '第 2 轮完成时上下文量应刷新为 1030');
 assert.ok(round2CompleteTokens > round1Tokens, '第 2 轮上下文显著大于第 1 轮');
 
-// 模拟第三轮大模型回复
+// 模拟第三轮大模型回复 (模拟 Agent 工具调用，promptTokens 被累积计费，但 contextTokens 保持真实单轮窗口负载)
 mockSession.messages.push({ role: 'user', content: '再写一个归并排序' });
 mockSession.messages.push({
   role: 'assistant',
   content: '这是归并排序的代码...',
-  usage: { promptTokens: 1600, completionTokens: 220, totalTokens: 1820 }
+  usage: {
+    promptTokens: 4800, // 多轮工具调用累计计费
+    completionTokens: 350,
+    totalTokens: 5150,
+    contextTokens: 1820 // 真实最后一轮窗口负载
+  }
 });
-const round3CompleteTokens = calculateCurrentContextTokens(mockSession);
-assert.strictEqual(round3CompleteTokens, 1600 + 220, '第 3 轮完成时上下文量应刷新为 1820');
+const round3CompleteTokens = compactionService.calculateContextTokens(mockSession);
+assert.strictEqual(round3CompleteTokens, 1820, '第 3 轮应优先使用 contextTokens 真实窗口负载，而非累积 promptTokens');
 assert.ok(round3CompleteTokens > round2CompleteTokens, '第 3 轮上下文显著大于第 2 轮');
 
 console.log('✓ Test 3 通过');
+
+// [Test 4] 验证旧历史会话（无 API usage）的合理估算与 Agent 工具开销保护
+console.log('[Test 4] 验证旧历史会话无 usage 时包含系统与 Agent 工具基准开销...');
+const oldHistoricalSession = {
+  messages: [
+    { role: 'user', content: '这是一段历史旧提问，旧版本未记录 usage' },
+    { role: 'assistant', content: '这是一段历史旧回答，旧版本也未记录 usage' }
+  ]
+};
+const oldEstimateAgent = compactionService.calculateContextTokens(oldHistoricalSession, { enableAgent: true });
+const oldEstimateNoAgent = compactionService.calculateContextTokens(oldHistoricalSession, { enableAgent: false });
+
+assert.ok(oldEstimateAgent >= 1800, '启用 Agent 时应包含工具定义估算基数 (~1800)');
+assert.ok(oldEstimateNoAgent >= 350 && oldEstimateNoAgent < 1000, '未启用 Agent 时应为纯系统开销 (~350)');
+console.log('✓ Test 4 通过');
 
 console.log('==================================================');
 console.log('🎉 所有上下文动态刷新与缓存命中提取测试全部通过！');
