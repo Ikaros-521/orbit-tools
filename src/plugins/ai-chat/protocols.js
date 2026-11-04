@@ -151,12 +151,15 @@ const OpenAIChatAdapter = {
     if (!data) return;
 
     if (data.usage) {
+      const cached = (data.usage.prompt_tokens_details && data.usage.prompt_tokens_details.cached_tokens) ||
+                     data.usage.prompt_cache_hit_tokens || 0;
       emit({
         type: 'usage',
         usage: {
           promptTokens: data.usage.prompt_tokens || 0,
           completionTokens: data.usage.completion_tokens || 0,
-          totalTokens: data.usage.total_tokens || 0
+          totalTokens: data.usage.total_tokens || 0,
+          ...(cached > 0 ? { ...(cached > 0 ? { cachedTokens: cached } : {}) } : {})
         }
       });
     }
@@ -189,7 +192,8 @@ const OpenAIChatAdapter = {
       usage: data && data.usage ? {
         promptTokens: data.usage.prompt_tokens || 0,
         completionTokens: data.usage.completion_tokens || 0,
-        totalTokens: data.usage.total_tokens || 0
+        totalTokens: data.usage.total_tokens || 0,
+        cachedTokens: (data.usage.prompt_tokens_details && data.usage.prompt_tokens_details.cached_tokens) || data.usage.prompt_cache_hit_tokens || 0
       } : null
     };
   }
@@ -307,12 +311,16 @@ const OpenAIResponsesAdapter = {
     if (usageSrc) {
       const promptTokens = usageSrc.input_tokens || usageSrc.prompt_tokens || 0;
       const completionTokens = usageSrc.output_tokens || usageSrc.completion_tokens || 0;
+      const cached = (usageSrc.input_token_details && usageSrc.input_token_details.cached_tokens) ||
+                     (usageSrc.prompt_tokens_details && usageSrc.prompt_tokens_details.cached_tokens) ||
+                     usageSrc.prompt_cache_hit_tokens || 0;
       emit({
         type: 'usage',
         usage: {
           promptTokens,
           completionTokens,
-          totalTokens: usageSrc.total_tokens || (promptTokens + completionTokens)
+          totalTokens: usageSrc.total_tokens || (promptTokens + completionTokens),
+          ...(cached > 0 ? { cachedTokens: cached } : {})
         }
       });
     }
@@ -424,6 +432,7 @@ const ClaudeMessagesAdapter = {
     const headers = {
       'Content-Type': 'application/json',
       'anthropic-version': '2023-06-01',
+      'anthropic-beta': 'prompt-caching-2024-07-31',
       ...(opts.apiKey ? { 'x-api-key': opts.apiKey } : {}),
       ...(opts.headers || {})
     };
@@ -499,7 +508,19 @@ const ClaudeMessagesAdapter = {
       stream: opts.stream !== false
     };
 
-    if (systemPrompt) body.system = systemPrompt;
+    if (systemPrompt) {
+      if (opts.enablePromptCaching) {
+        body.system = [
+          {
+            type: 'text',
+            text: systemPrompt,
+            cache_control: { type: 'ephemeral' }
+          }
+        ];
+      } else {
+        body.system = systemPrompt;
+      }
+    }
     if (typeof opts.temperature === 'number' && !opts.enableReasoning) {
       body.temperature = opts.temperature;
     }
@@ -545,12 +566,14 @@ const ClaudeMessagesAdapter = {
       st.pendingTools.clear();
       st.finalizedTools.length = 0;
       if (data.message && data.message.usage) {
+        const cached = data.message.usage.cache_read_input_tokens || 0;
         emit({
           type: 'usage',
           usage: {
             promptTokens: data.message.usage.input_tokens || 0,
             completionTokens: 0,
-            totalTokens: data.message.usage.input_tokens || 0
+            totalTokens: data.message.usage.input_tokens || 0,
+            ...(cached > 0 ? { cachedTokens: cached } : {})
           }
         });
       }

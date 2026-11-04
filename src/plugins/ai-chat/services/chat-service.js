@@ -351,11 +351,12 @@ class ChatService {
           }
 
           if (roundUsage) {
-            const prev = assistantMsg.usage || { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+            const prev = assistantMsg.usage || { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 };
             assistantMsg.usage = {
               promptTokens: (prev.promptTokens || 0) + (roundUsage.promptTokens || 0),
               completionTokens: (prev.completionTokens || 0) + (roundUsage.completionTokens || 0),
-              totalTokens: (prev.totalTokens || 0) + (roundUsage.totalTokens || ((roundUsage.promptTokens || 0) + (roundUsage.completionTokens || 0)))
+              totalTokens: (prev.totalTokens || 0) + (roundUsage.totalTokens || ((roundUsage.promptTokens || 0) + (roundUsage.completionTokens || 0))),
+              cachedTokens: (prev.cachedTokens || 0) + (roundUsage.cachedTokens || 0)
             };
             emitChunk({ type: 'usage', usage: assistantMsg.usage });
           }
@@ -477,10 +478,11 @@ class ChatService {
         }
 
         if (assistantMsg.usage) {
-          session.totalTokens = session.totalTokens || { promptTokens: 0, completionTokens: 0, totalTokens: 0 };
+          session.totalTokens = session.totalTokens || { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 };
           session.totalTokens.promptTokens += (assistantMsg.usage.promptTokens || 0);
           session.totalTokens.completionTokens += (assistantMsg.usage.completionTokens || 0);
           session.totalTokens.totalTokens += (assistantMsg.usage.totalTokens || 0);
+          session.totalTokens.cachedTokens = (session.totalTokens.cachedTokens || 0) + (assistantMsg.usage.cachedTokens || 0);
         }
 
       } catch (err) {

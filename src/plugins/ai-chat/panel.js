@@ -1183,8 +1183,15 @@
       const rawPct = (currentTokens / maxTokens) * 100;
       const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
 
-      contextRingMeter.setAttribute('stroke-dasharray', `${pct}, 100`);
-      contextRingText.textContent = `${pct}%`;
+      let displayPctText = `${pct}%`;
+      let meterDashPct = pct;
+      if (currentTokens > 0 && rawPct < 1) {
+        displayPctText = '<1%';
+        meterDashPct = Math.max(0.8, Number(rawPct.toFixed(1)));
+      }
+
+      contextRingMeter.setAttribute('stroke-dasharray', `${meterDashPct}, 100`);
+      contextRingText.textContent = displayPctText;
 
       if (pct >= 85) {
         contextRingMeter.classList.add('danger');
@@ -1196,8 +1203,9 @@
         contextRingMeter.classList.remove('warning', 'danger');
       }
 
+      const pctDetail = rawPct >= 1 ? `${pct}%` : `${rawPct.toFixed(2)}%`;
       if (contextRingWrap) {
-        contextRingWrap.title = `当前上下文: ${currentTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pct}%)\n点击一键压缩上下文`;
+        contextRingWrap.title = `当前上下文: ${currentTokens.toLocaleString()} / ${maxTokens.toLocaleString()} tokens (${pctDetail})\n点击一键压缩上下文`;
       }
     }
 
@@ -1296,7 +1304,13 @@
       }
 
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
+      const cached = currentSession.totalTokens && currentSession.totalTokens.cachedTokens ? currentSession.totalTokens.cachedTokens : 0;
       sessionUsageBadge.textContent = `${tokens.toLocaleString()} tokens`;
+      if (cached > 0) {
+        sessionUsageBadge.title = `会话累计 Token 消耗: ${tokens.toLocaleString()} tokens\n(其中命中缓存: ${cached.toLocaleString()} tokens)`;
+      } else {
+        sessionUsageBadge.title = '会话累计 Token 消耗';
+      }
       updateActivePersonaPill();
       updateContextProgress();
     }
@@ -1670,7 +1684,8 @@
 
         let usageText = '';
         if (msg.usage) {
-          usageText = `Prompt: ${msg.usage.promptTokens} · Output: ${msg.usage.completionTokens} · Total: ${msg.usage.totalTokens}`;
+          const cachedText = (msg.usage && msg.usage.cachedTokens) ? ` (命中缓存 ${msg.usage.cachedTokens.toLocaleString()})` : '';
+          usageText = `Prompt: ${msg.usage.promptTokens}${cachedText} · Output: ${msg.usage.completionTokens} · Total: ${msg.usage.totalTokens}`;
         }
 
         toolbar.innerHTML = `
@@ -2271,8 +2286,20 @@
       } else if (chunk.type === 'usage') {
         let usageSpan = msgEl.querySelector('.ai-msg-usage');
         if (usageSpan) {
-          usageSpan.textContent = `Prompt: ${chunk.usage.promptTokens} · Output: ${chunk.usage.completionTokens} · Total: ${chunk.usage.totalTokens}`;
+          const cachedText = (chunk.usage && chunk.usage.cachedTokens) ? ` (命中缓存 ${chunk.usage.cachedTokens.toLocaleString()})` : '';
+          usageSpan.textContent = `Prompt: ${chunk.usage.promptTokens}${cachedText} · Output: ${chunk.usage.completionTokens} · Total: ${chunk.usage.totalTokens}`;
         }
+        if (currentSession && Array.isArray(currentSession.messages)) {
+          let m = currentSession.messages.find(x => x.id === messageId);
+          if (!m) {
+            const assts = currentSession.messages.filter(x => x.role === 'assistant');
+            if (assts.length > 0) m = assts[assts.length - 1];
+          }
+          if (m) {
+            m.usage = chunk.usage;
+          }
+        }
+        updateContextProgress();
       } else if (chunk.type === 'complete' || chunk.type === 'aborted' || chunk.type === 'error') {
         setGeneratingState(false);
         if (MermaidRenderer) {
@@ -2289,6 +2316,9 @@
             if (messageId) m.id = messageId;
             m.content = chunk.message.content || m.content;
             m.reasoning = chunk.message.reasoning || m.reasoning;
+            if (chunk.message.usage) {
+              m.usage = chunk.message.usage;
+            }
           }
         }
         if (chunk.taskList !== undefined && currentSession) {
@@ -2328,6 +2358,9 @@
         });
         if (chunk.sessionTotalTokens) {
           sessionUsageBadge.textContent = `${chunk.sessionTotalTokens.totalTokens.toLocaleString()} tokens`;
+          if (chunk.sessionTotalTokens.cachedTokens) {
+            sessionUsageBadge.title = `会话累计 Token 消耗: ${chunk.sessionTotalTokens.totalTokens.toLocaleString()} tokens\n(其中命中缓存: ${chunk.sessionTotalTokens.cachedTokens.toLocaleString()} tokens)`;
+          }
           if (currentSession) currentSession.totalTokens = chunk.sessionTotalTokens;
         }
         updateContextProgress();
