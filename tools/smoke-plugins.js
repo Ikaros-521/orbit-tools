@@ -202,6 +202,8 @@ app.whenReady().then(async () => {
   if (!detectRes.ok || !detectRes.url) throw new Error('mirror-hub detectProxy failed');
   const saveCustomProxyRes = await manager.call('mirror-hub', 'saveSettings', { proxyUrl: 'http://127.0.0.1:19999' });
   if (!saveCustomProxyRes.ok || saveCustomProxyRes.settings.proxyUrl !== 'http://127.0.0.1:19999') throw new Error('mirror-hub saveSettings custom proxy failed');
+  const saveShellRes = await manager.call('mirror-hub', 'saveSettings', { shellType: 'cmd' });
+  if (!saveShellRes.ok || saveShellRes.settings.shellType !== 'cmd') throw new Error('mirror-hub saveSettings shellType failed');
   const copyRes = await manager.call('mirror-hub', 'copyCommand', { command: 'npm install test' });
   if (!copyRes.ok) throw new Error('mirror-hub copyCommand failed');
   const addMirrorRes = await manager.call('mirror-hub', 'addCustomMirror', {
@@ -209,10 +211,18 @@ app.whenReady().then(async () => {
     mirror: { name: '测试自定义加速', url: 'https://test.mirror.com/https://github.com/' }
   });
   if (!addMirrorRes.ok || !addMirrorRes.item) throw new Error('mirror-hub addCustomMirror failed');
+  const addDockerMirrorRes = await manager.call('mirror-hub', 'addCustomMirror', {
+    envId: 'docker',
+    mirror: { name: '测试Docker加速源', url: 'docker.test.io' }
+  });
+  if (!addDockerMirrorRes.ok || !addDockerMirrorRes.item) throw new Error('mirror-hub docker custom mirror failed');
   const customList = await manager.call('mirror-hub', 'getCustomMirrors');
   if (!customList.git || customList.git.length !== 1) throw new Error('customMirrors persistence failed');
+  if (!customList.docker || customList.docker.length !== 1) throw new Error('docker customMirrors persistence failed');
   const delMirrorRes = await manager.call('mirror-hub', 'removeCustomMirror', { envId: 'git', id: addMirrorRes.item.id });
   if (!delMirrorRes.ok) throw new Error('mirror-hub removeCustomMirror failed');
+  const delDockerRes = await manager.call('mirror-hub', 'removeCustomMirror', { envId: 'docker', id: addDockerMirrorRes.item.id });
+  if (!delDockerRes.ok) throw new Error('mirror-hub removeCustomMirror docker failed');
   const pingRes = await manager.call('mirror-hub', 'pingMirror', { url: 'https://hk.gh-proxy.org/https://github.com/' });
   if (typeof pingRes.ms !== 'number') throw new Error('mirror-hub pingMirror failed');
   console.log('mirror-hub IPC OK');

@@ -314,6 +314,26 @@ app.whenReady().then(async () => {
   await sleep(150);
   check('mirror-hub-npm-active', await page(`document.querySelector('.mhub-tab-btn[data-env="npm"]').classList.contains('active')`));
 
+  // Switch to docker tab
+  await page(`document.querySelector('.mhub-tab-btn[data-env="docker"]').click()`);
+  await sleep(150);
+  check('mirror-hub-docker-active', await page(`document.querySelector('.mhub-tab-btn[data-env="docker"]').classList.contains('active')`));
+  check('mirror-hub-docker-pull-card-present', await page(`!!document.querySelector('.mhub-card[data-card-id="docker-pull"]')`) === true);
+  check('mirror-hub-docker-daemon-card-present', await page(`!!document.querySelector('.mhub-card[data-card-id="docker-daemon"]')`) === true);
+
+  // Test shell toggle (PowerShell / CMD on Windows)
+  if (process.platform === 'win32') {
+    check('mirror-hub-shell-toggle-present', await page(`!!document.querySelector('.mhub-segmented-shell')`) === true);
+    await page(`document.querySelector('.mhub-seg-btn[data-shell="cmd"]').click()`);
+    await sleep(150);
+    check('mirror-hub-shell-cmd-active', await page(`document.querySelector('.mhub-seg-btn[data-shell="cmd"]').classList.contains('active')`));
+    check('mirror-hub-code-box-has-cmd-syntax', await page(`document.querySelector('.mhub-code-text').textContent.includes('&&')`) === true);
+
+    await page(`document.querySelector('.mhub-seg-btn[data-shell="powershell"]').click()`);
+    await sleep(150);
+    check('mirror-hub-shell-pwsh-active', await page(`document.querySelector('.mhub-seg-btn[data-shell="powershell"]').classList.contains('active')`));
+  }
+
   // Test copy command
   await page(`document.querySelector('.mhub-btn-copy').click()`);
   await sleep(150);

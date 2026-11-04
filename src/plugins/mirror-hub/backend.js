@@ -58,8 +58,10 @@ module.exports = {
   activate(ctx) {
     const data = ctx.data.get() || {};
     let savedProxyUrl = (typeof data.proxyUrl === 'string' && data.proxyUrl.trim()) ? data.proxyUrl.trim() : null;
+    let savedShellType = (data.shellType === 'cmd' || data.shellType === 'powershell') ? data.shellType : 'powershell';
     let settings = {
       proxyUrl: savedProxyUrl,
+      shellType: savedShellType,
     };
     let customMirrors = (data.customMirrors && typeof data.customMirrors === 'object') ? data.customMirrors : {};
 
@@ -88,9 +90,17 @@ module.exports = {
     });
 
     ctx.ipc.handle('saveSettings', (args) => {
-      const { proxyUrl } = args || {};
+      const { proxyUrl, shellType } = args || {};
+      let changed = false;
       if (typeof proxyUrl === 'string') {
         settings.proxyUrl = proxyUrl.trim() || DEFAULT_PROXY;
+        changed = true;
+      }
+      if (shellType === 'powershell' || shellType === 'cmd') {
+        settings.shellType = shellType;
+        changed = true;
+      }
+      if (changed) {
         save();
         ctx.send('settings-changed', settings);
         return { ok: true, settings };
@@ -183,20 +193,34 @@ module.exports = {
     });
 
     ctx.ipc.handle('runInTerminal', (args) => {
-      const { command } = args || {};
+      const { command, shell: requestedShell } = args || {};
       if (!command || typeof command !== 'string') return { ok: false, error: 'empty command' };
 
       const trimmed = command.trim();
       try {
         if (process.platform === 'win32') {
-          // Launch PowerShell window with persistent prompt after command runs
-          const child = spawn('powershell.exe', ['-NoExit', '-Command', trimmed], {
-            detached: true,
-            stdio: 'ignore',
-            shell: false,
-          });
-          child.unref();
-          return { ok: true, terminal: 'powershell' };
+          const targetShell = (requestedShell === 'cmd' || requestedShell === 'powershell')
+            ? requestedShell
+            : (settings.shellType === 'cmd' ? 'cmd' : 'powershell');
+
+          if (targetShell === 'cmd') {
+            const child = spawn('cmd.exe', ['/K', trimmed], {
+              detached: true,
+              stdio: 'ignore',
+              shell: false,
+            });
+            child.unref();
+            return { ok: true, terminal: 'cmd' };
+          } else {
+            // Launch PowerShell window with persistent prompt after command runs
+            const child = spawn('powershell.exe', ['-NoExit', '-Command', trimmed], {
+              detached: true,
+              stdio: 'ignore',
+              shell: false,
+            });
+            child.unref();
+            return { ok: true, terminal: 'powershell' };
+          }
         } else if (process.platform === 'darwin') {
           const safeCmd = trimmed.replace(/"/g, '\\"');
           const script = `tell application "Terminal" to do script "${safeCmd}"\nactivate application "Terminal"`;

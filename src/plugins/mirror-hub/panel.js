@@ -2,6 +2,12 @@
 (function () {
   function mount(el, ctx) {
     const isEn = ctx.lang === 'en';
+    const isWin = typeof navigator !== 'undefined' && (
+      (Boolean(navigator.platform) && navigator.platform.includes('Win')) ||
+      (Boolean(navigator.userAgent) && navigator.userAgent.includes('Windows'))
+    );
+    let currentShell = 'powershell'; // 'powershell' | 'cmd'
+
     const T = {
       proxyLabel: isEn ? 'Proxy URL:' : '本地代理地址:',
       proxyPlaceholder: 'http://127.0.0.1:7890',
@@ -10,6 +16,13 @@
       detectingProxy: isEn ? 'Detecting...' : '检测中...',
       detectedProxyOk: isEn ? '✓ Detected' : '✓ 已读取',
       pkgLabel: isEn ? 'Package / Repo:' : '包名 / 仓库名:',
+      pkgLabelDocker: isEn ? 'Image / Tag:' : '镜像名 / Tag:',
+      pkgLabelGit: isEn ? 'Repo (Owner/Repo):' : '仓库名 (用户名/仓库):',
+      pkgLabelGeneral: isEn ? 'Package Name:' : '包名 / 模块名:',
+      shellLabel: isEn ? 'Shell:' : '终端类型:',
+      shellPwsh: 'PowerShell',
+      shellCmd: 'CMD',
+      tagCross: isEn ? 'UNIVERSAL' : '跨终端通用',
       copy: isEn ? 'Copy' : '复制命令',
       copied: isEn ? '✓ Copied' : '✓ 已复制',
       run: isEn ? 'Run in Terminal' : '🚀 打开终端执行',
@@ -74,9 +87,10 @@
             desc: isEn ? 'Converts any GitHub release download URL into high-speed accelerated direct link' : '支持将任意 GitHub 文件或 Release 下载直链转换为国内免翻墙高速下载链接',
             hasMirror: true,
             isDownloadHelper: true,
-            buildCmd: ({ mirror, pkg, downloadInput }) => {
+            buildCmd: ({ mirror, pkg, downloadInput, shell }) => {
               const url = buildReleaseDownloadUrl(mirror, downloadInput, pkg);
-              return `curl -L -C - -O "${url}"`;
+              const curlCmd = (isWin && shell === 'powershell') ? 'curl.exe' : 'curl';
+              return `${curlCmd} -L -C - -O "${url}"`;
             },
           },
           {
@@ -96,10 +110,11 @@
             tag: 'tagMirror',
             desc: isEn ? 'Downloads raw scripts or files from raw.githubusercontent.com via proxy' : '快速免翻墙获取 raw.githubusercontent.com 上的脚本或文档',
             hasMirror: true,
-            buildCmd: ({ mirror, pkg }) => {
+            buildCmd: ({ mirror, pkg, shell }) => {
               const cleanRepo = (pkg || 'Ikaros-521/orbit-tools').replace(/^https?:\/\/github\.com\//, '').replace(/\.git$/, '');
               const cleanBase = mirror.replace(/\/https:\/\/github\.com\/?$/, '');
-              return `curl -fsSL ${cleanBase}/https://raw.githubusercontent.com/${cleanRepo}/main/README.md -o README.md`;
+              const curlCmd = (isWin && shell === 'powershell') ? 'curl.exe' : 'curl';
+              return `${curlCmd} -fsSL ${cleanBase}/https://raw.githubusercontent.com/${cleanRepo}/main/README.md -o README.md`;
             },
           },
           {
@@ -108,9 +123,11 @@
             tag: 'tagMirror',
             desc: isEn ? 'Configures SSH to use port 443 for firewalled network environments' : '在校园网或企业内网屏蔽 22 端口时，通过 GitHub 官方备用 443 端口正常使用 SSH',
             hasMirror: false,
-            buildCmd: () => {
-              const isWin = typeof navigator !== 'undefined' && (navigator.platform.includes('Win') || navigator.userAgent.includes('Windows'));
+            buildCmd: ({ shell }) => {
               if (isWin) {
+                if (shell === 'cmd') {
+                  return `(echo. && echo Host github.com && echo   Hostname ssh.github.com && echo   Port 443 && echo   User git) >> %USERPROFILE%\\.ssh\\config`;
+                }
                 return `Add-Content -Path $HOME\\.ssh\\config -Value "\`nHost github.com\`n  Hostname ssh.github.com\`n  Port 443\`n  User git"`;
               }
               return `printf "\\nHost github.com\\n  Hostname ssh.github.com\\n  Port 443\\n  User git\\n" >> ~/.ssh/config`;
@@ -122,7 +139,12 @@
             tag: 'tagProxy',
             desc: isEn ? 'Routes all git clone & push through your local proxy' : '让所有 git clone 和 git push 通过本地客户端代理端口加速',
             hasMirror: false,
-            buildCmd: ({ proxy }) => `git config --global http.proxy ${proxy}; git config --global https.proxy ${proxy}`,
+            buildCmd: ({ proxy, shell }) => {
+              if (isWin && shell === 'cmd') {
+                return `git config --global http.proxy ${proxy} && git config --global https.proxy ${proxy}`;
+              }
+              return `git config --global http.proxy ${proxy}; git config --global https.proxy ${proxy}`;
+            },
           },
           {
             id: 'git-unproxy',
@@ -130,7 +152,111 @@
             tag: 'tagReset',
             desc: isEn ? 'Unsets git global http.proxy and https.proxy' : '取消全局代理，恢复直接网络直连',
             hasMirror: false,
-            buildCmd: () => `git config --global --unset http.proxy; git config --global --unset https.proxy`,
+            buildCmd: ({ shell }) => {
+              if (isWin && shell === 'cmd') {
+                return `git config --global --unset http.proxy && git config --global --unset https.proxy`;
+              }
+              return `git config --global --unset http.proxy; git config --global --unset https.proxy`;
+            },
+          },
+        ],
+      },
+      {
+        id: 'docker',
+        name: 'Docker',
+        defaultPkg: 'nginx:latest',
+        mirrors: [
+          { name: 'DaoCloud 镜像站 (daocloud.io)', url: 'docker.m.daocloud.io' },
+          { name: '1Panel 镜像站 (1panel.live)', url: 'docker.1panel.live' },
+          { name: '南京大学 (NJU)', url: 'docker.nju.edu.cn' },
+          { name: '上海交通大学 (SJTU)', url: 'docker.mirrors.sjtug.sjtu.edu.cn' },
+          { name: 'DockerPull 镜像站 (dockerpull.cn)', url: 'dockerpull.cn' },
+          { name: '网易云镜像 (163)', url: 'hub-mirror.c.163.com' },
+          { name: '百度云镜像 (Baidu)', url: 'mirror.baidubce.com' },
+          { name: '阿里云个人加速器 (替换为自己ID)', url: 'https://<your-id>.mirror.aliyuncs.com' },
+        ],
+        cards: [
+          {
+            id: 'docker-pull',
+            title: isEn ? 'Pull Image via Domestic Mirror' : '使用国内镜像直接拉取 (docker pull)',
+            tag: 'tagMirror',
+            desc: isEn ? 'Pulls image through domestic accelerator mirror, then tags back to original' : '使用选中的国内镜像源直接拉取 Docker 镜像，拉取后自动重命名为原始镜像名，无需修改配置文件',
+            hasMirror: true,
+            buildCmd: ({ mirror, pkg, shell }) => {
+              const cleanMirror = (mirror || 'docker.m.daocloud.io').replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+              const rawPkg = (pkg || 'nginx:latest').trim();
+              const pullImage = rawPkg.includes('/') ? rawPkg : ('library/' + rawPkg);
+              const mirrorImage = `${cleanMirror}/${pullImage}`;
+              if (isWin && shell === 'cmd') {
+                return `docker pull ${mirrorImage} && docker tag ${mirrorImage} ${rawPkg}`;
+              }
+              return `docker pull ${mirrorImage}; docker tag ${mirrorImage} ${rawPkg}`;
+            },
+          },
+          {
+            id: 'docker-daemon',
+            title: isEn ? 'Configure Docker daemon.json Mirrors' : '配置 Docker 守护进程国内镜像源 (daemon.json)',
+            tag: 'tagMirror',
+            desc: isEn ? 'Adds mirror to registry-mirrors in Docker daemon.json (restart Docker Desktop to take effect)' : '向 Docker 配置文件添加 registry-mirrors，重启 Docker 守护进程后拉取官方镜像自动走国内镜像源',
+            hasMirror: true,
+            buildCmd: ({ mirror, shell }) => {
+              const cleanUrl = mirror.startsWith('http') ? mirror.replace(/\/+$/, '') : ('https://' + mirror.replace(/\/+$/, ''));
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `powershell -NoProfile -Command "$p=\\"$HOME\\.docker\\daemon.json\\"; if (!(Test-Path \\"$HOME\\.docker\\")) { New-Item -Type Dir \\"$HOME\\.docker\\" | Out-Null }; $c = if (Test-Path $p) { Get-Content $p -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }; if (!$c.psobject.Properties['registry-mirrors']) { $c | Add-Member -NotePropertyName 'registry-mirrors' -NotePropertyValue @() }; if ($c.'registry-mirrors' -notcontains '${cleanUrl}') { $c.'registry-mirrors' += '${cleanUrl}' }; $c | ConvertTo-Json -Depth 5 | Set-Content $p -Encoding utf8; Write-Host 'Docker daemon.json 已更新，请重启 Docker Desktop 生效'"`;
+                }
+                return `$p = "$HOME\\.docker\\daemon.json"; if (-not (Test-Path "$HOME\\.docker")) { New-Item -ItemType Directory -Path "$HOME\\.docker" | Out-Null }; $cfg = if (Test-Path $p) { Get-Content $p -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }; if (-not $cfg.psobject.Properties['registry-mirrors']) { $cfg | Add-Member -NotePropertyName 'registry-mirrors' -NotePropertyValue @() }; if ($cfg.'registry-mirrors' -notcontains '${cleanUrl}') { $cfg.'registry-mirrors' += '${cleanUrl}' }; $cfg | ConvertTo-Json -Depth 5 | Set-Content $p -Encoding utf8; Write-Host "Docker daemon.json 已更新，请重启 Docker Desktop 生效"`;
+              }
+              return `sudo mkdir -p /etc/docker && sudo tee /etc/docker/daemon.json <<EOF\n{\n  "registry-mirrors": ["${cleanUrl}"]\n}\nEOF\nsudo systemctl daemon-reload && sudo systemctl restart docker`;
+            },
+          },
+          {
+            id: 'docker-session-proxy',
+            title: isEn ? 'Docker Client Session Proxy' : 'Docker 客户端当前会话代理 (临时加速)',
+            tag: 'tagProxy',
+            desc: isEn ? 'Sets HTTP_PROXY & HTTPS_PROXY in current terminal session' : '在当前终端会话注入代理环境变量，临时加速 docker CLI 命令与 docker build 构建拉取',
+            hasMirror: false,
+            buildCmd: ({ proxy, shell }) => {
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `set HTTP_PROXY=${proxy} && set HTTPS_PROXY=${proxy}`;
+                }
+                return `$env:HTTP_PROXY="${proxy}"; $env:HTTPS_PROXY="${proxy}"`;
+              }
+              return `export HTTP_PROXY="${proxy}" HTTPS_PROXY="${proxy}"`;
+            },
+          },
+          {
+            id: 'docker-client-config',
+            title: isEn ? 'Configure Docker Client Global Proxy (~/.docker/config.json)' : '配置 Docker 客户端全局代理 (~/.docker/config.json)',
+            tag: 'tagProxy',
+            desc: isEn ? 'Injects proxies configuration into ~/.docker/config.json so docker build & run use proxy by default' : '向 ~/.docker/config.json 写入 proxies 字段，使所有 docker build 与容器命令默认走本地代理',
+            hasMirror: false,
+            buildCmd: ({ proxy, shell }) => {
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `powershell -NoProfile -Command "$p=\\"$HOME\\.docker\\config.json\\"; if (!(Test-Path \\"$HOME\\.docker\\")) { New-Item -Type Dir \\"$HOME\\.docker\\" | Out-Null }; $c = if (Test-Path $p) { Get-Content $p -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }; $c | Add-Member -NotePropertyName 'proxies' -NotePropertyValue @{ default = @{ httpProxy = '${proxy}'; httpsProxy = '${proxy}' } } -Force; $c | ConvertTo-Json -Depth 5 | Set-Content $p -Encoding utf8; Write-Host 'Docker 客户端代理已配置为: ${proxy}'"`;
+                }
+                return `$p = "$HOME\\.docker\\config.json"; if (-not (Test-Path "$HOME\\.docker")) { New-Item -ItemType Directory -Path "$HOME\\.docker" | Out-Null }; $cfg = if (Test-Path $p) { Get-Content $p -Raw | ConvertFrom-Json } else { [pscustomobject]@{} }; $cfg | Add-Member -NotePropertyName 'proxies' -NotePropertyValue @{ default = @{ httpProxy = '${proxy}'; httpsProxy = '${proxy}' } } -Force; $cfg | ConvertTo-Json -Depth 5 | Set-Content $p -Encoding utf8; Write-Host "Docker 客户端代理已配置为: ${proxy}"`;
+              }
+              return `mkdir -p ~/.docker && cat <<EOF > ~/.docker/config.json\n{\n  "proxies": {\n    "default": {\n      "httpProxy": "${proxy}",\n      "httpsProxy": "${proxy}"\n    }\n  }\n}\nEOF`;
+            },
+          },
+          {
+            id: 'docker-clear-proxy',
+            title: isEn ? 'Clear Docker Client Global Proxy' : '清除 Docker 客户端全局代理',
+            tag: 'tagReset',
+            desc: isEn ? 'Removes proxies configuration from ~/.docker/config.json and restores direct connection' : '从 ~/.docker/config.json 中移除 proxies 配置，恢复直接网络直连',
+            hasMirror: false,
+            buildCmd: ({ shell }) => {
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `powershell -NoProfile -Command "$p=\\"$HOME\\.docker\\config.json\\"; if (Test-Path $p) { $c = Get-Content $p -Raw | ConvertFrom-Json; if ($c.psobject.Properties['proxies']) { $c.psobject.Properties.Remove('proxies'); $c | ConvertTo-Json -Depth 5 | Set-Content $p -Encoding utf8; Write-Host 'Docker 客户端代理配置已清除' } }"`;
+                }
+                return `$p = "$HOME\\.docker\\config.json"; if (Test-Path $p) { $cfg = Get-Content $p -Raw | ConvertFrom-Json; if ($cfg.psobject.Properties['proxies']) { $cfg.psobject.Properties.Remove('proxies'); $cfg | ConvertTo-Json -Depth 5 | Set-Content $p -Encoding utf8; Write-Host "Docker 客户端代理配置已清除" } }`;
+              }
+              return `sed -i '/"proxies":/,/}/d' ~/.docker/config.json`;
+            },
           },
         ],
       },
@@ -206,14 +332,24 @@
             tag: 'tagProxy',
             desc: isEn ? 'Routes npm and node-gyp through your local HTTP proxy' : '设置 npm 的 proxy 与 https-proxy 环境变量，直连代理拉取',
             hasMirror: false,
-            buildCmd: ({ proxy }) => `npm config set proxy ${proxy}; npm config set https-proxy ${proxy}`,
+            buildCmd: ({ proxy, shell }) => {
+              if (isWin && shell === 'cmd') {
+                return `npm config set proxy ${proxy} && npm config set https-proxy ${proxy}`;
+              }
+              return `npm config set proxy ${proxy}; npm config set https-proxy ${proxy}`;
+            },
           },
           {
             title: isEn ? 'Restore Official npmjs' : '恢复官方默认源 & 清除代理',
             tag: 'tagReset',
             desc: isEn ? 'Restores official npmjs registry and unsets proxy configurations' : '恢复为官方 npmjs.org 源并清理已设置的代理',
             hasMirror: false,
-            buildCmd: () => `npm config set registry https://registry.npmjs.org/; npm config delete proxy; npm config delete https-proxy`,
+            buildCmd: ({ shell }) => {
+              if (isWin && shell === 'cmd') {
+                return `npm config set registry https://registry.npmjs.org/ && npm config delete proxy && npm config delete https-proxy`;
+              }
+              return `npm config set registry https://registry.npmjs.org/; npm config delete proxy; npm config delete https-proxy`;
+            },
           },
         ],
       },
@@ -265,7 +401,7 @@
             tag: 'tagMirror',
             desc: isEn ? 'Echoes recommended mirror configuration for ~/.cargo/config.toml' : '向 ~/.cargo/config.toml 快速写入 crates.io 国内镜像替换配置',
             hasMirror: true,
-            buildCmd: ({ mirror }) => {
+            buildCmd: ({ mirror, shell }) => {
               const urlMap = {
                 ustc: 'https://mirrors.ustc.edu.cn/crates.io-index',
                 tuna: 'https://mirrors.tuna.tsinghua.edu.cn/git/crates.io-index.git',
@@ -273,7 +409,13 @@
                 rsproxy: 'https://rsproxy.cn/crates.io-index',
               };
               const target = urlMap[mirror] || urlMap.ustc;
-              return `[source.crates-io]\nreplace-with = 'mirror'\n\n[source.mirror]\nregistry = "sparse+${target}"`;
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `if not exist "%USERPROFILE%\\.cargo" mkdir "%USERPROFILE%\\.cargo" && (echo [source.crates-io] && echo replace-with = 'mirror' && echo. && echo [source.mirror] && echo registry = "sparse+${target}") >> "%USERPROFILE%\\.cargo\\config.toml"`;
+                }
+                return `if (-not (Test-Path "$HOME\\.cargo")) { New-Item -ItemType Directory -Path "$HOME\\.cargo" | Out-Null }; Add-Content -Path "$HOME\\.cargo\\config.toml" -Value "[source.crates-io]\`nreplace-with = 'mirror'\`n\`n[source.mirror]\`nregistry = \\"sparse+${target}\\""`;
+              }
+              return `mkdir -p ~/.cargo && printf "[source.crates-io]\\nreplace-with = 'mirror'\\n\\n[source.mirror]\\nregistry = \\"sparse+${target}\\"\\n" >> ~/.cargo/config.toml`;
             },
           },
           {
@@ -281,7 +423,15 @@
             tag: 'tagProxy',
             desc: isEn ? 'Sets temporary proxy environment variables for current cargo invocation' : '注入临时 HTTP_PROXY 与 HTTPS_PROXY 环境变量，走代理直接编译拉取',
             hasMirror: false,
-            buildCmd: ({ proxy, pkg }) => `$env:HTTP_PROXY="${proxy}"; $env:HTTPS_PROXY="${proxy}"; cargo add ${pkg}`,
+            buildCmd: ({ proxy, pkg, shell }) => {
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `set HTTP_PROXY=${proxy} && set HTTPS_PROXY=${proxy} && cargo add ${pkg}`;
+                }
+                return `$env:HTTP_PROXY="${proxy}"; $env:HTTPS_PROXY="${proxy}"; cargo add ${pkg}`;
+              }
+              return `export HTTP_PROXY="${proxy}" HTTPS_PROXY="${proxy}" && cargo add ${pkg}`;
+            },
           },
         ],
       },
@@ -292,32 +442,52 @@
         mirrors: [],
         cards: [
           {
-            title: isEn ? 'PowerShell Session Proxy' : 'PowerShell 当前会话代理',
+            id: 'terminal-session-proxy',
+            title: isEn ? 'Terminal Session Proxy' : '当前终端会话代理 (临时加速)',
             tag: 'tagProxy',
-            desc: isEn ? 'Temporarily sets $env:http_proxy and $env:https_proxy for current session' : '在当前 PowerShell 窗口临时注入代理环境变量，关闭窗口后自动失效',
+            desc: isEn ? 'Sets HTTP_PROXY & HTTPS_PROXY for the current terminal session' : '在当前命令行窗口临时注入代理环境变量，关闭窗口后自动失效',
             hasMirror: false,
-            buildCmd: ({ proxy }) => `$env:http_proxy="${proxy}"; $env:https_proxy="${proxy}"`,
+            buildCmd: ({ proxy, shell }) => {
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `set http_proxy=${proxy} && set https_proxy=${proxy}`;
+                }
+                return `$env:http_proxy="${proxy}"; $env:https_proxy="${proxy}"`;
+              }
+              return `export http_proxy="${proxy}" https_proxy="${proxy}"`;
+            },
           },
           {
-            title: isEn ? 'CMD Session Proxy' : 'CMD 命令行会话代理',
-            tag: 'tagProxy',
-            desc: isEn ? 'Sets http_proxy and https_proxy in cmd.exe' : '在传统 CMD 命令提示符中临时设置代理环境变量',
+            id: 'terminal-unset-proxy',
+            title: isEn ? 'Clear Terminal Session Proxy' : '清除当前终端会话代理',
+            tag: 'tagReset',
+            desc: isEn ? 'Clears temporary proxy environment variables' : '清空当前终端会话中的代理环境变量，恢复直接网络直连',
             hasMirror: false,
-            buildCmd: ({ proxy }) => `set http_proxy=${proxy} && set https_proxy=${proxy}`,
+            buildCmd: ({ shell }) => {
+              if (isWin) {
+                if (shell === 'cmd') {
+                  return `set http_proxy= && set https_proxy=`;
+                }
+                return `$env:http_proxy=""; $env:https_proxy=""`;
+              }
+              return `unset http_proxy https_proxy`;
+            },
           },
           {
-            title: isEn ? 'Bash / Zsh / Git Bash Proxy' : 'Bash / Zsh / Linux 终端代理',
+            id: 'terminal-bash-proxy',
+            title: isEn ? 'Bash / Zsh / Git Bash / WSL Proxy' : 'Bash / Zsh / Git Bash / WSL 终端代理',
             tag: 'tagProxy',
-            desc: isEn ? 'Export proxy variables for Unix shells' : '适用于 Git Bash、WSL、macOS 与 Linux 的终端单次代理命令',
+            desc: isEn ? 'Export proxy variables for Unix shells' : '适用于 Git Bash、WSL、macOS 与 Linux 的终端单次会话代理命令',
             hasMirror: false,
             buildCmd: ({ proxy }) => `export http_proxy="${proxy}" https_proxy="${proxy}"`,
           },
           {
-            title: isEn ? 'PowerShell Unset Proxy' : 'PowerShell 清除当前会话代理',
+            id: 'terminal-bash-unset',
+            title: isEn ? 'Bash / Zsh / WSL Clear Proxy' : 'Bash / Zsh / WSL 清除终端代理',
             tag: 'tagReset',
-            desc: isEn ? 'Clears temporary proxy variables' : '清空当前 PowerShell 会话中的代理环境变量',
+            desc: isEn ? 'Unsets proxy variables in Unix shells' : '清除 Bash / Zsh / WSL 终端中的代理环境变量',
             hasMirror: false,
-            buildCmd: () => `$env:http_proxy=""; $env:https_proxy=""`,
+            buildCmd: () => `unset http_proxy https_proxy`,
           },
         ],
       },
@@ -356,6 +526,28 @@
       return `${cleanPrefix}/${fullUrl}`;
     }
 
+    function getPkgLabel() {
+      if (currentEnvId === 'docker') return T.pkgLabelDocker;
+      if (currentEnvId === 'git') return T.pkgLabelGit;
+      return T.pkgLabelGeneral;
+    }
+
+    function updatePkgLabel() {
+      const lbl = el.querySelector('.mhub-pkg-field-label');
+      if (lbl) lbl.textContent = getPkgLabel();
+    }
+
+    function updateShellButtons() {
+      const btns = el.querySelectorAll('.mhub-segmented-shell .mhub-seg-btn');
+      btns.forEach(b => {
+        if (b.dataset.shell === currentShell) {
+          b.classList.add('active');
+        } else {
+          b.classList.remove('active');
+        }
+      });
+    }
+
     function escapeHtml(str) {
       return String(str || '').replace(/[&<>"']/g, c => ({
         '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
@@ -381,9 +573,18 @@
             </button>
           </div>
           <div class="mhub-field">
-            <span class="mhub-field-label">${T.pkgLabel}</span>
+            <span class="mhub-field-label mhub-pkg-field-label">${getPkgLabel()}</span>
             <input type="text" class="mhub-field-input mhub-pkg-input" spellcheck="false" value="${currentPkgName}" />
           </div>
+          ${isWin ? `
+          <div class="mhub-field mhub-shell-field">
+            <span class="mhub-field-label">${T.shellLabel}</span>
+            <div class="mhub-segmented-shell">
+              <button type="button" class="mhub-seg-btn${currentShell === 'powershell' ? ' active' : ''}" data-shell="powershell">${T.shellPwsh}</button>
+              <button type="button" class="mhub-seg-btn${currentShell === 'cmd' ? ' active' : ''}" data-shell="cmd">${T.shellCmd}</button>
+            </div>
+          </div>
+          ` : ''}
           <div class="mhub-toolbar-actions">
             <button type="button" class="mhub-btn mhub-btn-ping" title="${T.pingAll}">
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon></svg>
@@ -415,12 +616,21 @@
       const frag = document.createDocumentFragment();
 
       for (const cardDef of currentEnv.cards) {
-        const cmd = cardDef.buildCmd({
+        const cmdArgs = {
           mirror: activeMirror,
           proxy: currentProxyUrl,
           pkg: currentPkgName || currentEnv.defaultPkg || 'pkg',
           downloadInput: currentDownloadInput,
-        });
+          shell: currentShell,
+        };
+        const cmd = cardDef.buildCmd(cmdArgs);
+
+        let hasShellDiff = false;
+        if (isWin) {
+          const pwshCmd = cardDef.buildCmd({ ...cmdArgs, shell: 'powershell' });
+          const cmdCmd = cardDef.buildCmd({ ...cmdArgs, shell: 'cmd' });
+          hasShellDiff = (pwshCmd !== cmdCmd);
+        }
 
         const card = document.createElement('div');
         card.className = 'mhub-card';
@@ -447,6 +657,23 @@
         const tagClass = cardDef.tag === 'tagProxy' ? 'mhub-tag-proxy' : cardDef.tag === 'tagReset' ? 'mhub-tag-reset' : 'mhub-tag-mirror';
         const tagText = T[cardDef.tag] || '';
 
+        let shellBadgeHtml = '';
+        if (isWin) {
+          if (hasShellDiff) {
+            shellBadgeHtml = `
+              <span class="mhub-card-shell-badge shell-${currentShell}">
+                ${currentShell === 'cmd' ? 'CMD' : 'PowerShell'}
+              </span>
+            `;
+          } else {
+            shellBadgeHtml = `
+              <span class="mhub-card-shell-badge shell-cross">
+                ${T.tagCross}
+              </span>
+            `;
+          }
+        }
+
         let downloadHelperHtml = '';
         if (cardDef.isDownloadHelper) {
           const directUrl = buildReleaseDownloadUrl(activeMirror, currentDownloadInput, currentPkgName);
@@ -470,6 +697,7 @@
             <div class="mhub-card-title-group">
               <span class="mhub-card-title">${cardDef.title}</span>
               <span class="mhub-card-tag ${tagClass}">${tagText}</span>
+              ${shellBadgeHtml}
             </div>
             ${mirrorSelectHtml}
           </div>
@@ -563,7 +791,7 @@
           try {
             runBtn.classList.add('running');
             runBtn.querySelector('span').textContent = T.running;
-            await ctx.call('runInTerminal', { command: cmd });
+            await ctx.call('runInTerminal', { command: cmd, shell: currentShell });
             setTimeout(() => {
               runBtn.classList.remove('running');
               runBtn.querySelector('span').textContent = T.run;
@@ -753,9 +981,29 @@
           currentPkgName = env.defaultPkg;
           pkgInput.value = currentPkgName;
         }
+        updatePkgLabel();
         renderCards();
       });
     });
+
+    // Shell toggle switch (PowerShell / CMD on Windows)
+    if (isWin) {
+      const shellBtns = el.querySelectorAll('.mhub-segmented-shell .mhub-seg-btn');
+      shellBtns.forEach(b => {
+        b.addEventListener('click', async () => {
+          const target = b.dataset.shell;
+          if (target === currentShell) return;
+          currentShell = target;
+          updateShellButtons();
+          renderCards();
+          try {
+            await ctx.call('saveSettings', { shellType: currentShell });
+          } catch (err) {
+            console.error('Failed to save shell settings:', err);
+          }
+        });
+      });
+    }
 
     // Proxy input save
     const saveProxy = async () => {
@@ -811,9 +1059,15 @@
       ctx.call('getSettings'),
       ctx.call('getCustomMirrors'),
     ]).then(([s, customs]) => {
-      if (s && s.proxyUrl) {
-        currentProxyUrl = s.proxyUrl;
-        proxyInput.value = currentProxyUrl;
+      if (s) {
+        if (s.proxyUrl) {
+          currentProxyUrl = s.proxyUrl;
+          proxyInput.value = currentProxyUrl;
+        }
+        if (s.shellType === 'cmd' || s.shellType === 'powershell') {
+          currentShell = s.shellType;
+          updateShellButtons();
+        }
       }
       if (customs && typeof customs === 'object') {
         customMirrorsMap = customs;
@@ -825,9 +1079,15 @@
 
     // Background sync listeners
     ctx.onEvent('settings-changed', s => {
-      if (s && s.proxyUrl) {
-        currentProxyUrl = s.proxyUrl;
-        proxyInput.value = currentProxyUrl;
+      if (s) {
+        if (s.proxyUrl) {
+          currentProxyUrl = s.proxyUrl;
+          proxyInput.value = currentProxyUrl;
+        }
+        if (s.shellType === 'cmd' || s.shellType === 'powershell') {
+          currentShell = s.shellType;
+          updateShellButtons();
+        }
         renderCards();
       }
     });
@@ -842,6 +1102,13 @@
     el.__setProxyForTest = async (url) => {
       proxyInput.value = url;
       await saveProxy();
+    };
+
+    el.__setShellForTest = async (shell) => {
+      currentShell = shell;
+      updateShellButtons();
+      renderCards();
+      await ctx.call('saveSettings', { shellType: shell });
     };
 
     el.__openModalForTest = openManageModal;
