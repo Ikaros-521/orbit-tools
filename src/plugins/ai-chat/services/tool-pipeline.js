@@ -41,14 +41,32 @@ function isConcurrencySafe(toolName, args) {
 }
 
 /**
+ * Head-Middle-Tail pruning inspired by deepseek-harness ToolResultPruner.
+ * Preserves the beginning (context & setup) and the end (status, exit code, summary),
+ * replacing the bloated middle with a structured omission marker.
+ */
+function pruneTextContent(s, { threshold = 8000, headChars = 2000, tailChars = 2000 } = {}) {
+  const str = typeof s === 'object' ? JSON.stringify(s) : String(s ?? '');
+  if (str.length <= threshold) return str;
+  if (headChars + tailChars >= str.length) return str;
+
+  const head = str.slice(0, headChars);
+  const tail = str.slice(str.length - tailChars);
+  const prunedCount = str.length - headChars - tailChars;
+  return `${head}\n\n[... 工具结果过长，已省略中间 ${prunedCount} 字符以保护上下文 ...]\n\n${tail}`;
+}
+
+/**
  * Truncates oversized tool results to protect LLM context windows.
+ * Upgraded with Head-Middle-Tail pruning to retain critical trailing exit codes/status.
  */
 function clipToolContent(s, budget = TOOL_RESULT_CONTEXT_BUDGET) {
   const str = typeof s === 'object' ? JSON.stringify(s) : String(s ?? '');
-  if (str.length > budget) {
-    return str.slice(0, budget) + '\n…[工具结果过长，已自动截断以保护上下文]';
-  }
-  return str;
+  if (str.length <= budget) return str;
+
+  const headChars = Math.floor(budget * 0.45);
+  const tailChars = Math.floor(budget * 0.45);
+  return pruneTextContent(str, { threshold: budget, headChars, tailChars });
 }
 
 class ToolExecutionPipeline {
@@ -254,5 +272,6 @@ module.exports = {
   CONCURRENCY_SAFE_TOOLS,
   isConcurrencySafe,
   clipToolContent,
+  pruneTextContent,
   ToolExecutionPipeline
 };

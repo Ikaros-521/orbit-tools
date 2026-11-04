@@ -21,6 +21,7 @@ const { buildBoundedContext } = require('../lib/context-bounds');
 const { ToolExecutionPipeline, clipToolContent } = require('./tool-pipeline');
 const { RuntimeContextService } = require('./runtime-context-service');
 const { SubagentManager } = require('./subagent-service');
+const { compactionService } = require('./compaction-service');
 
 const MEMORY_TOOL_NAMES = new Set(MEMORY_TOOLS_DEFINITIONS.map(d => d.function.name));
 
@@ -29,6 +30,7 @@ class ChatService {
     this.activeStreams = new Map(); // streamId -> AbortController
     this.streamBySession = new Map(); // sessionId -> streamId
     this.runtimeContextService = new RuntimeContextService();
+    this.compactionService = compactionService;
     this.toolPipeline = new ToolExecutionPipeline({ maxConcurrency: 4 });
     this.subagentManager = new SubagentManager({ maxDepth: 2 });
   }
@@ -171,8 +173,15 @@ class ChatService {
     session.messages.push(userMsg);
 
     if (session.messages.length === 1 && (!session.title || session.title === '新对话')) {
-      const titleText = userMsg.content || (userMsg.images.length > 0 ? '[图片对话]' : '新对话');
-      session.title = titleText.slice(0, 24) || '新对话';
+      let titleText = userMsg.content;
+      if (!titleText) {
+        if (userMsg.attachments && userMsg.attachments.length > 0) {
+          titleText = `[附件] ${userMsg.attachments[0].name || '文件'}`;
+        } else if (userMsg.images && userMsg.images.length > 0) {
+          titleText = '[图片对话]';
+        }
+      }
+      session.title = (titleText || '新对话').slice(0, 24);
     }
 
     const assistantMsg = {
@@ -194,33 +203,52 @@ class ChatService {
     const persona = getPersona(session.personaId);
     const agentWorkDir = session.workDir || config.agentWorkDir || os.homedir();
 
-    // 1. Double-layer context assembly: Static cache anchor + dynamic runtime facts
-    const assembled = this.runtimeContextService.assembleContext({
-      session,
-      persona,
-      enableAgent,
-      agentWorkDir,
-      userQuery: userMsg.content,
-      memories
-    });
+    // Helper to build request messages adhering to Prefix Caching and Tool Pairing Invariants
+    const buildRequestSequence = () => {
+      const assembled = this.runtimeContextService.assembleContext({
+        session,
+        persona,
+        enableAgent,
+        agentWorkDir,
+        userQuery: userMsg.content,
+        memories
+      });
 
-    // 2. Bounded context window with strict tool pairing invariant
-    const maxContext = Math.max(2, Number(config.maxContextMessages) || 16);
-    const contextMsgs = session.messages.slice(0, -1);
-    const boundedMsgs = buildBoundedContext(contextMsgs, maxContext);
+      const maxContext = Math.max(2, Number(config.maxContextMessages) || 16);
+      const contextMsgs = session.messages.slice(0, -1);
+      const boundedMsgs = buildBoundedContext(contextMsgs, maxContext);
 
-    let systemContent = assembled.systemPrompt || '';
-    if (assembled.dynamicContextBlock) {
-      systemContent = systemContent
-        ? `${systemContent}\n\n${assembled.dynamicContextBlock}`
-        : assembled.dynamicContextBlock;
-    }
+      // DeepSeek Prefix Cache Optimization:
+      // The system prompt is an IMMUTABLE prefix cache anchor. NEVER append changing facts to it.
+      // Dynamic facts (CWD, task progress, recalled memories) are injected via a scoped <system-reminder>
+      // attached to the latest user message or as a separate trailing context node.
+      const msgs = [];
+      if (assembled.systemPrompt) {
+        msgs.push({ role: 'system', content: assembled.systemPrompt });
+      }
 
-    const requestMessages = [];
-    if (systemContent) {
-      requestMessages.push({ role: 'system', content: systemContent });
-    }
-    requestMessages.push(...boundedMsgs);
+      if (assembled.dynamicContextBlock) {
+        const lastUserIdx = boundedMsgs.map(m => m.role).lastIndexOf('user');
+        if (lastUserIdx >= 0) {
+          const orig = boundedMsgs[lastUserIdx];
+          const reminderText = `<system-reminder>\n${assembled.dynamicContextBlock}\n</system-reminder>`;
+          boundedMsgs[lastUserIdx] = {
+            ...orig,
+            content: orig.content ? `${reminderText}\n\n${orig.content}` : reminderText
+          };
+        } else {
+          boundedMsgs.unshift({
+            role: 'user',
+            content: `<system-reminder>\n${assembled.dynamicContextBlock}\n</system-reminder>`
+          });
+        }
+      }
+
+      msgs.push(...boundedMsgs);
+      return msgs;
+    };
+
+    let requestMessages = buildRequestSequence();
 
     const controller = new AbortController();
     this.activeStreams.set(streamId, controller);
@@ -234,6 +262,36 @@ class ChatService {
       let accumulatedContent = '';
       let accumulatedReasoning = '';
       let toolPhaseEntered = false;
+
+      // Automatic Pressure Compaction (deepseek-harness 'pressure' trigger)
+      const maxContextTokens = Number(config.maxContextTokens) || 200000;
+      const thresholdRatio = Number(config.compactionThresholdRatio) || 0.8;
+      const currentTokens = this.compactionService.calculateContextTokens(session, { enableAgent });
+
+      if (currentTokens > maxContextTokens * thresholdRatio && session.messages.length >= 6) {
+        try {
+          emitChunk({
+            type: 'status',
+            status: 'compaction_start',
+            message: '上下文使用率接近上限 (80%)，正在自动进行智能历史提炼…'
+          });
+          const compRes = await this.compactionService.compactSession(session, {
+            config,
+            getPersona,
+            genId,
+            keepCount: 2
+          });
+          if (compRes && compRes.ok) {
+            save();
+            requestMessages = buildRequestSequence();
+            emitChunk({
+              type: 'status',
+              status: 'compaction_end',
+              message: '上下文已自动提炼，释放历史 Token 压力。'
+            });
+          }
+        } catch {}
+      }
 
       const primaryModel = modelOverride || config.model || 'gpt-4o-mini';
       const fallbackModel = (config.fallbackModel && config.fallbackModel.trim()) || '';
@@ -461,12 +519,51 @@ class ChatService {
         }
       };
 
+      const isContextOverflow = err => {
+        if (!err || !err.message) return false;
+        return (
+          /context.*length.*exceeded/i.test(err.message) ||
+          /maximum context length/i.test(err.message) ||
+          /exceeds the context window/i.test(err.message) ||
+          /prompt is too long/i.test(err.message) ||
+          /token.*limit.*exceeded/i.test(err.message) ||
+          (err.status === 400 && /token|context/i.test(err.message))
+        );
+      };
+
       try {
+        let overflowRecovered = false;
         try {
           await runStream(primaryModel, false);
         } catch (primaryErr) {
           if (primaryErr.name === 'AbortError') throw primaryErr;
-          if (fallbackModel && fallbackModel !== primaryModel && !toolPhaseEntered) {
+
+          // Check for Context Overflow Recovery (deepseek-harness 'context-overflow' recovery)
+          if (isContextOverflow(primaryErr) && !overflowRecovered && session.messages.length > 2) {
+            overflowRecovered = true;
+            emitChunk({
+              type: 'status',
+              status: 'overflow_recovery',
+              message: '检测到模型上下文超限错误，正在执行紧急剪枝提炼并自动重试…'
+            });
+
+            // Stage 1: Aggressive Tool Result Pruning
+            this.compactionService.pruneSessionToolResults(session, { threshold: 3000, headChars: 800, tailChars: 800 });
+            // Stage 2: Multimodal Image Offload
+            this.compactionService.offloadSessionImages(session, { keepRecentRounds: 1 });
+            // Stage 3: Emergency Compaction
+            await this.compactionService.compactSession(session, {
+              config,
+              getPersona,
+              genId,
+              keepCount: 1
+            });
+            if (typeof save === 'function') save();
+
+            // Rebuild conversation sequence and retry
+            requestMessages = buildRequestSequence();
+            await runStream(primaryModel, true);
+          } else if (fallbackModel && fallbackModel !== primaryModel && !toolPhaseEntered) {
             assistantMsg.fallbackFrom = primaryModel;
             emitChunk({
               type: 'fallback',

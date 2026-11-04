@@ -50,7 +50,7 @@ async function runTests() {
   console.log('✓ Test 2 通过');
 
   // Test 3: compactSession multi-turn compression & offline fallback
-  console.log('[Test 3] 验证多轮对话压缩并保留最新对话轮次...');
+  console.log('[Test 3] 验证多轮对话压缩并保留完整旧数据展示与模型上下文隔离...');
   const multiTurnSession = {
     id: 's_multi',
     messages: [
@@ -68,17 +68,33 @@ async function runTests() {
   });
 
   assert.strictEqual(resCompact.ok, true, '压缩应当执行成功 (自动降级至离线结构化提炼)');
-  assert.ok(multiTurnSession.messages.length < 5, '会话消息条数应当被精简');
+  // UI Display: complete historical messages are kept intact, plus one new compaction divider card
+  assert.strictEqual(multiTurnSession.messages.length, 6, 'UI 展示层消息应完整保留所有历史旧数据并插入1条压缩卡片 (5+1=6)');
+  assert.ok(multiTurnSession.messages.some(m => m.id === 'm1'), '旧历史 m1 必须完整保留供用户翻看');
+  assert.ok(multiTurnSession.messages.some(m => m.id === 'm2'), '旧历史 m2 必须完整保留供用户翻看');
 
-  const firstMsg = multiTurnSession.messages[0];
-  assert.strictEqual(firstMsg.role, 'assistant', '第一条消息应转换为提炼摘要助手消息');
-  assert.strictEqual(firstMsg.isCompacted, true, '摘要消息应打上 isCompacted: true 标记');
-  assert.ok(firstMsg.content.includes('上下文压缩摘要'), '摘要内容应包含标准压缩标题');
+  // Check the compaction divider card
+  const dividerMsg = multiTurnSession.messages.find(m => m.role === 'compaction_divider');
+  assert.ok(dividerMsg, '会话中应插入 compaction_divider 检查点卡片');
+  assert.strictEqual(dividerMsg.isCompacted, true, '卡片应打上 isCompacted: true 标记');
+  assert.ok(dividerMsg.content.includes('上下文压缩摘要'), '卡片内容应包含标准压缩标题');
 
   // Check that recent messages are preserved
   const lastMsg = multiTurnSession.messages[multiTurnSession.messages.length - 1];
-  assert.strictEqual(lastMsg.id, 'm5', '最新消息应被完整保留');
+  assert.strictEqual(lastMsg.id, 'm5', '最新消息应被完整保留在末尾');
   assert.strictEqual(lastMsg.content, '继续完成第三阶段测试');
+
+  // Verify Model Context Surface Isolation
+  const { buildBoundedContext } = require('../src/plugins/ai-chat/lib/context-bounds');
+  const modelContext = buildBoundedContext(multiTurnSession.messages, 16);
+  assert.ok(modelContext.length < 5, '给大模型推理的实际上下文应被精简 (< 5)');
+  assert.strictEqual(modelContext[0].role, 'assistant', '大模型上下文起点应为压缩卡片提炼的摘要');
+
+  // Verify Active Context Tokens & Progress Ring Dynamic Update
+  const activeTokensAfter = compactionService.calculateContextTokens(multiTurnSession);
+  assert.ok(activeTokensAfter > 0, '活跃上下文 Token 应有效计算');
+  assert.strictEqual(typeof resCompact.activeContextTokens, 'number');
+  assert.strictEqual(resCompact.activeContextTokens, activeTokensAfter, '返回结果应包含最新的活跃上下文 Token');
   console.log('✓ Test 3 通过');
 
   // Test 4: Default maxContextTokens configuration

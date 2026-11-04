@@ -106,6 +106,11 @@ function findBalancedCutIndex(messages, maxKeepCount) {
 
 /**
  * Builds a bounded context from message history with guaranteed tool pairing invariants.
+ * Implements Display vs Model Context Surface Isolation (inspired by deepseek-harness):
+ * - UI/Storage retains complete historical messages & attachments intact.
+ * - Model View automatically folds away shadowed messages prior to the latest compaction divider,
+ *   converting the divider into a high-density assistant checkpoint.
+ * - Offloads bulky image payloads only for model inference without touching storage.
  *
  * @param {Array} messages - Raw messages from session
  * @param {number} maxContext - Max messages to include
@@ -115,22 +120,123 @@ function buildBoundedContext(messages, maxContext = 16) {
   if (!Array.isArray(messages) || messages.length === 0) return [];
   const max = Math.max(2, Number(maxContext) || 16);
 
-  if (messages.length <= max) {
-    return messages.map(cloneForInference);
+  // 1. Check for compaction divider cards (Display vs Model Surface isolation)
+  let latestDividerIdx = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m && (m.role === 'compaction_divider' || m.type === 'compaction_checkpoint')) {
+      latestDividerIdx = i;
+      break;
+    }
   }
 
-  const cutIdx = findBalancedCutIndex(messages, max);
-  const retained = messages.slice(cutIdx);
+  let activeSlice = [];
+  if (latestDividerIdx >= 0) {
+    const divider = messages[latestDividerIdx];
+    const checkpointAssistantMsg = {
+      role: 'assistant',
+      content: divider.content || '### 📋 上下文压缩摘要\n(早期对话已提炼)'
+    };
+    const trailingMessages = messages.slice(latestDividerIdx + 1);
 
-  return retained.map(cloneForInference).filter(Boolean);
+    if (trailingMessages.length > max) {
+      const cutIdx = findBalancedCutIndex(trailingMessages, max);
+      activeSlice = [checkpointAssistantMsg, ...trailingMessages.slice(cutIdx)];
+    } else {
+      activeSlice = [checkpointAssistantMsg, ...trailingMessages];
+    }
+  } else {
+    if (messages.length <= max) {
+      activeSlice = messages;
+    } else {
+      const cutIdx = findBalancedCutIndex(messages, max);
+      activeSlice = messages.slice(cutIdx);
+    }
+  }
+
+  // 2. Clone for inference & isolate image offloading for model
+  let seenUserImgs = 0;
+  const result = [];
+  for (let i = activeSlice.length - 1; i >= 0; i--) {
+    const m = activeSlice[i];
+    let offloadImages = false;
+    if (m && m.role === 'user' && Array.isArray(m.images) && m.images.length > 0) {
+      seenUserImgs++;
+      if (seenUserImgs > 2) {
+        offloadImages = true;
+      }
+    }
+    const cloned = cloneForInference(m, { offloadImages });
+    if (cloned) result.unshift(cloned);
+  }
+
+  return result;
+}
+
+/**
+ * Formats a single attachment item into a standard model-readable context block.
+ *
+ * @param {object} att - Attachment descriptor
+ * @returns {string} Formatted context snippet
+ */
+function formatAttachmentContext(att) {
+  if (!att) return '';
+  if (att.type === 'file' || (!att.type && att.content !== undefined)) {
+    return `### 附件文件: ${att.name || att.path}\n\`\`\`\n${att.content || ''}\n\`\`\``;
+  }
+  if (att.type === 'directory' || att.isDirectory) {
+    return `### 附件文件夹目录: ${att.path || att.name}\n(已关联本地目录供分析与定位)`;
+  }
+  return '';
+}
+
+/**
+ * Assembles user instruction text and attached files/folders into a coherent prompt.
+ * If the raw content already contains the legacy context header, avoids duplicate assembly.
+ *
+ * @param {string} content - Raw user prompt/instruction
+ * @param {Array} attachments - User-provided attachments
+ * @returns {string} Fully assembled message content for LLM inference
+ */
+function assembleUserMessageContent(content, attachments) {
+  const rawText = String(content || '').trim();
+  if (!Array.isArray(attachments) || attachments.length === 0) {
+    return rawText;
+  }
+
+  const nonImgs = attachments.filter(a => a && (a.type === 'file' || a.type === 'directory' || (!a.type && a.content !== undefined)));
+  if (nonImgs.length === 0) {
+    return rawText;
+  }
+
+  // Idempotency: if already wrapped (e.g. legacy historical messages), return as is
+  if (rawText.includes('[用户随附文件/目录上下文]:')) {
+    return rawText;
+  }
+
+  const blocks = nonImgs.map(formatAttachmentContext).filter(Boolean);
+  if (blocks.length === 0) {
+    return rawText;
+  }
+
+  return `[用户随附文件/目录上下文]:\n${blocks.join('\n\n')}\n\n[用户指令]:\n${rawText || '请基于上述随附文件/目录进行分析。'}`;
 }
 
 /**
  * Clones a message object stripping non-standard internal fields
  * while preserving standard OpenAI/Claude/Responses properties.
  */
-function cloneForInference(m) {
+function cloneForInference(m, { offloadImages = false } = {}) {
   if (!m || typeof m !== 'object') return null;
+
+  // Handle compaction divider card conversion
+  if (m.role === 'compaction_divider' || m.type === 'compaction_checkpoint') {
+    return {
+      role: 'assistant',
+      content: String(m.content || '')
+    };
+  }
+
   const toolCalls = m.tool_calls || m.toolCalls;
 
   if (m.role === 'tool') {
@@ -163,13 +269,25 @@ function cloneForInference(m) {
   }
 
   // Plain / user / system
+  let userContent = String(m.content || '');
+  if ((m.role === 'user' || !m.role) && Array.isArray(m.attachments) && m.attachments.length > 0) {
+    userContent = assembleUserMessageContent(userContent, m.attachments);
+  }
+
   const plain = {
     role: m.role || 'user',
-    content: String(m.content || '')
+    content: userContent
   };
+
   if (Array.isArray(m.images) && m.images.length > 0) {
-    plain.images = m.images;
+    if (offloadImages) {
+      const note = `\n[📷 历史多模态图片 (${m.images.length}张): 早期轮次已完成解析，当前推理已自动卸载以保护上下文]`;
+      plain.content = (plain.content ? plain.content + note : note).trim();
+    } else {
+      plain.images = m.images;
+    }
   }
+
   return plain;
 }
 
@@ -189,5 +307,7 @@ module.exports = {
   findBalancedCutIndex,
   buildBoundedContext,
   cloneForInference,
-  foldSurfaceForModel
+  foldSurfaceForModel,
+  formatAttachmentContext,
+  assembleUserMessageContent
 };

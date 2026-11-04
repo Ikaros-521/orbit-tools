@@ -126,6 +126,7 @@
     const promptQueueBar = el.querySelector('#promptQueueBar');
     const inputAttachmentsBar = el.querySelector('#inputAttachmentsBar');
     const aiInputWrap = el.querySelector('.ai-input-wrap');
+    const aiInputBox = el.querySelector('.ai-input-box');
     const aiLightboxModal = el.querySelector('#aiLightboxModal');
     const aiLightboxBackdrop = el.querySelector('#aiLightboxBackdrop');
     const btnCloseLightbox = el.querySelector('#btnCloseLightbox');
@@ -135,6 +136,197 @@
     // Attachments & Prompt Queue state
     let pendingAttachments = [];
     const sessionPromptQueues = new Map();
+
+    /* --- Attachment Context & Display Helpers -------------------------------- */
+    function formatFileSize(bytes) {
+      if (!bytes || bytes <= 0) return '';
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB';
+    }
+
+    function formatAttachmentContextSnippet(att) {
+      if (!att) return '';
+      if (att.type === 'file' || (!att.type && att.content !== undefined)) {
+        return `### 附件文件: ${att.name || att.path}\n\`\`\`\n${att.content || ''}\n\`\`\``;
+      }
+      if (att.type === 'directory' || att.isDirectory) {
+        return `### 附件文件夹目录: ${att.path || att.name}\n(已关联本地目录供分析与定位)`;
+      }
+      return '';
+    }
+
+    /**
+     * Decomposes message content and attached context.
+     * Extracts clean user instruction and isolates extracted file/folder snippets
+     * for both clean new messages and legacy assembled messages.
+     */
+    function parseDisplayMessage(msg) {
+      if (!msg) return { text: '', legacyAttachments: [], isLegacyAssembled: false };
+      const raw = String(msg.content || '');
+      const CONTEXT_START = '[用户随附文件/目录上下文]:';
+      const INSTRUCTION_START = '[用户指令]:';
+
+      if (raw.includes(CONTEXT_START) && raw.includes(INSTRUCTION_START)) {
+        const parts = raw.split(INSTRUCTION_START);
+        const contextSection = parts[0].replace(CONTEXT_START, '').trim();
+        const instructionText = (parts[1] || '').trim();
+
+        const legacyAttachments = [];
+        if (!Array.isArray(msg.attachments) || msg.attachments.length === 0) {
+          const fileBlocks = contextSection.split(/(?=### 附件(?:文件|文件夹目录):)/g);
+          fileBlocks.forEach((fb, idx) => {
+            const trimmed = fb.trim();
+            if (!trimmed) return;
+            const fileMatch = trimmed.match(/^### 附件文件:\s*(.+)$/m);
+            const dirMatch = trimmed.match(/^### 附件文件夹目录:\s*(.+)$/m);
+            if (fileMatch) {
+              const name = fileMatch[1].trim();
+              const codeMatch = trimmed.match(/```(?:\w+)?\n([\s\S]*?)\n```/);
+              legacyAttachments.push({
+                type: 'file',
+                id: `legacy_file_${idx}`,
+                name: name.split(/[\\/]/).pop() || name,
+                path: name,
+                content: codeMatch ? codeMatch[1] : trimmed,
+                size: codeMatch ? new Blob([codeMatch[1]]).size : 0
+              });
+            } else if (dirMatch) {
+              const dirPath = dirMatch[1].trim();
+              legacyAttachments.push({
+                type: 'directory',
+                id: `legacy_dir_${idx}`,
+                name: dirPath.split(/[\\/]/).pop() || dirPath,
+                path: dirPath
+              });
+            }
+          });
+        }
+
+        const isDefaultInstruction = instructionText === '请基于上述随附文件/目录进行分析。';
+        return {
+          text: isDefaultInstruction ? '' : instructionText,
+          legacyAttachments,
+          isLegacyAssembled: true
+        };
+      }
+
+      return {
+        text: raw,
+        legacyAttachments: [],
+        isLegacyAssembled: false
+      };
+    }
+
+    let contextPopoverEl = null;
+    let popoverHideTimer = null;
+
+    function ensureContextPopover() {
+      if (contextPopoverEl && contextPopoverEl.parentElement) return contextPopoverEl;
+      contextPopoverEl = document.createElement('div');
+      contextPopoverEl.className = 'ai-att-popover hidden';
+      contextPopoverEl.innerHTML = `
+        <div class="ai-att-popover-header">
+          <div class="ai-att-popover-title">
+            <span class="ai-att-popover-icon">📄</span>
+            <span class="ai-att-popover-heading">实际注入模型上下文</span>
+          </div>
+          <div class="ai-att-popover-actions">
+            <span class="ai-att-popover-stats"></span>
+            <button type="button" class="ai-att-popover-copy-btn" title="复制完整实际发送上下文">
+              <span>📋</span> <span class="btn-text">复制上下文</span>
+            </button>
+          </div>
+        </div>
+        <div class="ai-att-popover-body">
+          <pre class="ai-att-popover-code"><code></code></pre>
+        </div>
+      `;
+      document.body.appendChild(contextPopoverEl);
+
+      contextPopoverEl.addEventListener('mouseenter', () => {
+        if (popoverHideTimer) {
+          clearTimeout(popoverHideTimer);
+          popoverHideTimer = null;
+        }
+      });
+
+      contextPopoverEl.addEventListener('mouseleave', () => {
+        scheduleHideContextPopover();
+      });
+
+      return contextPopoverEl;
+    }
+
+    function showContextPopover(anchorEl, att) {
+      if (popoverHideTimer) {
+        clearTimeout(popoverHideTimer);
+        popoverHideTimer = null;
+      }
+
+      const popover = ensureContextPopover();
+      const snippet = formatAttachmentContextSnippet(att);
+      const charCount = snippet.length;
+      const approxTokens = Math.ceil(charCount / 3.2);
+
+      const headingEl = popover.querySelector('.ai-att-popover-heading');
+      const iconEl = popover.querySelector('.ai-att-popover-icon');
+      const statsEl = popover.querySelector('.ai-att-popover-stats');
+      const codeEl = popover.querySelector('.ai-att-popover-code code');
+      const copyBtn = popover.querySelector('.ai-att-popover-copy-btn');
+
+      if (iconEl) iconEl.textContent = att.type === 'directory' ? '📁' : '📄';
+      if (headingEl) headingEl.textContent = `${att.name || '附件'} · 实际注入模型上下文`;
+      if (statsEl) statsEl.textContent = `共 ${charCount.toLocaleString()} 字符 · 约 ${approxTokens.toLocaleString()} Tokens`;
+      if (codeEl) codeEl.textContent = snippet;
+
+      copyBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        await copyToClipboard(snippet);
+        const textSpan = copyBtn.querySelector('.btn-text');
+        if (textSpan) textSpan.textContent = '已复制';
+        copyBtn.classList.add('success');
+        setTimeout(() => {
+          if (textSpan) textSpan.textContent = '复制上下文';
+          copyBtn.classList.remove('success');
+        }, 1500);
+      };
+
+      popover.classList.remove('hidden');
+
+      const rect = anchorEl.getBoundingClientRect();
+      const popoverWidth = Math.min(540, window.innerWidth - 32);
+      popover.style.width = popoverWidth + 'px';
+
+      const popoverHeight = 320;
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const spaceAbove = rect.top;
+
+      let top;
+      if (spaceBelow >= popoverHeight || spaceBelow >= spaceAbove) {
+        top = rect.bottom + 6;
+      } else {
+        top = Math.max(10, rect.top - popoverHeight - 6);
+      }
+
+      let left = rect.left;
+      if (left + popoverWidth > window.innerWidth - 16) {
+        left = window.innerWidth - popoverWidth - 16;
+      }
+      if (left < 16) left = 16;
+
+      popover.style.top = `${top}px`;
+      popover.style.left = `${left}px`;
+    }
+
+    function scheduleHideContextPopover() {
+      if (popoverHideTimer) clearTimeout(popoverHideTimer);
+      popoverHideTimer = setTimeout(() => {
+        if (contextPopoverEl) {
+          contextPopoverEl.classList.add('hidden');
+        }
+      }, 180);
+    }
 
     // Agent Approval Mode & Thinking Level DOM
     const btnAgentMode = el.querySelector('#btnAgentMode');
@@ -196,6 +388,15 @@
     let generatingSessionId = null;
     let agentMode = 'ask';
     let thinkLevel = 'auto';
+
+    // 统一浮层收拢管理器：关闭全部输入区周边浮层，可选排除当前正在打开的浮层
+    function closeAllPopovers(except = null) {
+      if (plusPopover && except !== plusPopover) plusPopover.classList.add('hidden');
+      if (personaPopover && except !== personaPopover) personaPopover.classList.add('hidden');
+      if (agentModePopover && except !== agentModePopover) agentModePopover.classList.add('hidden');
+      if (thinkLevelPopover && except !== thinkLevelPopover) thinkLevelPopover.classList.add('hidden');
+      if (modelPopover && except !== modelPopover) modelPopover.classList.add('hidden');
+    }
 
     const pendingLateChunks = new Map();
     function getLateChunkBuf(sessionId) {
@@ -284,7 +485,8 @@
     function autoResizeInput() {
       if (!chatInput) return;
       chatInput.style.height = 'auto';
-      const newHeight = Math.min(chatInput.scrollHeight, 180);
+      const scrollH = chatInput.scrollHeight || 24;
+      const newHeight = Math.max(24, Math.min(scrollH, 180));
       chatInput.style.height = `${newHeight}px`;
     }
 
@@ -292,6 +494,21 @@
       autoResizeInput();
       updateSendOrStopButton();
     });
+
+    // 输入框聚焦时收拢所有浮层，避免任何视觉遮挡
+    chatInput.addEventListener('focus', () => {
+      closeAllPopovers();
+    });
+
+    // 输入框容器点击代理：点击整个输入框盒子的内边距、边框边缘与空白区域，自动转移焦点至输入框
+    if (aiInputBox && chatInput) {
+      aiInputBox.addEventListener('click', (e) => {
+        if (!e.target.closest('#btnSendOrStop')) {
+          closeAllPopovers();
+          chatInput.focus();
+        }
+      });
+    }
 
     chatInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter' && !e.shiftKey) {
@@ -343,11 +560,10 @@
     if (btnPlusAttachment && plusPopover) {
       btnPlusAttachment.addEventListener('click', (e) => {
         e.stopPropagation();
-        plusPopover.classList.toggle('hidden');
-      });
-      document.addEventListener('click', (e) => {
-        if (!plusPopover.contains(e.target) && e.target !== btnPlusAttachment) {
-          plusPopover.classList.add('hidden');
+        const willOpen = plusPopover.classList.contains('hidden');
+        closeAllPopovers();
+        if (willOpen) {
+          plusPopover.classList.remove('hidden');
         }
       });
     }
@@ -569,24 +785,22 @@
       thinkLevelPopover.classList.add('hidden');
     }
 
-    btnAgentMode.addEventListener('click', () => {
+    btnAgentMode.addEventListener('click', (e) => {
+      e.stopPropagation();
       const willOpen = agentModePopover.classList.contains('hidden');
-      closeCtrlPopovers();
+      closeAllPopovers();
       if (willOpen) {
         renderAlwaysAllowRow();
         agentModePopover.classList.remove('hidden');
       }
     });
 
-    btnThinkLevel.addEventListener('click', () => {
+    btnThinkLevel.addEventListener('click', (e) => {
+      e.stopPropagation();
       const willOpen = thinkLevelPopover.classList.contains('hidden');
-      closeCtrlPopovers();
+      closeAllPopovers();
       if (willOpen) thinkLevelPopover.classList.remove('hidden');
     });
-
-    el.addEventListener('click', e => {
-      if (!e.target.closest('.ai-ctrl-popover-wrap')) closeCtrlPopovers();
-    }, true);
 
     agentModePopover.querySelectorAll('.ai-ctrl-opt').forEach(opt => {
       opt.addEventListener('click', () => {
@@ -680,13 +894,15 @@
     btnTogglePersonaPicker.addEventListener('click', (e) => {
       e.stopPropagation();
       if (!currentSession) return;
-      const isHidden = personaPopover.classList.toggle('hidden');
-      if (!isHidden) {
+      const willOpen = personaPopover.classList.contains('hidden');
+      closeAllPopovers();
+      if (willOpen) {
         popoverPersonaSearch = '';
         inputPopoverPersonaSearch.value = '';
         popoverCurrentPage = 1;
         renderPopoverPersonas();
         inputPopoverPersonaSearch.focus();
+        personaPopover.classList.remove('hidden');
       }
     });
 
@@ -715,15 +931,6 @@
       popoverCurrentPage++;
       renderPopoverPersonas();
     });
-
-    const onDocumentClickClosePersona = (e) => {
-      if (!personaPopover.classList.contains('hidden')) {
-        if (!e.target.closest('.ai-persona-picker-wrap')) {
-          personaPopover.classList.add('hidden');
-        }
-      }
-    };
-    document.addEventListener('click', onDocumentClickClosePersona);
 
     function renderPersonas() {
       updateActivePersonaPill();
@@ -876,14 +1083,16 @@
       btnToggleModelPicker.addEventListener('click', (e) => {
         e.stopPropagation();
         if (!modelPopover) return;
-        const isHidden = modelPopover.classList.toggle('hidden');
-        if (!isHidden) {
+        const willOpen = modelPopover.classList.contains('hidden');
+        closeAllPopovers();
+        if (willOpen) {
           modelQuickSearchText = '';
           if (inputModelQuickSearch) {
             inputModelQuickSearch.value = '';
             inputModelQuickSearch.focus();
           }
           renderModelPopoverList();
+          modelPopover.classList.remove('hidden');
         }
       });
     }
@@ -926,14 +1135,32 @@
       });
     }
 
-    const onDocumentClickCloseModelPopover = (e) => {
-      if (modelPopover && !modelPopover.classList.contains('hidden')) {
-        if (!e.target.closest('.ai-model-picker-wrap')) {
-          modelPopover.classList.add('hidden');
-        }
+    // 全局点击监听器：点击非对应浮层区域时自动收拢浮层
+    const onDocumentGlobalClickClosePopovers = (e) => {
+      const inPlus = e.target.closest && e.target.closest('.ai-plus-menu-wrap');
+      const inPersona = e.target.closest && e.target.closest('.ai-persona-picker-wrap');
+      const inCtrl = e.target.closest && e.target.closest('.ai-ctrl-popover-wrap');
+      const inModel = e.target.closest && e.target.closest('.ai-model-picker-wrap');
+      const inAttPopover = e.target.closest && (e.target.closest('.ai-att-popover') || e.target.closest('.ai-msg-att-card'));
+
+      if (!inAttPopover && contextPopoverEl && !contextPopoverEl.classList.contains('hidden')) {
+        contextPopoverEl.classList.add('hidden');
+      }
+
+      if (!inPlus && plusPopover && !plusPopover.classList.contains('hidden')) {
+        plusPopover.classList.add('hidden');
+      }
+      if (!inPersona && personaPopover && !personaPopover.classList.contains('hidden')) {
+        personaPopover.classList.add('hidden');
+      }
+      if (!inCtrl) {
+        closeCtrlPopovers();
+      }
+      if (!inModel && modelPopover && !modelPopover.classList.contains('hidden')) {
+        modelPopover.classList.add('hidden');
       }
     };
-    document.addEventListener('click', onDocumentClickCloseModelPopover);
+    document.addEventListener('click', onDocumentGlobalClickClosePopovers);
 
     // Sessions List
     function renderSessionsList() {
@@ -1142,7 +1369,20 @@
       if (!session || !Array.isArray(session.messages) || session.messages.length === 0) {
         return 0;
       }
-      const msgs = session.messages;
+
+      // Display vs Model Surface Isolation:
+      // If the session contains compaction divider cards, only the active context window
+      // (from the latest compaction divider onwards) is counted towards the model window!
+      let startIdx = 0;
+      for (let i = session.messages.length - 1; i >= 0; i--) {
+        const m = session.messages[i];
+        if (m && (m.role === 'compaction_divider' || m.type === 'compaction_checkpoint')) {
+          startIdx = i;
+          break;
+        }
+      }
+
+      const msgs = session.messages.slice(startIdx);
       let lastAsstWithUsageIdx = -1;
       for (let i = msgs.length - 1; i >= 0; i--) {
         if (msgs[i].role === 'assistant' && msgs[i].usage && (typeof msgs[i].usage.contextTokens === 'number' || typeof msgs[i].usage.promptTokens === 'number')) {
@@ -1150,6 +1390,18 @@
           break;
         }
       }
+      function getMessageCharLength(msgItem) {
+        if (!msgItem) return 0;
+        let len = String(msgItem.content || '').length;
+        if (msgItem.role === 'user' && Array.isArray(msgItem.attachments) && msgItem.attachments.length > 0) {
+          for (const a of msgItem.attachments) {
+            if (a && a.content) len += String(a.content).length + 80;
+            else if (a && (a.path || a.name)) len += String(a.path || a.name).length + 60;
+          }
+        }
+        return len;
+      }
+
       if (lastAsstWithUsageIdx !== -1) {
         const baseUsage = msgs[lastAsstWithUsageIdx].usage;
         const baseTokens = (typeof baseUsage.contextTokens === 'number')
@@ -1157,13 +1409,13 @@
           : ((baseUsage.promptTokens || 0) + (baseUsage.completionTokens || 0));
         let trailingChars = 0;
         for (let i = lastAsstWithUsageIdx + 1; i < msgs.length; i++) {
-          trailingChars += String(msgs[i].content || '').length;
+          trailingChars += getMessageCharLength(msgs[i]);
         }
         return baseTokens + Math.ceil(trailingChars / 3.2);
       }
       let totalChars = 0;
       for (const m of msgs) {
-        totalChars += String(m.content || '').length;
+        totalChars += getMessageCharLength(m);
       }
       // 历史消息无 usage 时的合理估算：包含系统 Prompt 基础开销及 Agent 工具声明开销
       const isAgent = config && config.enableAgent !== false;
@@ -1308,11 +1560,19 @@
           : 'Agent 工作目录: 未单独设置，使用系统用户目录 (点击修改)';
       }
 
+      const currentTokens = calculateCurrentContextTokens(currentSession);
       const tokens = currentSession.totalTokens ? currentSession.totalTokens.totalTokens : 0;
       const cached = currentSession.totalTokens && currentSession.totalTokens.cachedTokens ? currentSession.totalTokens.cachedTokens : 0;
-      sessionUsageBadge.textContent = `${tokens.toLocaleString()} tokens`;
-      const cacheNote = cached > 0 ? `\n(其中命中缓存: ${cached.toLocaleString()} tokens)` : '';
-      sessionUsageBadge.title = `会话累计消耗: ${tokens.toLocaleString()} tokens (总账单)${cacheNote}\n【说明】本会话多轮历史对话累计消耗的 API Token 总和（单调递增）；\n与右下角「当前上下文窗口」不同，右下角反映当前单轮工作记忆负载`;
+
+      const maxTokens = (config && Number(config.maxContextTokens)) || 200000;
+      const rawPct = (currentTokens / maxTokens) * 100;
+      const pct = Math.min(100, Math.max(0, Math.round(rawPct)));
+      const pctDetail = rawPct >= 1 ? `${pct}%` : `${rawPct.toFixed(2)}%`;
+
+      sessionUsageBadge.textContent = `${currentTokens.toLocaleString()} tokens`;
+      const cacheNote = cached > 0 ? `\n(多轮累计命中缓存: ${cached.toLocaleString()} tokens)` : '';
+      const billNote = tokens > 0 ? `\n会话累计总账单: ${tokens.toLocaleString()} tokens` : '';
+      sessionUsageBadge.title = `当前活跃上下文: ${currentTokens.toLocaleString()} tokens (${pctDetail})${billNote}${cacheNote}\n【说明】模型单轮推理实际占用的活跃工作记忆；压缩上下文后此数值与百分比将同步下降`;
       updateActivePersonaPill();
       updateContextProgress();
     }
@@ -1426,10 +1686,106 @@
       scrollToBottom(true);
     }
 
+    function createCompactionCardElement(msg) {
+      const card = document.createElement('div');
+      card.className = 'ai-compaction-card';
+      card.dataset.id = msg.id;
+
+      const count = msg.compactedCount || (msg.compactedRange ? msg.compactedRange.count : null) || '若干';
+      const timeStr = new Date(msg.timestamp || Date.now()).toLocaleTimeString();
+
+      card.innerHTML = `
+        <div class="ai-compaction-card-divider">
+          <div class="ai-compaction-line"></div>
+          <div class="ai-compaction-badge-pill">
+            <span class="ai-compaction-badge-icon">🗜️</span>
+            <span class="ai-compaction-badge-title">历史上下文已提炼 (上方 ${count} 条对话已折叠)</span>
+          </div>
+          <div class="ai-compaction-line"></div>
+        </div>
+        <div class="ai-compaction-card-container">
+          <div class="ai-compaction-card-header">
+            <div class="ai-compaction-summary-label">
+              <span>📋</span> <span>上下文压缩摘要</span>
+            </div>
+            <div class="ai-compaction-actions">
+              <button type="button" class="ai-compaction-btn btn-toggle-summary" title="展开/收起摘要详情">
+                <span class="toggle-icon">▼</span> <span class="toggle-text">收起摘要</span>
+              </button>
+              <button type="button" class="ai-compaction-btn btn-copy-summary" title="复制摘要文本">
+                <span>📋</span> <span>复制</span>
+              </button>
+              <button type="button" class="ai-compaction-btn btn-del-summary" title="移除此检查点卡片">
+                <span>🗑️</span>
+              </button>
+              <span class="ai-compaction-time">${timeStr}</span>
+            </div>
+          </div>
+          <div class="ai-compaction-card-tip">
+            💡 提示：此分割线以上的历史对话已对大模型进行高密度折叠，后续推理基于此摘要进行，不再占用 Token 窗口。您仍可随时向上翻看与检索完整的原始对话及附件。
+          </div>
+          <div class="ai-compaction-card-body">
+            <div class="ai-compaction-summary-content markdown-body"></div>
+          </div>
+        </div>
+      `;
+
+      const summaryContentEl = card.querySelector('.ai-compaction-summary-content');
+      if (summaryContentEl && msg.content) {
+        summaryContentEl.innerHTML = renderMarkdown(msg.content);
+        try {
+          if (typeof MermaidRenderer !== 'undefined' && MermaidRenderer.initMessageDynamicElements) {
+            MermaidRenderer.initMessageDynamicElements(summaryContentEl, { renderMermaid: true, copyToClipboard });
+          }
+        } catch {}
+      }
+
+      const toggleBtn = card.querySelector('.btn-toggle-summary');
+      const bodyEl = card.querySelector('.ai-compaction-card-body');
+      if (toggleBtn && bodyEl) {
+        let isExpanded = true;
+        toggleBtn.addEventListener('click', () => {
+          isExpanded = !isExpanded;
+          bodyEl.style.display = isExpanded ? 'block' : 'none';
+          toggleBtn.querySelector('.toggle-icon').textContent = isExpanded ? '▼' : '▶';
+          toggleBtn.querySelector('.toggle-text').textContent = isExpanded ? '收起摘要' : '展开摘要';
+        });
+      }
+
+      const copyBtn = card.querySelector('.btn-copy-summary');
+      if (copyBtn) {
+        copyBtn.addEventListener('click', async () => {
+          await copyToClipboard(msg.content || '');
+          const origHtml = copyBtn.innerHTML;
+          copyBtn.innerHTML = '<span>✓</span> <span>已复制</span>';
+          setTimeout(() => { copyBtn.innerHTML = origHtml; }, 1500);
+        });
+      }
+
+      const delBtn = card.querySelector('.btn-del-summary');
+      if (delBtn) {
+        delBtn.addEventListener('click', async () => {
+          if (!currentSession) return;
+          const idx = currentSession.messages.findIndex(m => m.id === msg.id);
+          if (idx !== -1) {
+            currentSession.messages.splice(idx, 1);
+            renderMessages();
+            await ctx.call('deleteMessage', { sessionId: currentSession.id, messageId: msg.id });
+          }
+        });
+      }
+
+      return card;
+    }
+
     function createMessageElement(msg) {
+      if (msg.role === 'compaction_divider' || msg.type === 'compaction_checkpoint') {
+        return createCompactionCardElement(msg);
+      }
       const isUser = msg.role === 'user';
+      const isShadowed = !!msg.isShadowed;
       const msgEl = document.createElement('div');
-      msgEl.className = `ai-msg ${isUser ? 'user' : 'assistant'}`;
+      msgEl.className = `ai-msg ${isUser ? 'user' : 'assistant'}${isShadowed ? ' is-shadowed' : ''}`;
       msgEl.dataset.id = msg.id;
 
       const bubble = document.createElement('div');
@@ -1456,25 +1812,55 @@
           });
           bubble.appendChild(imgsWrap);
         }
-        if (Array.isArray(msg.attachments) && msg.attachments.length > 0) {
-          const nonImgs = msg.attachments.filter(a => a.type === 'file' || a.type === 'directory');
-          if (nonImgs.length > 0) {
-            const attWrap = document.createElement('div');
-            attWrap.className = 'ai-msg-att-badges';
-            nonImgs.forEach(a => {
-              const badge = document.createElement('span');
-              badge.className = `ai-msg-att-badge ${a.type}`;
-              badge.innerHTML = `<span class="ico">${a.type === 'directory' ? '📁' : '📄'}</span> ${escapeHtml(a.name)}`;
-              badge.title = a.path || a.name;
-              attWrap.appendChild(badge);
-            });
-            bubble.appendChild(attWrap);
-          }
+
+        const parsed = parseDisplayMessage(msg);
+        const nonImgs = (Array.isArray(msg.attachments) && msg.attachments.length > 0)
+          ? msg.attachments.filter(a => a.type === 'file' || a.type === 'directory' || (!a.type && a.content !== undefined))
+          : parsed.legacyAttachments;
+
+        if (nonImgs.length > 0) {
+          const cardsWrap = document.createElement('div');
+          cardsWrap.className = 'ai-msg-att-cards';
+          nonImgs.forEach(att => {
+            const isDir = att.type === 'directory' || att.isDirectory;
+            const ext = isDir ? 'DIR' : ((att.name || '').split('.').pop() || 'FILE').slice(0, 4).toUpperCase();
+            const szStr = !isDir ? formatFileSize(att.size || (att.content ? new Blob([att.content]).size : 0)) : '';
+            const lineCount = (att.content && typeof att.content === 'string') ? `${att.content.split('\n').length} 行` : '';
+
+            const card = document.createElement('div');
+            card.className = `ai-msg-att-card ${isDir ? 'directory' : 'file'}`;
+            card.title = `${att.path || att.name}\n(鼠标悬浮查看实际注入大模型的上下文)`;
+
+            card.innerHTML = `
+              <div class="ai-att-card-icon ${isDir ? 'dir' : 'file'}">
+                ${isDir ? '📁' : `<span class="ai-att-ext">${escapeHtml(ext)}</span>`}
+              </div>
+              <div class="ai-att-card-main">
+                <div class="ai-att-card-name" title="${escapeHtml(att.path || att.name)}">${escapeHtml(att.name || att.path)}</div>
+                <div class="ai-att-card-sub">
+                  ${isDir ? '<span class="ai-att-card-tag">本地关联目录</span>' : ''}
+                  ${szStr ? `<span>${escapeHtml(szStr)}</span>` : ''}
+                  ${lineCount ? `<span>· ${escapeHtml(lineCount)}</span>` : ''}
+                </div>
+              </div>
+              <div class="ai-att-card-badge" title="鼠标悬浮查看实际注入大模型的上下文内容">
+                <span>👁️ 上下文</span>
+              </div>
+            `;
+
+            card.addEventListener('mouseenter', () => showContextPopover(card, att));
+            card.addEventListener('mouseleave', () => scheduleHideContextPopover());
+
+            cardsWrap.appendChild(card);
+          });
+          bubble.appendChild(cardsWrap);
         }
-        if (msg.content) {
+
+        const displayText = parsed.text;
+        if (displayText) {
           const textEl = document.createElement('div');
           textEl.className = 'ai-msg-text';
-          textEl.textContent = msg.content;
+          textEl.textContent = displayText;
           bubble.appendChild(textEl);
         }
 
@@ -1491,6 +1877,7 @@
           <button type="button" class="ai-msg-tool-btn btn-tool-del" title="删除此消息">
             <span>🗑️</span> <span>删除</span>
           </button>
+          ${isShadowed ? '<span class="ai-msg-shadowed-tag" title="此消息已被模型上下文折叠，但在历史中完整保留供随时查看">📜 历史归档</span>' : ''}
           <span class="ai-msg-meta">${timeStr}</span>
         `;
       } else {
@@ -1700,6 +2087,7 @@
           <button type="button" class="ai-msg-tool-btn btn-tool-del" title="删除此消息">
             <span>🗑️</span> <span>删除</span>
           </button>
+          ${isShadowed ? '<span class="ai-msg-shadowed-tag" title="此消息已被模型上下文折叠，但在历史中完整保留供随时查看">📜 历史归档</span>' : ''}
           <span class="ai-msg-meta ai-msg-usage">${usageText}</span>
           <span class="ai-msg-meta ai-msg-time">${timeStr}</span>
         `;
@@ -1715,7 +2103,8 @@
           const curMsg = (currentSession && currentSession.messages)
             ? (currentSession.messages.find(m => m.id === msg.id) || msg)
             : msg;
-          const textToCopy = curMsg.content || '';
+          const parsed = parseDisplayMessage(curMsg);
+          const textToCopy = parsed.text || curMsg.content || '';
           await copyToClipboard(textToCopy);
           const origHtml = btnCopy.innerHTML;
           btnCopy.innerHTML = '<span>✓</span> <span>已复制</span>';
@@ -1747,9 +2136,10 @@
       const btnEdit = toolbar.querySelector('.btn-tool-edit');
       if (btnEdit) {
         btnEdit.addEventListener('click', () => {
+          const parsed = parseDisplayMessage(msg);
           bubble.innerHTML = `
             <div class="ai-edit-box">
-              <textarea class="ai-edit-textarea">${escapeHtml(msg.content)}</textarea>
+              <textarea class="ai-edit-textarea">${escapeHtml(parsed.text)}</textarea>
               <div class="ai-edit-actions">
                 <button class="ai-edit-btn cancel">取消</button>
                 <button class="ai-edit-btn primary save">保存并重新生成</button>
@@ -1761,8 +2151,9 @@
           bubble.querySelector('.cancel').addEventListener('click', () => renderMessages());
           bubble.querySelector('.save').addEventListener('click', () => {
             const val = ta.value.trim();
-            if (val) {
-              sendMessage(val, msg.id);
+            const atts = (msg.attachments && msg.attachments.length > 0) ? msg.attachments : (parsed.legacyAttachments.length > 0 ? parsed.legacyAttachments : undefined);
+            if (val || (atts && atts.length > 0)) {
+              sendMessage(val, msg.id, atts || msg.images);
             }
           });
         });
@@ -1771,7 +2162,9 @@
       const btnResend = toolbar.querySelector('.btn-tool-resend');
       if (btnResend) {
         btnResend.addEventListener('click', () => {
-          sendMessage(msg.content, msg.id, msg.attachments || msg.images);
+          const parsed = parseDisplayMessage(msg);
+          const atts = (msg.attachments && msg.attachments.length > 0) ? msg.attachments : (parsed.legacyAttachments.length > 0 ? parsed.legacyAttachments : undefined);
+          sendMessage(parsed.text, msg.id, atts || msg.images);
         });
       }
 
@@ -1782,7 +2175,9 @@
           if (idx > 0) {
             const prevUserMsg = currentSession.messages[idx - 1];
             if (prevUserMsg && prevUserMsg.role === 'user') {
-              sendMessage(prevUserMsg.content, prevUserMsg.id);
+              const parsed = parseDisplayMessage(prevUserMsg);
+              const atts = (prevUserMsg.attachments && prevUserMsg.attachments.length > 0) ? prevUserMsg.attachments : (parsed.legacyAttachments.length > 0 ? parsed.legacyAttachments : undefined);
+              sendMessage(parsed.text, prevUserMsg.id, atts || prevUserMsg.images);
             }
           }
         });
@@ -1808,7 +2203,6 @@
       if ((!text && attachments.length === 0) || !currentSession) return;
 
       const images = [];
-      const fileContextBlocks = [];
       for (const att of attachments) {
         if (att.type === 'image' || att.url || att.isImage) {
           images.push({
@@ -1817,17 +2211,12 @@
             name: att.name,
             url: att.url || att.dataUrl
           });
-        } else if (att.type === 'file' || att.content !== undefined) {
-          fileContextBlocks.push(`### 附件文件: ${att.name || att.path}\n\`\`\`\n${att.content || ''}\n\`\`\``);
-        } else if (att.type === 'directory' || att.isDirectory) {
-          fileContextBlocks.push(`### 附件文件夹目录: ${att.path || att.name}\n(已关联本地目录供分析与定位)`);
         }
       }
 
-      if (fileContextBlocks.length > 0) {
-        const assembledText = `[用户随附文件/目录上下文]:\n${fileContextBlocks.join('\n\n')}\n\n[用户指令]:\n${text || '请基于上述随附文件/目录进行分析。'}`;
-        text = assembledText;
-      }
+      // Display vs Model Surface Isolation:
+      // The user message retains the pure instruction text for clean UI rendering and editing.
+      // The model inference layer automatically assembles attached files/directories into the prompt context.
 
       if (customContent === null) {
         chatInput.value = '';
@@ -2359,12 +2748,9 @@
           }
         });
         if (chunk.sessionTotalTokens) {
-          sessionUsageBadge.textContent = `${chunk.sessionTotalTokens.totalTokens.toLocaleString()} tokens`;
-          if (chunk.sessionTotalTokens.cachedTokens) {
-            sessionUsageBadge.title = `会话累计 Token 消耗: ${chunk.sessionTotalTokens.totalTokens.toLocaleString()} tokens\n(其中命中缓存: ${chunk.sessionTotalTokens.cachedTokens.toLocaleString()} tokens)`;
-          }
           if (currentSession) currentSession.totalTokens = chunk.sessionTotalTokens;
         }
+        updateHeader();
         updateContextProgress();
         if (chunk.type === 'error') {
           const errDiv = document.createElement('div');
@@ -2404,7 +2790,15 @@
     }).catch(() => {});
 
     return function cleanup() {
-      document.removeEventListener('click', onDocumentClickClosePersona);
+      if (contextPopoverEl && contextPopoverEl.parentElement) {
+        contextPopoverEl.remove();
+        contextPopoverEl = null;
+      }
+      if (popoverHideTimer) {
+        clearTimeout(popoverHideTimer);
+        popoverHideTimer = null;
+      }
+      document.removeEventListener('click', onDocumentGlobalClickClosePopovers);
       if (isGenerating && currentStreamId) {
         ctx.call('abortStream', { streamId: currentStreamId });
       }

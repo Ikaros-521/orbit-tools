@@ -36,6 +36,8 @@ const DEFAULT_CONFIG = {
   thinkingBudget: 2048,
   maxContextMessages: 16,
   maxContextTokens: 200000,
+  summarizationModel: '',
+  compactionThresholdRatio: 0.8,
   enableAgent: true,
   agentApprovalMode: 'ask',
   agentMaxRounds: 8,
@@ -573,6 +575,14 @@ module.exports = {
       if (res && res.ok) {
         save();
       }
+      return res;
+    });
+
+    ctx.ipc.handle('pruneToolResults', args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      const res = compactionService.pruneSessionToolResults(s);
+      if (res.prunedCount > 0) save();
       return res;
     });
 
