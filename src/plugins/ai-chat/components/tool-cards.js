@@ -63,7 +63,7 @@
     if (!name) return { icon: '🛠️', title: () => '工具调用' };
     if (TOOL_META[name]) return TOOL_META[name];
     if (/^mcp__[Pp]laywright__/.test(name)) {
-      const op = name.replace(/^mcp__[Pp]lywright__/, '').replace(/^mcp__Playwright__/, '');
+      const op = name.replace(/^mcp__[Pp]laywright__/, '');
       return { icon: '🌐', title: () => `Playwright: ${op}` };
     }
     if (name.startsWith('mcp__')) {
@@ -186,6 +186,7 @@
     card.dataset.tool = tc.id || '';
     if (tc.round !== undefined && tc.round !== null) card.dataset.round = String(tc.round);
     card.dataset.name = name;
+    if (tc.function && typeof tc.function.arguments === 'string') card.dataset.args = tc.function.arguments;
 
     const phase = opts.phase || 'streaming';
     let titleHtml = '';

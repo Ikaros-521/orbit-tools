@@ -547,6 +547,9 @@
       } else {
         // Normal mode: start window dragging with fixed anchor
         isMoving = true;
+        // 指针捕获：光标跑出小窗外事件仍持续送达，否则 isMoving 卡死、
+        // 回窗后贴图跳到光标处（对照 draw-board/pin.js 的做法）
+        try { stage.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         window.pin.startMove(e.screenX, e.screenY);
       }
     }
@@ -646,6 +649,7 @@
       }
       if (isMoving) {
         isMoving = false;
+        try { stage.releasePointerCapture(e.pointerId); } catch { /* ignore */ }
         window.pin.endMove();
       }
     }

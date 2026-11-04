@@ -146,6 +146,19 @@
         const nextStatus = curStatus === 'completed' ? 'pending' : (curStatus === 'in_progress' ? 'completed' : 'in_progress');
         tasks[idx].status = nextStatus;
         currentSession.taskList = tasks;
+        // 当前展示的是提取清单时，用户点击即视为接管：隐藏该消息的提取源，
+        // 否则重渲会重新从 markdown 原文提取，把刚点的状态立即冲回（与
+        // 清空按钮的 _hiddenTasksMessageId 机制一致；新 assistant 消息出现
+        // 后 id 变化，提取自然恢复）
+        if (!isExplicit) {
+          let latestMsg = null;
+          if (Array.isArray(currentSession.messages)) {
+            for (let i = currentSession.messages.length - 1; i >= 0; i--) {
+              if (currentSession.messages[i].role === 'assistant') { latestMsg = currentSession.messages[i]; break; }
+            }
+          }
+          if (latestMsg) currentSession._hiddenTasksMessageId = latestMsg.id;
+        }
         if (ctx && ctx.call) {
           try {
             await ctx.call('setTaskList', { sessionId: currentSession.id, tasks });

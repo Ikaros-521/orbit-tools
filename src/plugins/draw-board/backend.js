@@ -14,6 +14,7 @@ let teardown = null;
 module.exports = {
   activate(ctx) {
     let board = null;
+    let starting = false;   // start() 重入守卫：创建窗口前有约 1s 的 getSources 空窗
     let host = null;
     let cachedInit = null;
     const pins = new Map();
@@ -47,6 +48,7 @@ module.exports = {
     };
 
     async function start() {
+      if (starting) return { ok: false, error: '画板正在打开' }; // getSources 约 1s 空窗，双击会叠开两个全屏画板
       if (board && !board.isDestroyed()) {
         board.destroy();
         board = null;
@@ -54,6 +56,15 @@ module.exports = {
         return { ok: true, open: false };
       }
 
+      starting = true;
+      try {
+        return await startInner();
+      } finally {
+        starting = false;
+      }
+    }
+
+    async function startInner() {
       host = ctx.getHostWindow && ctx.getHostWindow();
       if (host && !host.isDestroyed()) host.hide();
 

@@ -145,6 +145,7 @@
       ctx.beginWfFieldEdit(titleInput);
       node.title = titleInput.value;
       ctx.renderWorkflowCanvas();
+      ctx.scheduleWfAutosave();
     });
     els.wfInspBody.appendChild(makeField('节点标题', titleInput));
 
@@ -193,6 +194,7 @@
           ctx.pushWfHistory();
           writeVal(input.value || null);
           ctx.renderWorkflowCanvas();
+          ctx.scheduleWfAutosave(); // 检查器改配置也是编辑
         });
       } else if (f.kind === 'select') {
         input = document.createElement('select');
@@ -209,6 +211,7 @@
           ctx.pushWfHistory();
           writeVal(input.value);
           ctx.renderWorkflowCanvas();
+          ctx.scheduleWfAutosave(); // 检查器改配置也是编辑
         });
       } else if (f.kind === 'checkbox') {
         input = document.createElement('input');
@@ -219,6 +222,7 @@
           ctx.pushWfHistory();
           writeVal(input.checked);
           ctx.renderWorkflowCanvas();
+          ctx.scheduleWfAutosave(); // 检查器改配置也是编辑
         });
       } else if (f.kind === 'textarea') {
         input = document.createElement('textarea');
@@ -229,6 +233,7 @@
           ctx.beginWfFieldEdit(input);
           writeVal(input.value);
           ctx.renderWorkflowCanvas();
+          ctx.scheduleWfAutosave(); // 检查器改配置也是编辑
         });
       } else {
         input = document.createElement('input');

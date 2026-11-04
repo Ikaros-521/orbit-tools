@@ -26,7 +26,9 @@
       mermaid.initialize({
         startOnLoad: false,
         theme,
-        securityLevel: 'loose',
+        // strict（默认）启用 DOMPurify 清洗：图源码来自模型输出，loose +
+        // htmlLabels 会把节点标签当 HTML 注入 foreignObject，构成 XSS
+        securityLevel: 'strict',
         fontFamily: 'inherit',
         flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
         sequence: { useMaxWidth: true },

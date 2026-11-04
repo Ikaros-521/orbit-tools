@@ -268,6 +268,10 @@ function cloneForInference(m, { offloadImages = false } = {}) {
   }
 
   if (m.role === 'assistant') {
+    // 空的 pending assistant（无内容且无工具调用，常见于插话后 mid-turn
+    // 重建）直接丢弃：以空 content 的 assistant 消息收尾会被 Anthropic 400
+    const hasToolCalls = Array.isArray(toolCalls) && toolCalls.length > 0;
+    if (!m.content && !m.reasoning && !hasToolCalls) return null;
     const res = {
       role: 'assistant',
       content: m.content || ''

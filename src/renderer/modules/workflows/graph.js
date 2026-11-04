@@ -124,6 +124,7 @@
       const toNode = currentWorkflow.nodes.find(n => n.id === dst);
       pushWfHistory(ctx);
       currentWorkflow.edges.push({ id: `e-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`, from: src, to: dst });
+      ctx.scheduleWfAutosave();
       renderWorkflowCanvas(ctx);
       ctx.logToWfConsole(`✓ 连线建立成功: [${fromNode?.title || src}] ➔ [${toNode?.title || dst}]`);
     } else {
@@ -266,6 +267,7 @@
           currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
           currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
           if (wfCanvas.selectedNodeId === node.id) wfCanvas.selectedNodeId = null;
+          ctx.scheduleWfAutosave();
           renderWorkflowCanvas(ctx);
           ctx.logToWfConsole(`已删除节点 [${node.title}]`);
         });
@@ -280,6 +282,7 @@
         currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== node.id);
         currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== node.id && ed.to !== node.id);
         if (wfCanvas.selectedNodeId === node.id) wfCanvas.selectedNodeId = null;
+        ctx.scheduleWfAutosave();
         renderWorkflowCanvas(ctx);
         ctx.logToWfConsole(`✂️ 右键已删除节点 [${node.title}]`);
       });
@@ -310,6 +313,7 @@
           el.style.zIndex = '';
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
+          if (dragHistPushed) ctx.scheduleWfAutosave(); // 坐标变化也是编辑
         };
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);

@@ -158,6 +158,7 @@
       title,
     };
     currentWorkflow.nodes.push(newNode);
+    ctx.scheduleWfAutosave(); // 画布增删/连线/拖动/检查器改配置都是编辑，须与名称输入框一样调度自动保存
     ctx.wfCanvas.selectedNodeId = id;
     ctx.renderWorkflowCanvas();
     ctx.updateWfUndoButtons();

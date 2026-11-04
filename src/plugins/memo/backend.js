@@ -41,6 +41,14 @@ const WELCOME = [
   '```',
 ].join('\n');
 
+/* 本地时区的 YYYY-MM-DD：dueDate 全链路按本地日期存储（前端 formatDateStr、
+   日历分组同理），统计/播种若用 toISOString() 的 UTC 日期，东八区每天
+   00:00-08:00 的"今日待办"会数错一天 */
+function localDateStr(d = new Date()) {
+  const pad = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 function deriveTitle(content) {
   const line = String(content || '').split('\n').find(l => l.trim()) || '';
   const t = line
@@ -104,7 +112,7 @@ module.exports = {
     // Seed sample todos if fresh
     if (!Array.isArray(data.todos)) {
       const now = Date.now();
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = localDateStr();
       todos = [
         {
           id: genId('td'),
@@ -139,7 +147,7 @@ module.exports = {
       const noteTasks = countNoteTasks(notes);
       const openTodos = todos.filter(t => !t.done).length;
       const doneTodos = todos.filter(t => t.done).length;
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = localDateStr();
       const todayTodos = todos.filter(t => !t.done && t.dueDate === todayStr).length;
       return {
         openTodos,

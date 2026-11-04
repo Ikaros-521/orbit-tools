@@ -49,6 +49,7 @@
     wfCanvasArea: $('wfCanvasArea'), wfCanvasViewport: $('wfCanvasViewport'), wfCanvasControls: $('wfCanvasControls'),
     wfSvgLayer: $('wfSvgLayer'), wfNodesContainer: $('wfNodesContainer'),
     btnWfZoomIn: $('btnWfZoomIn'), btnWfZoomOut: $('btnWfZoomOut'), btnWfResetView: $('btnWfResetView'), btnWfFitView: $('btnWfFitView'),
+    wfZoomScale: $('wfZoomScale'), // 缺这一项 viewport 的缩放百分比标签永远不更新
     btnWfUndo: $('btnWfUndo'), btnWfRedo: $('btnWfRedo'),
     wfConsole: $('wfConsole'), wfConsoleBody: $('wfConsoleBody'), btnWfCopyConsole: $('btnWfCopyConsole'), btnWfClearConsole: $('btnWfClearConsole'),
     actionPaletteMask: $('actionPaletteMask'), apInput: $('apInput'), apList: $('apList'), apCloseKbd: $('apCloseKbd'),
@@ -175,6 +176,10 @@
       if (pluginCenterController) pluginCenterController.renderPlugins();
     }
     if (!p.panel) return;
+    // 面板直切（palette/桌宠/smart-peek 都不经 setView 直接 openPlugin）：
+    // 先完整卸载旧面板的 unmount 与 ctx.onEvent 订阅，否则 state.mounted
+    // 被直接覆盖，旧监听器永久泄漏并持续向已摘除的 DOM 派发事件
+    closePanel();
     state.openId = id;
     els.panelName.textContent = window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en);
     els.panelIcon.innerHTML = p.iconSvg || escapeHtml(p.iconText);
@@ -589,10 +594,15 @@
     }
 
     const apHotkey = state.config.actionPaletteHotkey || 'Ctrl+K';
-    const isCtrlK = (e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && (e.key === 'k' || e.key === 'K'));
-    if (isCtrlK || (actionPaletteController && actionPaletteController.matchHotkey(e, apHotkey))) {
+    // 只按用户配置的热键匹配（默认即 Ctrl+K）：硬编码 Ctrl+K 会绕过重绑/清空
+    // 配置。插件面板的输入区不拦截（否则其输入永远收不到该组合），但工作台
+    // 自身的全局搜索框例外——launcher 语义上允许热键唤走焦点
+    const active = document.activeElement;
+    const typingInPlugin = active && active !== els.search &&
+      (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
+    if (actionPaletteController && actionPaletteController.matchHotkey(e, apHotkey) && !typingInPlugin) {
       e.preventDefault();
-      if (actionPaletteController) actionPaletteController.openActionPalette();
+      actionPaletteController.openActionPalette();
       return;
     }
 

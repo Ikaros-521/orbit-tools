@@ -310,7 +310,9 @@
      Recommendation tiers, highest first: selection > typed payload > clipboard.
      When a selection exists the clipboard is still consulted as a second tier
      (structured content only) — the selection stays the primary payload. */
+  let refreshSeq = 0; // 异步刷新交错守卫：旧请求后完成不得回写过期列表
   async function refreshItems() {
+    const seq = ++refreshSeq;
     state.payload = null;
     state.items = buildStaticItems(null);
     updatePlaceholder();
@@ -329,6 +331,7 @@
       }
     }
     const clipRaw = await window.host.readClipboardText().catch(() => '');
+    if (seq !== refreshSeq) return; // 已有更新的刷新接管
     const clipText = clipRaw && clipRaw.trim() ? clipRaw.trim() : '';
     if (!text && clipText) {
       text = clipText;
@@ -343,6 +346,7 @@
       // as "random" to users hitting Enter on the default row
       const pipeActions = (await window.host.getPipelineActions(envelope).catch(() => []))
         .sort((a, b) => String(a.pluginId).localeCompare(String(b.pluginId)));
+      if (seq !== refreshSeq) return;
       state.payload = { text, source, detected, envelope, pipeActions };
       recs.push(...buildPipelineItems(state.payload));
     }
@@ -354,6 +358,7 @@
         const clipEnvelope = { type: clipDetected.type, value: clipText };
         const clipPipe = (await window.host.getPipelineActions(clipEnvelope).catch(() => []))
           .sort((a, b) => String(a.pluginId).localeCompare(String(b.pluginId)));
+        if (seq !== refreshSeq) return;
         recs.push(...buildPipelineItems({
           text: clipText,
           source: 'clipboard',

@@ -13,6 +13,7 @@ const MIN_MAX_ITEMS = 10;
 const MAX_ALLOWED_ITEMS = 1000;
 const POLL_INTERVAL = 800; // ms
 let timer = null;
+let pendingFlush = null; // activate 内注册的落盘冲刷函数，deactivate 时调用
 
 const URL_REGEX = /(?:(?:https?|ftp|file):\/\/|www\.)[^\s"'\<\>`\u4e00-\u9fa5]+/gi;
 
@@ -128,9 +129,21 @@ module.exports = {
     let lastImageHash = (list.length > 0 && list[0].type === 'image') ? list[0].hash : '';
     let lastFilePath = (list.length > 0 && list[0].type === 'file') ? list[0].path : '';
 
+    // 全量 items（含多 MB 图片 dataURL）的序列化+写盘在主进程同步执行，
+    // 连续复制截图会让整个应用周期性卡顿——防抖合并突发，卸载时同步冲盘
+    let saveTimer = null;
     const save = () => {
+      if (saveTimer) return;
+      saveTimer = setTimeout(() => {
+        saveTimer = null;
+        ctx.data.set({ items: list, maxItems });
+      }, 250);
+    };
+    const flushSave = () => {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
       ctx.data.set({ items: list, maxItems });
     };
+    pendingFlush = flushSave;
 
     const pruneList = () => {
       while (list.length > maxItems) {
@@ -287,6 +300,9 @@ module.exports = {
 
             if (hash !== lastImageHash) {
               lastImageHash = hash;
+              // 图片期间 lastText 不更新：文本A → 图片B → 再复制文本A 时，
+              // 第三次因 text === lastText 被静默吞掉——记图片时失效文本基线
+              lastText = '';
 
               addItem({
                 id: `img_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
@@ -439,5 +455,7 @@ module.exports = {
       clearInterval(timer);
       timer = null;
     }
+    try { if (pendingFlush) pendingFlush(); } catch {}
+    pendingFlush = null;
   }
 };

@@ -632,6 +632,16 @@
         historyList.splice(existingIdx, 1);
       }
       historyList.unshift(newItem);
+      // 后端按 maxItems 裁剪（pin 除外），面板同步截尾防止本地列表越积越多
+      if (typeof currentMaxItems === 'number' && currentMaxItems > 0) {
+        while (historyList.length > currentMaxItems) {
+          let removed = false;
+          for (let i = historyList.length - 1; i >= 0; i--) {
+            if (!historyList[i].pinned) { historyList.splice(i, 1); removed = true; break; }
+          }
+          if (!removed) break;
+        }
+      }
       renderList();
     });
 

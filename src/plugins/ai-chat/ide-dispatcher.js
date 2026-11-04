@@ -13,6 +13,46 @@ const { spawn, spawnSync } = require('child_process');
 const MAX_OUTPUT_CHARS = 64 * 1024; // 64 KB stdout/stderr limit
 const DEFAULT_TIMEOUT_MS = 120 * 1000; // 2 minutes
 
+/* Quote one token for a cmd.exe command line (same contract as mcp-client's
+   cmdQuote): wrap in double quotes when it contains whitespace, a quote, or a
+   cmd metacharacter (& | < > ^ parentheses), escaping inner quotes as "". */
+function cmdQuote(a) {
+  a = String(a);
+  if (a === '') return '""';
+  if (/[\s"&|<>^()]/.test(a)) return `"${a.replace(/"/g, '""')}"`;
+  return a;
+}
+
+/* Windows cannot exec .cmd shims directly (Node 18.20+), and shell:true would
+   concatenate argv VERBATIM into cmd.exe — any metacharacter (&, |, etc.) in
+   the model-controlled task text would run as a command. Route through an
+   explicitly quoted cmd.exe invocation instead (same verified pattern as
+   mcp-client buildSpawnArgs). */
+function buildCliSpawn(command, args) {
+  const isCmd = /\.(cmd|bat)$/i.test(command) || !path.extname(command);
+  if (process.platform === 'win32' && isCmd) {
+    const cmdline = [command, ...args].map(cmdQuote).join(' ');
+    return {
+      file: process.env.COMSPEC || 'cmd.exe',
+      argv: ['/d', '/s', '/c', `"${cmdline}"`],
+      spawnOpts: { windowsVerbatimArguments: true }
+    };
+  }
+  // POSIX: never use a shell — bare executables resolve fine via PATH in env
+  return { file: command, argv: args, spawnOpts: {} };
+}
+
+/* Escape a string for a PowerShell double-quoted context: `"` → `` `"` `` and
+   `$` → `` `$ `` (unescaped $(...)/$env: inside PS double quotes EXECUTE). */
+function psDoubleQuote(s) {
+  return String(s).replace(/"/g, '`"').replace(/\$/g, '`$');
+}
+
+/* Escape a string for a PowerShell single-quoted ('literal') context. */
+function psSingleQuote(s) {
+  return String(s).replace(/'/g, "''");
+}
+
 /* Injected by backend.js with Electron clipboard; stays null in standalone CLI usage. */
 let clipboardWriter = null;
 
@@ -362,17 +402,15 @@ async function dispatchTask(options) {
   // 1. Mode: open_ide (Launch GUI IDE: workspace + brief tab + clipboard prompt)
   if (actualMode === 'open_ide') {
     try {
-      const isWin = process.platform === 'win32';
-      const isCmd = /\.(cmd|bat)$/i.test(execPath) || !path.extname(execPath);
-      const useShell = isWin ? true : isCmd;
-      // Paths containing spaces must be quoted when going through a shell
-      const q = useShell ? (s => /\s/.test(s) ? `"${s}"` : s) : (s => s);
+      // cmdQuote escapes paths for the cmd.exe route (metacharacters in
+      // legitimate directory names like "a&b" must not split the command)
+      const built = buildCliSpawn(execPath, [targetWorkDir, taskFile]);
       // VS Code family: folder arg opens the workspace, file arg opens the brief as a tab
-      const child = spawn(q(execPath), [q(targetWorkDir), q(taskFile)], {
+      const child = spawn(built.file, built.argv, {
         cwd: targetWorkDir,
         detached: true,
         stdio: 'ignore',
-        shell: useShell
+        ...built.spawnOpts
       });
       child.unref();
 
@@ -407,15 +445,18 @@ async function dispatchTask(options) {
     try {
       const isWin = process.platform === 'win32';
       if (isWin) {
+        // task 文本来自模型输出：PS 双引号串内未转义的 $(...) / $env: 会直接
+        // 执行；目录名中的单引号会逃逸 -LiteralPath 字面量
+        const escTask = psDoubleQuote(task);
         let launchScript = '';
         if (meta.id === 'claude') {
-          launchScript = `claude "${task.replace(/"/g, '`"')}"`;
+          launchScript = `claude "${escTask}"`;
         } else if (meta.id === 'codex') {
-          launchScript = `codex "${task.replace(/"/g, '`"')}"`;
+          launchScript = `codex "${escTask}"`;
         } else if (meta.id === 'qoder') {
-          launchScript = `qoder "${task.replace(/"/g, '`"')}"`;
+          launchScript = `qoder "${escTask}"`;
         } else {
-          launchScript = `echo "任务已就绪: ${task.replace(/"/g, '`"')}"`;
+          launchScript = `echo "任务已就绪: ${escTask}"`;
         }
 
         const child = spawn('cmd.exe', [
@@ -425,7 +466,7 @@ async function dispatchTask(options) {
           'powershell.exe',
           '-NoExit',
           '-Command',
-          `Set-Location -LiteralPath '${targetWorkDir}'; ${launchScript}`
+          `Set-Location -LiteralPath '${psSingleQuote(targetWorkDir)}'; ${launchScript}`
         ], {
           detached: true,
           stdio: 'ignore',
@@ -445,6 +486,8 @@ async function dispatchTask(options) {
           message: `已在独立终端窗口中启动 ${meta.name.zh}，可直接在终端中进行交互。`
         };
       }
+      // terminal 模式目前仅实现了 Windows 的 start 窗口拉起
+      return { ok: false, error: `terminal 模式暂不支持当前平台 (${process.platform})，请改用 open_ide 或 headless 模式` };
     } catch (err) {
       return { ok: false, error: `打开终端窗口失败: ${err.message}` };
     }
@@ -469,16 +512,17 @@ async function dispatchTask(options) {
         return resolve({ ok: false, error: `${meta.name.zh} 不支持 headless 批处理模式` });
       }
 
-      const isWin = process.platform === 'win32';
-      const isCmd = /\.(cmd|bat)$/i.test(command) || !path.extname(command);
       let stdoutBuf = '';
       let stderrBuf = '';
       let timer = null;
 
-      const child = spawn(command, args, {
+      // 绝不 shell:true —— task 是模型输出，直接拼进 cmd.exe / sh -c 等于
+      // 批准任意命令执行；.cmd 走显式 cmd.exe /d /s /c + cmdQuote 包装
+      const built = buildCliSpawn(command, args);
+      const child = spawn(built.file, built.argv, {
         cwd: targetWorkDir,
-        shell: isWin ? true : isCmd,
-        env: { ...process.env, CI: '1', NONINTERACTIVE: '1' }
+        env: { ...process.env, CI: '1', NONINTERACTIVE: '1' },
+        ...built.spawnOpts
       });
 
       child.stdout?.on('data', data => {

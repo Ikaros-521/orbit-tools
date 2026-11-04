@@ -396,7 +396,9 @@
       };
       if (c.async) {
         V.stat.textContent = '…';
-        fn(text, bytes || enc.encode(text), opts, call).then(finish).catch(e => { if (seq === codecSeq) codecError(e.message); });
+        // 成功分支同样要校验 seq：大输入 gzip 期间继续输入，先发的旧请求
+        // 后到会把过期结果写进输出框（catch 分支早已检查，此处曾漏）
+        fn(text, bytes || enc.encode(text), opts, call).then(v => { if (seq === codecSeq) finish(v); }).catch(e => { if (seq === codecSeq) codecError(e.message); });
       } else {
         try {
           finish(fn(text, bytes || enc.encode(text), opts, call, isZh));

@@ -104,6 +104,7 @@
             currentWorkflow.nodes = currentWorkflow.nodes.filter(n => n.id !== targetNode.id);
             currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed.from !== targetNode.id && ed.to !== targetNode.id);
             OW.wfCanvas.selectedNodeId = null;
+            c.scheduleWfAutosave();
             c.renderWorkflowCanvas();
             c.logToWfConsole(`✓ 已删除选中的节点 [${targetNode.title}]`);
             return;
@@ -115,6 +116,7 @@
             c.pushWfHistory();
             currentWorkflow.edges = currentWorkflow.edges.filter(ed => ed !== removedEdge);
             OW.wfCanvas.selectedEdgeId = null;
+            c.scheduleWfAutosave();
             c.renderWorkflowCanvas();
             c.logToWfConsole(`✓ 已删除选中的连线`);
           }

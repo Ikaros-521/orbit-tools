@@ -229,8 +229,8 @@
       state.actionPaletteOpen = true;
       els.actionPaletteMask.hidden = false;
       els.apInput.value = '';
+      state.actionPaletteIndex = 0; // collect 完成前先复位，闪烁期按键不再错位
       state.actionPaletteItems = await collectActionPaletteItems();
-      state.actionPaletteIndex = 0;
       renderActionPaletteList();
       setTimeout(() => {
         els.apInput.focus();
@@ -244,6 +244,9 @@
       els.actionPaletteMask.hidden = true;
       state.actionPaletteItems = [];
       state.actionPaletteFiltered = [];
+      // 清掉上次的列表 DOM：重开时 collect 的 IPC 往返期间旧列表会闪现，
+      // 且 index 归零晚于显示会导致闪烁期按键索引错位
+      if (els.apList) els.apList.innerHTML = '';
     }
 
     function bumpUsageId(id) {

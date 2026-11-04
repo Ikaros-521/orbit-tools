@@ -460,12 +460,14 @@ async function executeLocalTool(name, args, runtime) {
         let isResolved = false;
         let didTimeout = false;
         let hardKillFallbackTimer = null;
+        let orphanPipeFallbackTimer = null;
 
         const safeResolve = (res) => {
           if (isResolved) return;
           isResolved = true;
           clearTimeout(timer);
           clearTimeout(hardKillFallbackTimer);
+          clearTimeout(orphanPipeFallbackTimer);
           resolve(res);
         };
 
@@ -532,6 +534,20 @@ async function executeLocalTool(name, args, runtime) {
                 message: `命令已运行 ${Math.round(timeout / 1000)} 秒，检测到程序仍在持续活跃运行 (PID: ${child.pid})。如果是 Python 游戏、GUI 应用或本地服务，已自动转入后台持续运行。你可以据此分析情况向用户汇报启动结果；如需关闭可调用 stop_process(pid: ${child.pid})，程序退出时也会全量自动清理保证安全。`
               });
             }
+          } else {
+            // 直接子进程已退出但孙进程仍持有继承的 stdio 管道：close 要等
+            // 全部管道关闭才触发，可能永远不来——短宽限后按已退出收尾，
+            // 否则该工具调用无限期挂起、Agent 轮次卡死
+            orphanPipeFallbackTimer = setTimeout(() => {
+              if (streamId) unregisterCommand(streamId, child);
+              safeResolve({
+                ok: true,
+                exitCode: null,
+                stdout: truncate(stdout, MAX_CMD_OUT),
+                stderr: truncate(stderr || '命令主进程已退出（输出管道仍被后台子进程持有，已提前收尾）', MAX_CMD_OUT)
+              });
+            }, 2000);
+            if (orphanPipeFallbackTimer.unref) orphanPipeFallbackTimer.unref();
           }
         }, timeout);
 

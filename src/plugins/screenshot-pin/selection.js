@@ -293,6 +293,7 @@
         commitTextEditor();
       } else if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation(); // 不冒泡：window keydown 会把"取消文字输入"放大成放弃整个选区
         textarea.remove();
         editingText = null;
       }

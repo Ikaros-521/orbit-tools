@@ -355,8 +355,18 @@ class PluginManager extends EventEmitter {
     const getDataFile = () => path.join(this.dataRoot, `${p.id}.json`);
     const readData = () => {
       if (!state.data) {
-        try { state.data = JSON.parse(fs.readFileSync(getDataFile(), 'utf8')); }
-        catch { state.data = {}; }
+        try {
+          state.data = JSON.parse(fs.readFileSync(getDataFile(), 'utf8'));
+        } catch (err) {
+          // 损坏/半写文件先改名备份再兜底空对象——直接吞掉会让插件重播种
+          // 并覆写原文件，用户数据不可恢复；有备份至少可手工找回
+          if (err && err.code === 'ENOENT') { /* first run */ }
+          else {
+            try { fs.renameSync(getDataFile(), `${getDataFile()}.corrupt-${Date.now()}`); } catch {}
+            console.error(`[plugin:${p.id}] data file unreadable, backed up:`, err && err.message);
+          }
+          state.data = {};
+        }
       }
       return state.data;
     };
@@ -455,8 +465,15 @@ class PluginManager extends EventEmitter {
           state.data = { ...readData(), ...patch };
           try {
             fs.mkdirSync(this.dataRoot, { recursive: true });
-            fs.writeFileSync(getDataFile(), JSON.stringify(state.data, null, 2));
-          } catch { /* ignore */ }
+            // 原子写：truncate-then-write 中途崩溃会留下损坏 JSON，下次
+            // readData 兜底成 {} 后插件（如 memo）重播种并覆写——用户数据
+            // 彻底丢失；tmp+rename 保证文件系统上永远是一份完整 JSON
+            const tmpFile = `${getDataFile()}.tmp`;
+            fs.writeFileSync(tmpFile, JSON.stringify(state.data, null, 2));
+            fs.renameSync(tmpFile, getDataFile());
+          } catch (err) {
+            console.error(`[plugin:${p.id}] data persist failed:`, err && err.message);
+          }
           return state.data;
         },
       },

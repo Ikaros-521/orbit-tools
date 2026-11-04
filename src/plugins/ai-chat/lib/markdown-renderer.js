@@ -194,15 +194,21 @@
     if (!raw) return '';
     const codeBlocks = [];
 
-    // Extract fenced code blocks (closed)
-    let s = String(raw).replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*?)```/g, (m, lang, code) => {
+    // 模型输出中字面的 \u0000/\u0001 会与内部占位符碰撞（越界下标直接
+    // 抛 TypeError 崩掉整条消息渲染），入口先剥离这两个不可见控制符
+    let s = String(raw).replace(/[\u0000\u0001]/g, '');
+
+    // Extract fenced code blocks (closed)。围栏必须锚定行首：行中围栏会把
+    // 占位符留在段落中间导致代码内容整体消失；语言字符集须含 + # . 等，
+    // 否则 ```c++ / ```c# 整个围栏匹配失败
+    s = s.replace(/(^|\n)```([a-zA-Z0-9_+#.-]*)[^\S\r\n]*\r?\n([\s\S]*?)```/g, (m, nl, lang, code) => {
       codeBlocks.push({ lang: (lang || 'text').trim().toLowerCase(), code, streaming: false });
-      return `\u0001${codeBlocks.length - 1}\u0001`;
+      return `${nl}\u0001${codeBlocks.length - 1}\u0001`;
     });
     // Extract unclosed code block during streaming
-    s = s.replace(/```([a-zA-Z0-9_-]*)\r?\n([\s\S]*)$/g, (m, lang, code) => {
+    s = s.replace(/(^|\n)```([a-zA-Z0-9_+#.-]*)[^\S\r\n]*\r?\n([\s\S]*)$/g, (m, nl, lang, code) => {
       codeBlocks.push({ lang: (lang || 'text').trim().toLowerCase(), code, streaming: true });
-      return `\u0001${codeBlocks.length - 1}\u0001`;
+      return `${nl}\u0001${codeBlocks.length - 1}\u0001`;
     });
 
     s = escapeHtml(s);
@@ -234,6 +240,7 @@
       if (cbMatch) {
         if (inList) { out.push(`</${listType}>`); inList = false; }
         const item = codeBlocks[+cbMatch[1]];
+        if (!item) continue; // 越界占位符不应当崩掉整条消息渲染
         if (item.lang === 'mermaid') {
           const rawCode = item.code.trim();
           const encCode = encodeURIComponent(rawCode);

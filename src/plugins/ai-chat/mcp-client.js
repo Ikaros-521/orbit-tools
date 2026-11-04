@@ -78,6 +78,13 @@ function buildMcpToolName(serverName, toolName, toolObj) {
   return name;
 }
 
+/* 全量重建工具表前重置已用名：重连后 listTools() 返回全新对象，WeakMap 必
+   未命中，而模块级 Set 永不清理会让同名逻辑工具每次重连都拿到 _2/_3……
+   名字跨轮次漂移，历史对话里的旧名再也路由不到。 */
+function resetMcpToolNames() {
+  MCP_TOOL_USED_NAMES.clear();
+}
+
 function toOpenAiTool(serverName, tool) {
   const toolObj = (tool && typeof tool === 'object') ? tool : null;
   return {
@@ -449,5 +456,6 @@ module.exports = {
   McpServerConnection,
   toOpenAiTool,
   formatToolResult,
-  sanitizeToolSegment
+  sanitizeToolSegment,
+  resetMcpToolNames
 };

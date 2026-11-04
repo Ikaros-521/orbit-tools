@@ -406,6 +406,7 @@
         commitTextEditor();
       } else if (e.key === 'Escape') {
         e.preventDefault();
+        e.stopPropagation(); // 不冒泡：window keydown 会把本次取消当成普通 Esc 切走工具
         textarea.remove();
         state.editingText = null;
       }

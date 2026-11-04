@@ -4,6 +4,7 @@
   window.OrbitWorkflows = window.OrbitWorkflows || {};
 
   let wfAutosaveTimer = null;
+  let wfAutosaveTarget = null; // 调度时捕获的工作流对象：防抖期间切换工作流也不会把编辑写到别的工作流头上
 
   function logToWfConsole(ctx, msg) {
     const { els } = ctx;
@@ -12,17 +13,24 @@
     els.wfConsoleBody.textContent = `[${ts}] ${msg}\n` + els.wfConsoleBody.textContent;
   }
 
+  function runWfAutosaveNow(ctx) {
+    const target = wfAutosaveTarget;
+    wfAutosaveTarget = null;
+    if (wfAutosaveTimer) { clearTimeout(wfAutosaveTimer); wfAutosaveTimer = null; }
+    if (!target) return Promise.resolve();
+    return window.host.saveWorkflow(target)
+      .then(list => {
+        ctx.state.workflows = list;
+        renderWorkflowSelector(ctx);
+      })
+      .catch(() => { /* keep editing; 保存 button still works */ });
+  }
+
   function scheduleWfAutosave(ctx) {
     const { state } = ctx;
+    wfAutosaveTarget = ctx.getCurrentWorkflow();
     clearTimeout(wfAutosaveTimer);
-    wfAutosaveTimer = setTimeout(async () => {
-      const currentWorkflow = ctx.getCurrentWorkflow();
-      if (!currentWorkflow) return;
-      try {
-        state.workflows = await window.host.saveWorkflow(currentWorkflow);
-        renderWorkflowSelector(ctx);
-      } catch { /* keep editing; 保存 button still works */ }
-    }, 500);
+    wfAutosaveTimer = setTimeout(() => { runWfAutosaveNow(ctx); }, 500);
   }
 
   function renderWorkflowMeta(ctx) {
@@ -53,6 +61,9 @@
 
   function loadCurrentWorkflow(ctx) {
     const { state, wfCanvas } = ctx;
+    // 切换前把上一个工作流挂起的自动保存立即冲盘，否则防抖回调会保存到
+    // （未变更的）新工作流，旧工作流的最后一次编辑从未落盘
+    runWfAutosaveNow(ctx);
     let currentWorkflow = (state.workflows || []).find(w => w.id === state.currentWorkflowId);
     if (!currentWorkflow && state.workflows && state.workflows.length > 0) {
       currentWorkflow = state.workflows[0];

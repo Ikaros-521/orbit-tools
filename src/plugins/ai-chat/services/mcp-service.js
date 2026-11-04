@@ -2,7 +2,7 @@
    Manages pooled MCP server subprocesses, tool discovery, format transformation to OpenAI schema,
    MCP market installation, and connectivity tests. */
 
-const { McpServerConnection, toOpenAiTool, formatToolResult } = require('../mcp-client');
+const { McpServerConnection, toOpenAiTool, formatToolResult, resetMcpToolNames } = require('../mcp-client');
 const { DEFAULT_MCP_SERVERS, MARKET_CATEGORIES, MCP_MARKET_CATALOG, searchMcpMarket } = require('../mcp-market');
 
 class McpService {
@@ -14,6 +14,8 @@ class McpService {
     const defs = [];
     const routes = new Map(); // openai tool name -> { conn, origName, serverName }
     const statuses = [];
+    // 每轮全量重建：已用名集合清零，保证同名逻辑工具跨重连拿到稳定名
+    resetMcpToolNames();
 
     for (const srv of mcpServers) {
       if (!srv || srv.enabled === false) continue;

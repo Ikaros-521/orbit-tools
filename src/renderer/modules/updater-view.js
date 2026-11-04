@@ -8,6 +8,7 @@
 
     async function cancelUpdateDownload() {
       if (!state.downloadingUpdate && !state.downloadedFilePath) return;
+      state.downloadCancelled = true; // 挂起的 downloadUpdate 以错误 settle 时不得覆盖「已停止下载」文案
       state.downloadingUpdate = false;
       state.downloadedFilePath = null;
       try {
@@ -137,6 +138,7 @@
       }
 
       state.downloadingUpdate = true;
+      state.downloadCancelled = false; // 新下载开始，重置取消标记
       if (els.updateDownloadArea) els.updateDownloadArea.hidden = false;
       if (els.btnCancelDownload) els.btnCancelDownload.hidden = false;
       if (els.updateErrorText) els.updateErrorText.hidden = true;
@@ -165,6 +167,7 @@
         if (els.btnCancelDownload) els.btnCancelDownload.hidden = true;
         els.btnUpdateAction.disabled = false;
         els.btnUpdateAction.textContent = I18N.t('btnDownloadUpdate');
+        if (state.downloadCancelled) return; // 用户主动取消，保留取消文案
         if (els.updateErrorText) {
           els.updateErrorText.hidden = false;
           els.updateErrorText.textContent = `${I18N.t('updateModalDownloadFailed')} (${err.message || err})`;

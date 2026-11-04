@@ -18,6 +18,7 @@ let teardown = null; // set by activate; deactivate runs it
 module.exports = {
   activate(ctx) {
     let overlays = new Map();   // win.id -> {win, display}
+    let capturing = false;      // startCapture 重入守卫（隐藏窗口空窗期双击）
     let sessionImages = new Map(); // win.id -> nativeImage thumbnail (physical px)
     let pins = new Map();       // win.id -> win
     let host = null;
@@ -104,7 +105,17 @@ module.exports = {
     }
 
     async function startCapture() {
+      if (capturing) return { ok: false, error: '截图会话正在初始化' }; // 60ms 隐藏窗口空窗内双击会叠开两套 overlay
       if (overlays.size) { teardownOverlays(); return { ok: true }; } // toggle: cancel running capture
+      capturing = true;
+      try {
+        return await startCaptureInner();
+      } finally {
+        capturing = false;
+      }
+    }
+
+    async function startCaptureInner() {
       host = ctx.getHostWindow && ctx.getHostWindow();
       if (hideHost && host && !host.isDestroyed()) {
         host.hide();
@@ -139,7 +150,16 @@ module.exports = {
         win.loadURL(ctx.url('selection.html'));
       }
 
-      const shots = await pending;
+      // DXGI 在静止桌面/RDP 下会失败：不兜底的话全屏 overlay 残留盖住屏幕、
+      // host.hide() 无人撤销，用户只能杀进程（对照 color-lab 的 teardown 写法）
+      let shots;
+      try {
+        shots = await pending;
+      } catch (err) {
+        teardownOverlays();
+        restoreHost();
+        return { ok: false, error: `屏幕捕获失败: ${err && err.message}` };
+      }
       for (const [id, entry] of [...overlays]) {
         const shot = shots.get(entry.display.id);
         if (!shot) { entry.win.destroy(); overlays.delete(id); continue; }

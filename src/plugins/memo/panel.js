@@ -397,9 +397,10 @@
 
     function localNow(zh) {
       const d = new Date();
+      // 两种语言都用本地时间分量：ISO 串是 UTC，英文界面插入的"当前时间"会差一个时区
       return zh
         ? `${d.getFullYear()} 年 ${d.getMonth() + 1} 月 ${d.getDate()} 日 ${md.pad(d.getHours())}:${md.pad(d.getMinutes())}`
-        : d.toISOString().replace('T', ' ').slice(0, 16);
+        : `${d.getFullYear()}-${md.pad(d.getMonth() + 1)}-${md.pad(d.getDate())} ${md.pad(d.getHours())}:${md.pad(d.getMinutes())}`;
     }
 
     tools.addEventListener('click', e => {
@@ -516,8 +517,13 @@
       }
     })();
 
-    ctx.onEvent('changed', payload => {
+    ctx.onEvent('changed', async payload => {
       if (!payload) return;
+      // 编辑中的内容未落盘时先冲盘（flushSave 幂等），否则另一入口 create/remove
+      // 广播的 activeId 切换会把 editor.value 整体替换，脏编辑静默丢失
+      if (dirty && payload.activeId !== undefined && payload.activeId !== activeId) {
+        try { await flushSave(); } catch { /* 保存失败也继续同步视图 */ }
+      }
       if (Array.isArray(payload.notes)) { notes = payload.notes; renderList(); }
       if (Array.isArray(payload.todos)) {
         todos = payload.todos;

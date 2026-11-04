@@ -259,13 +259,14 @@
       if (typeof onQueueChanged === 'function') onQueueChanged();
       return;
     }
+    // 出队后必须同步调用 sendMessage（守卫→setGeneratingState 之间无 await，
+    // 是原子窗口）：原先 50ms 延迟期间第二个 drain 会再 shift 一条，而它
+    // 的 sendMessage 撞上 isGenerating 守卫被静默丢弃——消息永久丢失
     const nextItem = queue.shift();
     if (typeof onQueueChanged === 'function') onQueueChanged();
-    setTimeout(() => {
-      if (typeof sendMessage === 'function') {
-        sendMessage(nextItem.text, null, nextItem.attachments);
-      }
-    }, 50);
+    if (typeof sendMessage === 'function') {
+      sendMessage(nextItem.text, null, nextItem.attachments);
+    }
   }
 
   function updateSendOrStopButton({ btnSendOrStop, chatInput, pendingAttachments, isGenerating }) {

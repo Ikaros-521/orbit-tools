@@ -56,6 +56,14 @@
     function useDeckTool(p) {
       if (!p) return;
       ctx.bumpUsageId(`plugin:${p.id}`);
+      // 无面板的动作型插件：与独立抽屉一致路由到首个动作，否则计入使用却无任何响应
+      if (!p.panel) {
+        if (p.actions && p.actions.length > 0) {
+          const act = p.actions[0];
+          window.host.pluginCall(p.id, act.method || act.id, {}).catch(() => {});
+        }
+        return;
+      }
       ctx.openPlugin(p.id);
     }
 

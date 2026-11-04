@@ -674,7 +674,7 @@
       try {
         const res = await ctx.call('getMcpMarket', { query: marketSearchQuery, category: marketActiveCategory });
         if (!res || !res.ok) {
-          marketServerList.innerHTML = `<div class="ai-model-empty-tip">加载市场失败: ${(res && res.error) || '未知错误'}</div>`;
+          marketServerList.innerHTML = `<div class="ai-model-empty-tip">加载市场失败: ${escapeHtml((res && res.error) || '未知错误')}</div>`;
           return;
         }
 
@@ -766,7 +766,7 @@
           marketServerList.appendChild(card);
         });
       } catch (err) {
-        marketServerList.innerHTML = `<div class="ai-model-empty-tip">市场加载异常: ${err.message}</div>`;
+        marketServerList.innerHTML = `<div class="ai-model-empty-tip">市场加载异常: ${escapeHtml(err.message)}</div>`;
       }
     }
 

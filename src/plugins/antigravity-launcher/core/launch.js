@@ -296,13 +296,19 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
   const validDir = workDir && fs.existsSync(workDir) ? workDir : (process.env.USERPROFILE || process.env.HOME || process.cwd());
   const env = { ...process.env, ...(ep ? buildEnv(ep) : {}) };
 
+  // 目录名允许含引号（如 D:\John's work）：不经转义直接拼进 shell 字符串
+  // 会提前闭合引号，后续目录名片段被当作命令执行
+  const psDir = validDir.replace(/'/g, "''");        // PowerShell 单引号字面量转义
+  const shDir = validDir.replace(/'/g, `'\\''`);     // POSIX 单引号转义
+  const cmdDir = validDir.replace(/"/g, '""');       // cmd 双引号转义
+
   if (process.platform === 'win32') {
     if (type === 'cmd') {
       const http = ep ? urlFor(ep, 'http') : '';
       const socks = ep ? urlFor(ep, 'socks5') : '';
       const cmdScript = ep
-        ? `cd /d "${validDir}" && set "HTTP_PROXY=${http}" && set "HTTPS_PROXY=${http}" && set "ALL_PROXY=${socks}" && set "NO_PROXY=localhost,127.0.0.1,::1" && echo [AGY] Proxy environment set -> ${http}`
-        : `cd /d "${validDir}" && echo [AGY] Terminal ready`;
+        ? `cd /d "${cmdDir}" && set "HTTP_PROXY=${http}" && set "HTTPS_PROXY=${http}" && set "ALL_PROXY=${socks}" && set "NO_PROXY=localhost,127.0.0.1,::1" && echo [AGY] Proxy environment set -> ${http}`
+        : `cd /d "${cmdDir}" && echo [AGY] Terminal ready`;
       const child = spawn('cmd.exe', ['/c', 'start', '""', 'cmd.exe', '/K', cmdScript], {
         cwd: validDir,
         env,
@@ -317,8 +323,8 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
       const http = ep ? urlFor(ep, 'http') : '';
       const socks = ep ? urlFor(ep, 'socks5') : '';
       const psScript = ep
-        ? `Set-Location '${validDir}'; $env:HTTP_PROXY='${http}'; $env:HTTPS_PROXY='${http}'; $env:ALL_PROXY='${socks}'; $env:NO_PROXY='localhost,127.0.0.1,::1'; Write-Host '[AGY] Proxy environment set -> ${http}' -ForegroundColor Cyan`
-        : `Set-Location '${validDir}'; Write-Host '[AGY] Terminal ready' -ForegroundColor Yellow`;
+        ? `Set-Location -LiteralPath '${psDir}'; $env:HTTP_PROXY='${http}'; $env:HTTPS_PROXY='${http}'; $env:ALL_PROXY='${socks}'; $env:NO_PROXY='localhost,127.0.0.1,::1'; Write-Host '[AGY] Proxy environment set -> ${http}' -ForegroundColor Cyan`
+        : `Set-Location -LiteralPath '${psDir}'; Write-Host '[AGY] Terminal ready' -ForegroundColor Yellow`;
       const child = spawn('cmd.exe', ['/c', 'start', '""', 'powershell.exe', '-NoExit', '-Command', psScript], {
         cwd: validDir,
         env,
@@ -330,13 +336,14 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
       return { ok: true, dir: validDir };
     }
   } else if (process.platform === 'darwin') {
-    // macOS
+    // macOS：osascript 的 do script 字符串本身也是双引号包裹，目录中的
+    // " 需要按 AppleScript 规则 \" 转义
     const http = ep ? urlFor(ep, 'http') : '';
     const socks = ep ? urlFor(ep, 'socks5') : '';
     const envExports = ep
       ? `export HTTP_PROXY="${http}" && export HTTPS_PROXY="${http}" && export ALL_PROXY="${socks}" && export NO_PROXY="localhost,127.0.0.1,::1" && `
       : '';
-    const script = `tell application "Terminal" to do script "cd '${validDir}' && ${envExports}echo '[AGY] Proxy environment set'"` ;
+    const script = `tell application "Terminal" to do script "cd '${shDir.replace(/"/g, '\\"')}' && ${envExports}echo '[AGY] Proxy environment set'"` ;
     spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' }).unref();
     return { ok: true, dir: validDir };
   } else {
@@ -346,14 +353,14 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
     const envExports = ep
       ? `export HTTP_PROXY="${http}"; export HTTPS_PROXY="${http}"; export ALL_PROXY="${socks}"; `
       : '';
-    const child = spawn('x-terminal-emulator', ['-e', `bash -c "cd '${validDir}'; ${envExports}echo '[AGY] Proxy environment set'; exec bash"`], {
+    const child = spawn('x-terminal-emulator', ['-e', `bash -c "cd '${shDir}'; ${envExports}echo '[AGY] Proxy environment set'; exec bash"`], {
       cwd: validDir,
       env,
       detached: true,
       stdio: 'ignore',
     });
     child.on('error', () => {
-      spawn('gnome-terminal', ['--', 'bash', '-c', `cd '${validDir}'; ${envExports}echo '[AGY] Proxy environment set'; exec bash`], {
+      spawn('gnome-terminal', ['--', 'bash', '-c', `cd '${shDir}'; ${envExports}echo '[AGY] Proxy environment set'; exec bash`], {
         cwd: validDir,
         env,
         detached: true,

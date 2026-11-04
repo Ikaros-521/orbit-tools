@@ -166,11 +166,18 @@ module.exports = {
     ctx.ipc.handle('pingMirrors', async (args) => {
       const { urls, timeoutMs = 5000 } = args || {};
       if (!Array.isArray(urls)) return { ok: false, error: 'urls must be array' };
-      const tasks = urls.map(async u => {
-        const res = await measureUrlPing(u, timeoutMs);
-        return { url: u, ...res };
-      });
-      const results = await Promise.all(tasks);
+      // 限并发分批测速：全开 TCP+HTTP 会互相争抢带宽与连接槽，
+      // 测出的延迟互相污染，"选最快源"的目的本身失真
+      const CONCURRENCY = 5;
+      const results = [];
+      for (let i = 0; i < urls.length; i += CONCURRENCY) {
+        const batch = urls.slice(i, i + CONCURRENCY);
+        const batchResults = await Promise.all(batch.map(async u => {
+          const res = await measureUrlPing(u, timeoutMs);
+          return { url: u, ...res };
+        }));
+        results.push(...batchResults);
+      }
       return { ok: true, results };
     });
 
