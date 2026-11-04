@@ -4542,3 +4542,390 @@ input.hidden {
     max-width: min(1760px, 94%);
   }
 }
+
+/* === v1.8.0 dsh (deepseek-harness) 对齐升级新增样式 =========================
+   全部走宿主 light-dark() 令牌，不写死单主题色。
+   覆盖：工具卡参数/结果可查、审批内联、Turn 折叠分组、Turn 页脚、
+   Steering 插话角标、计划评审卡、排队按钮、状态提示与 hljs 令牌配色。 */
+
+/* --- 增量流式渲染双层容器：子块直接参与 mdBlock 布局 --- */
+.ai-stream-settled,
+.ai-stream-active {
+  display: contents;
+}
+
+/* --- 工具卡：参数可查（执行前后都在） --- */
+.ai-tool-args-details,
+.ai-tool-result-details {
+  margin-top: 4px;
+  border-top: 1px dashed light-dark(rgba(15, 23, 42, .12), rgba(255, 255, 255, .1));
+  padding-top: 4px;
+}
+
+.ai-tool-args-summary,
+.ai-tool-result-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 11px;
+  color: var(--ink-dim);
+  padding: 2px 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ai-tool-args-summary::-webkit-details-marker,
+.ai-tool-result-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-tool-args-summary:hover,
+.ai-tool-result-summary:hover {
+  color: var(--ink);
+}
+
+.ai-tool-detail-hint {
+  opacity: 0.6;
+  font-size: 10px;
+}
+
+.ai-tool-args-pre,
+.ai-tool-result-pre {
+  margin: 4px 0 2px;
+  padding: 8px 10px;
+  background: light-dark(rgba(15, 23, 42, .05), rgba(0, 0, 0, .28));
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.55;
+  max-height: 280px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-tool-card.failed .ai-tool-badge-title {
+  color: var(--red);
+}
+
+/* --- 审批内联：挂在工具卡内部（dsh callId 关联，无参数副本） --- */
+.ai-tool-approval.inline {
+  margin-top: 6px;
+  border: 1px solid light-dark(rgba(217, 119, 6, .45), rgba(255, 179, 71, .45));
+  background: light-dark(rgba(217, 119, 6, .08), rgba(255, 179, 71, .08));
+  border-radius: var(--r-sm);
+  padding: 6px 8px;
+}
+
+.ai-tool-approval.inline .ai-approval-title {
+  font-size: 11.5px;
+}
+
+/* --- Turn 折叠分组：已完成轮收拢为摘要行 --- */
+.ai-round-group {
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  margin: 2px 0 8px;
+  background: light-dark(rgba(15, 23, 42, .02), rgba(255, 255, 255, .02));
+}
+
+.ai-round-group-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ai-round-group-summary::-webkit-details-marker {
+  display: none;
+}
+
+.ai-round-group-summary:hover {
+  color: var(--ink);
+}
+
+.ai-round-group[open] > .ai-round-group-summary {
+  border-bottom: 1px dashed var(--line);
+}
+
+.ai-round-group-caret {
+  font-size: 10px;
+  opacity: 0.6;
+  transition: transform var(--t-fast, .15s) ease;
+}
+
+.ai-round-group[open] > .ai-round-group-summary .ai-round-group-caret {
+  transform: rotate(90deg);
+}
+
+.ai-round-group > .ai-cot-box,
+.ai-round-group > .ai-md-block,
+.ai-round-group > .ai-tool-badge {
+  margin: 6px 10px;
+}
+
+/* --- Turn 页脚：模型/轮数/耗时/Token/压缩标记 --- */
+.ai-turn-footer {
+  margin-top: 6px;
+  padding-top: 4px;
+  border-top: 1px dashed var(--line);
+  font-size: 10.5px;
+  color: var(--ink-faint, var(--ink-dim));
+  font-family: var(--font-display);
+  letter-spacing: .02em;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* --- Steering 插话角标 --- */
+.ai-steer-tag {
+  font-size: 10.5px;
+  color: light-dark(#924c00, #ffc066);
+  background: light-dark(rgba(217, 119, 6, .1), rgba(255, 179, 71, .12));
+  border: 1px solid light-dark(rgba(217, 119, 6, .35), rgba(255, 179, 71, .35));
+  border-radius: var(--r-sm);
+  padding: 1px 6px;
+  white-space: nowrap;
+}
+
+.ai-steer-tag.ok {
+  color: light-dark(#116329, #7ee787);
+  background: light-dark(rgba(5, 150, 105, .1), rgba(52, 211, 153, .12));
+  border-color: light-dark(rgba(5, 150, 105, .4), rgba(52, 211, 153, .4));
+}
+
+.ai-steer-tag.deferred {
+  color: var(--ink-dim);
+  background: var(--inset);
+  border-color: var(--line);
+}
+
+/* --- 计划模式评审卡 --- */
+.ai-plan-review {
+  border: 1px solid light-dark(rgba(37, 99, 235, .4), rgba(96, 165, 250, .4));
+  background: light-dark(rgba(37, 99, 235, .05), rgba(59, 130, 246, .07));
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.ai-plan-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--ink);
+  margin-bottom: 6px;
+}
+
+.ai-plan-body {
+  font-size: 12.5px;
+  line-height: 1.65;
+  color: var(--ink);
+  max-height: 320px;
+  overflow: auto;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-plan-body h2,
+.ai-plan-body h3,
+.ai-plan-body h4 {
+  margin: 8px 0 4px;
+}
+
+.ai-plan-feedback {
+  margin-top: 8px;
+}
+
+.ai-plan-feedback-input {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  min-height: 44px;
+  max-height: 140px;
+  padding: 6px 10px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 12px;
+  line-height: 1.5;
+  outline: none;
+}
+
+.ai-plan-feedback-input:focus {
+  border-color: var(--amber);
+}
+
+.ai-plan-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.ai-plan-btn {
+  border-radius: var(--r-sm);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: var(--font-display);
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--inset);
+  color: var(--ink);
+  transition: all var(--t-fast, .15s) ease;
+}
+
+.ai-plan-btn.approve {
+  background: light-dark(rgba(5, 150, 105, .12), rgba(52, 211, 153, .14));
+  border-color: light-dark(rgba(5, 150, 105, .45), rgba(52, 211, 153, .45));
+  color: light-dark(#116329, #7ee787);
+  font-weight: 600;
+}
+
+.ai-plan-btn.approve:hover {
+  filter: brightness(1.05);
+}
+
+.ai-plan-btn.revise {
+  color: var(--ink);
+}
+
+.ai-plan-btn.revise:hover {
+  border-color: var(--amber);
+}
+
+.ai-plan-status {
+  font-size: 11.5px;
+  color: var(--ink-dim);
+}
+
+.ai-plan-status.ok {
+  color: light-dark(#116329, #7ee787);
+  font-weight: 600;
+}
+
+.ai-plan-status.revise {
+  color: light-dark(#924c00, #ffc066);
+}
+
+/* 计划模式 pill 状态 */
+.ai-pill-btn.plan.active {
+  border-color: light-dark(rgba(37, 99, 235, .5), rgba(96, 165, 250, .5));
+  background: light-dark(rgba(37, 99, 235, .1), rgba(59, 130, 246, .14));
+  color: light-dark(#1d4ed8, #93c5fd);
+}
+
+/* --- 状态提示（压缩透明化 / 截断丢弃） --- */
+.ai-status-note,
+.ai-tool-truncated-note {
+  font-size: 11px;
+  color: var(--ink-dim);
+  background: var(--inset);
+  border: 1px dashed var(--line);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
+  margin-bottom: 6px;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+.ai-tool-truncated-note {
+  color: light-dark(#924c00, #ffc066);
+  border-color: light-dark(rgba(217, 119, 6, .4), rgba(255, 179, 71, .4));
+}
+
+/* --- 排队发送按钮（生成中显示） --- */
+.ai-btn-action.queue {
+  color: var(--ink-dim);
+}
+
+.ai-btn-action.queue:hover {
+  color: var(--amber);
+}
+
+/* --- hljs 令牌配色（自写精简主题，双主题经 light-dark 切换） --- */
+.hljs-keyword,
+.hljs-selector-tag,
+.hljs-deletion,
+.hljs-tag,
+.hljs-tag .hljs-name {
+  color: light-dark(#8250df, #d2a8ff);
+}
+
+.hljs-string,
+.hljs-regexp,
+.hljs-addition,
+.hljs-quote,
+.hljs-meta .hljs-string {
+  color: light-dark(#0a3069, #a5d6ff);
+}
+
+.hljs-number,
+.hljs-literal,
+.hljs-symbol,
+.hljs-bullet,
+.hljs-link {
+  color: light-dark(#0550ae, #79c0ff);
+}
+
+.hljs-title,
+.hljs-section,
+.hljs-name {
+  color: light-dark(#953800, #ffa657);
+}
+
+.hljs-title.function_,
+.hljs-function .hljs-title {
+  color: light-dark(#6639ba, #dc9df7);
+}
+
+.hljs-comment,
+.hljs-meta,
+.hljs-doctag {
+  color: light-dark(#59636e, #8b949e);
+  font-style: italic;
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-variable,
+.hljs-template-variable,
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title,
+.hljs-title.class_ {
+  color: light-dark(#116329, #7ee787);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+pre[data-lang] code,
+.ai-tool-args-pre code,
+.ai-tool-result-pre code {
+  color: var(--ink);
+}

@@ -31,6 +31,9 @@ const AGENT_TOOL_META = {
   memory_list: { risk: 'low', label: '列出长期记忆' },
   memory_delete: { risk: 'high', label: '删除长期记忆' },
   update_task_list: { risk: 'low', label: '更新任务清单' },
+  // Plan-mode review seam: pure user interaction (its own card collects the
+  // decision), so it must not additionally pass through tool approval.
+  submit_plan: { risk: 'low', label: '呈交执行计划' },
   // External AI IDE / CLI Dispatcher tools
   list_available_ai_ides: { risk: 'low', label: '检查本地 AI IDE / CLI' },
   dispatch_task_to_ai_ide: { risk: 'high', label: '分派任务给外部 AI IDE / CLI' },

@@ -16,12 +16,13 @@ const {
   MEMORY_TOOLS_DEFINITIONS,
   executeMemoryTool
 } = require('../memory');
-const { TASK_TOOLS_DEFINITIONS, normalizeTaskList, summarizeTaskProgress, extractTasksFromMarkdown } = require('../task-tools');
+const { TASK_TOOLS_DEFINITIONS, SUBMIT_PLAN_TOOL_DEFINITION, planMarkdownToTasks, normalizeTaskList, summarizeTaskProgress, extractTasksFromMarkdown } = require('../task-tools');
 const { buildBoundedContext } = require('../lib/context-bounds');
 const { ToolExecutionPipeline, clipToolContent } = require('./tool-pipeline');
 const { RuntimeContextService } = require('./runtime-context-service');
 const { SubagentManager } = require('./subagent-service');
 const { compactionService } = require('./compaction-service');
+const PlanReviewService = require('./plan-service');
 
 const MEMORY_TOOL_NAMES = new Set(MEMORY_TOOLS_DEFINITIONS.map(d => d.function.name));
 
@@ -29,10 +30,12 @@ class ChatService {
   constructor() {
     this.activeStreams = new Map(); // streamId -> AbortController
     this.streamBySession = new Map(); // sessionId -> streamId
+    this.steerInbox = new Map(); // streamId -> [{ id, content }] (dsh steering)
     this.runtimeContextService = new RuntimeContextService();
     this.compactionService = compactionService;
     this.toolPipeline = new ToolExecutionPipeline({ maxConcurrency: 4 });
     this.subagentManager = new SubagentManager({ maxDepth: 2 });
+    this.planService = new PlanReviewService();
   }
 
   isSessionStreaming(sessionId) {
@@ -53,6 +56,8 @@ class ChatService {
       if (approvalService) {
         approvalService.denyPendingApprovals(streamId, 'aborted');
       }
+      this.planService.denyPendingReviews(streamId, 'aborted');
+      this.steerInbox.delete(streamId);
       killRunningCommands(streamId);
       return { ok: true, streamId };
     }
@@ -66,9 +71,48 @@ class ChatService {
       if (approvalService) {
         approvalService.denyPendingApprovals(streamId, 'aborted');
       }
+      this.planService.denyPendingReviews(streamId, 'aborted');
     }
     this.activeStreams.clear();
     this.streamBySession.clear();
+    this.steerInbox.clear();
+  }
+
+  /**
+   * dsh Steering: interject a user message while the agent is streaming.
+   * The message is persisted & displayed immediately, then injected into the
+   * live conversation at the next round (Step) boundary. If the turn ends
+   * without consuming it, it simply remains in history for the next turn.
+   */
+  async steerMessage(args, { ctx, findSession, save, genId }) {
+    const { sessionId, content } = args || {};
+    const text = String(content || '').trim();
+    if (!text) return { ok: false, error: '插话内容为空' };
+    const session = findSession(sessionId);
+    if (!session) return { ok: false, error: '会话不存在' };
+    const streamId = this.streamBySession.get(sessionId);
+    if (!streamId) return { ok: false, error: '当前没有进行中的生成任务' };
+
+    const userMsg = {
+      id: (args && args.userMessageId) || genId('msg_user'),
+      role: 'user',
+      content: text,
+      steered: true,
+      timestamp: Date.now()
+    };
+    session.messages.push(userMsg);
+    session.updatedAt = Date.now();
+    if (typeof save === 'function') save();
+
+    let inbox = this.steerInbox.get(streamId);
+    if (!inbox) {
+      inbox = [];
+      this.steerInbox.set(streamId, inbox);
+    }
+    inbox.push({ id: userMsg.id, content: text });
+
+    ctx.send('stream-chunk', { streamId, sessionId, messageId: null, chunk: { type: 'steered', message: userMsg } });
+    return { ok: true, streamId, userMessage: userMsg };
   }
 
   async dispatchAgentTool(name, rawArgs, rt, { skills, memories, save, ctx, config }) {
@@ -96,6 +140,32 @@ class ChatService {
       }
       if (rt.emit) rt.emit({ type: 'task_list', tasks: norm.tasks });
       return { ok: true, taskCount: norm.tasks.length, progress: summarizeTaskProgress(norm.tasks) };
+    }
+    if (name === 'submit_plan') {
+      // 轻量计划模式（dsh plan review seam）：呈交计划 → 批准转任务清单 / 反馈修订
+      const pArgs = parseArgs();
+      const markdown = String(pArgs.plan_markdown || pArgs.plan || '').trim();
+      if (!markdown) return { ok: false, error: '计划内容为空，请以 Markdown 提交完整计划' };
+      const decision = await this.planService.requestPlanReview(rt.streamId, markdown, rt.emit);
+      if (decision.reason === 'aborted') {
+        const abortErr = new Error('已中断生成');
+        abortErr.name = 'AbortError';
+        throw abortErr;
+      }
+      if (decision.approved) {
+        const conv = planMarkdownToTasks(markdown);
+        if (conv.ok) {
+          if (rt.session) {
+            rt.session.taskList = conv.tasks;
+            rt.session.updatedAt = Date.now();
+            if (typeof save === 'function') save();
+          }
+          if (rt.emit) rt.emit({ type: 'task_list', tasks: conv.tasks });
+          return { ok: true, approved: true, taskCount: conv.tasks.length, note: '用户已批准计划并生成任务清单，按清单执行并随进度用 update_task_list 维护' };
+        }
+        return { ok: true, approved: true, taskCount: 0, note: '用户已批准计划（计划未解析出任务清单，请自行用 update_task_list 维护步骤）' };
+      }
+      return { ok: true, approved: false, feedback: decision.feedback || '用户要求继续完善计划，未给出具体反馈，请细化后重新呈交' };
     }
     if (name === 'dispatch_subagent') {
       const pArgs = parseArgs();
@@ -282,6 +352,7 @@ class ChatService {
             keepCount: 2
           });
           if (compRes && compRes.ok) {
+            assistantMsg.compactedDuringTurn = true; // Turn 页脚「已压缩」标记
             save();
             requestMessages = buildRequestSequence();
             emitChunk({
@@ -303,6 +374,10 @@ class ChatService {
         ...MEMORY_TOOLS_DEFINITIONS,
         ...TASK_TOOLS_DEFINITIONS
       ];
+      // 计划模式渐进式披露：仅开启时声明 submit_plan
+      if (enableAgent && session.planMode) {
+        agentToolDefs = [...agentToolDefs, SUBMIT_PLAN_TOOL_DEFINITION];
+      }
       if (enableAgent && mcpService) {
         try {
           const rt = await mcpService.getMcpRuntime(mcpServers);
@@ -317,6 +392,7 @@ class ChatService {
       const runStream = async (targetModel, isFallback = false) => {
         accumulatedContent = '';
         accumulatedReasoning = '';
+        assistantMsg.model = targetModel; // Turn 页脚元数据
         if (isFallback) {
           assistantMsg.content = '';
           assistantMsg.contentSteps = [];
@@ -434,7 +510,30 @@ class ChatService {
 
           if (toolCalls.length === 0 || !enableAgent || !allowTools) {
             accumulatedContent = assistantMsg.content || '';
+            assistantMsg.rounds = round;
             return;
+          }
+
+          // dsh 流式安全语义：max-tokens 截断的工具调用参数不完整，不能安全执行。
+          // 保留协议配对（assistant tool_calls + 合成错误结果），模型据此重新调用。
+          const executableCalls = [];
+          const truncatedCalls = [];
+          for (const tc of toolCalls) {
+            const raw = tc.function.arguments;
+            let argsValid = false;
+            if (typeof raw === 'string') {
+              if (raw === '') argsValid = true;
+              else { try { JSON.parse(raw); argsValid = true; } catch { argsValid = false; } }
+            } else if (raw && typeof raw === 'object') {
+              argsValid = true;
+            } else if (raw === undefined || raw === null) {
+              argsValid = true; // 无参工具
+            }
+            if (argsValid) executableCalls.push(tc);
+            else truncatedCalls.push(tc);
+          }
+          for (const tc of truncatedCalls) {
+            emitChunk({ type: 'tool_truncated', toolId: tc.id, toolName: tc.function.name });
           }
 
           toolPhaseEntered = true;
@@ -449,13 +548,36 @@ class ChatService {
           }
           assistantMsg.toolCalls = [...(assistantMsg.toolCalls || []), ...toolCalls];
           assistantMsg.toolStatus = assistantMsg.toolStatus || {};
-          emitChunk({ type: 'tool_exec_start', toolCalls });
+          emitChunk({ type: 'tool_exec_start', toolCalls: executableCalls });
 
           conversation.push({ role: 'assistant', content: roundContent || null, tool_calls: toolCalls });
 
+          // 截断调用：合成错误结果保持协议配对，模型下一轮重新发起
+          for (const tc of truncatedCalls) {
+            const synth = { ok: false, error: '参数不完整（疑似 max-tokens 截断），本次调用已安全丢弃，请重新调用该工具并完整给出参数' };
+            assistantMsg.toolStatus[tc.id] = 'truncated';
+            assistantMsg.toolResults = assistantMsg.toolResults || {};
+            assistantMsg.toolResults[tc.id] = synth;
+            tc.result = synth;
+            session.messages.push({
+              id: genId('msg_tool'),
+              role: 'tool',
+              tool_call_id: tc.id,
+              name: tc.function.name,
+              content: JSON.stringify(synth),
+              timestamp: Date.now()
+            });
+            conversation.push({
+              role: 'tool',
+              tool_call_id: tc.id,
+              name: tc.function.name,
+              content: JSON.stringify(synth)
+            });
+          }
+
           // Dispatch tools through the Three-Stage Tool Pipeline with concurrency support!
-          const toolResults = await this.toolPipeline.dispatchBatch(
-            toolCalls,
+          const toolResults = executableCalls.length > 0 ? await this.toolPipeline.dispatchBatch(
+            executableCalls,
             async (name, parsedArgs) => {
               return await this.dispatchAgentTool(name, parsedArgs, {
                 mcpRoutes,
@@ -476,10 +598,10 @@ class ChatService {
               emitChunk,
               signal: controller.signal
             }
-          );
+          ) : [];
 
-          for (let i = 0; i < toolCalls.length; i++) {
-            const tc = toolCalls[i];
+          for (let i = 0; i < executableCalls.length; i++) {
+            const tc = executableCalls[i];
             const tr = toolResults[i];
             if (!tr) continue;
 
@@ -508,8 +630,22 @@ class ChatService {
             });
           }
 
+          // dsh Steering：轮（Step）边界消费用户插话，作为下一步输入改变方向
+          const steerPending = this.steerInbox.get(streamId);
+          if (steerPending && steerPending.length > 0) {
+            const consumed = steerPending.splice(0, steerPending.length);
+            for (const item of consumed) {
+              conversation.push({
+                role: 'user',
+                content: `[用户在任务执行中插话] ${item.content}`
+              });
+            }
+            emitChunk({ type: 'steer_consumed', ids: consumed.map(c => c.id) });
+          }
+
           round++;
           accumulatedContent = assistantMsg.content || '';
+          assistantMsg.rounds = round;
           if (round >= maxRounds) {
             conversation.push({
               role: 'user',
@@ -558,6 +694,7 @@ class ChatService {
               genId,
               keepCount: 1
             });
+            assistantMsg.compactedDuringTurn = true;
             if (typeof save === 'function') save();
 
             // Rebuild conversation sequence and retry
@@ -598,9 +735,22 @@ class ChatService {
         }
       } finally {
         approvalService.denyPendingApprovals(streamId, 'aborted');
+        this.planService.denyPendingReviews(streamId, 'aborted');
         killRunningCommands(streamId);
         this.activeStreams.delete(streamId);
         this.streamBySession.delete(sessionId);
+
+        // Turn 页脚元数据收尾
+        assistantMsg.endedAt = Date.now();
+        if (!Number.isFinite(assistantMsg.rounds)) assistantMsg.rounds = 0;
+
+        // 未被消费的插话保留在历史中（下一轮上下文自然包含），提示前端
+        const steerLeftover = this.steerInbox.get(streamId);
+        if (steerLeftover && steerLeftover.length > 0) {
+          emitChunk({ type: 'steer_deferred', ids: steerLeftover.map(c => c.id) });
+        }
+        this.steerInbox.delete(streamId);
+
         if (assistantMsg && assistantMsg.content) {
           const extracted = extractTasksFromMarkdown(assistantMsg.content);
           if (extracted && extracted.length >= 2) {

@@ -278,8 +278,11 @@ class CompactionService {
           ]
         });
 
-        if (res && res.text && res.text.trim()) {
-          summaryText = res.text.trim();
+        // syncCompletion (protocols.parseSyncResponse) returns the text under `content`.
+        // Reading `res.text` here previously made every LLM summary silently fall
+        // back to the offline rule-based condensation.
+        if (res && typeof res.content === 'string' && res.content.trim()) {
+          summaryText = res.content.trim();
         }
         if (res && res.usage) {
           session.totalTokens = session.totalTokens || { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0 };

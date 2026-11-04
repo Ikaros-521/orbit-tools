@@ -38,7 +38,7 @@ ${AGENT_CORE_GUIDELINES}`;
 /**
  * Computes a hash/fingerprint of the dynamic environment state to detect mutations.
  */
-function computeStateFingerprint({ workDir, taskList, recalledMemories }) {
+function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode }) {
   const wd = String(workDir || '').trim();
   const tasks = Array.isArray(taskList)
     ? taskList.map(t => `${t.status}:${t.content}`).join('|')
@@ -46,17 +46,21 @@ function computeStateFingerprint({ workDir, taskList, recalledMemories }) {
   const mems = Array.isArray(recalledMemories)
     ? recalledMemories.map(m => m.record ? m.record.id : m.id).join('|')
     : '';
-  return `${wd}#${tasks}#${mems}`;
+  return `${wd}#${tasks}#${mems}#${planMode ? 'plan' : ''}`;
 }
 
 /**
  * Generates the dynamic runtime context projection string.
  */
-function buildRuntimeContextBlock({ workDir, taskList, recalledMemories }) {
+function buildRuntimeContextBlock({ workDir, taskList, recalledMemories, planMode }) {
   const parts = [];
 
   if (workDir) {
     parts.push(`[工作目录] ${workDir} (相对路径基于此目录解析)`);
+  }
+
+  if (planMode) {
+    parts.push('[计划模式] 已开启：本任务请先调研并调用 submit_plan 呈交完整 Markdown 计划（# 标题 + 任务清单）供用户评审；用户批准前不要执行任何写操作或命令。若收到反馈则修订计划后重新呈交。');
   }
 
   if (Array.isArray(recalledMemories) && recalledMemories.length > 0) {
@@ -111,20 +115,23 @@ class RuntimeContextService {
       ? searchMemories(memories, searchTarget, { scope: agentWorkDir, limit: 6 })
       : [];
 
-    // 2. Active tasks
+    // 2. Active tasks & plan mode
     const taskList = session && Array.isArray(session.taskList) ? session.taskList : [];
+    const planMode = !!(session && session.planMode);
 
     // 3. Compute dynamic context block
     const currentFingerprint = computeStateFingerprint({
       workDir: agentWorkDir,
       taskList,
-      recalledMemories
+      recalledMemories,
+      planMode
     });
 
     const dynamicBlock = buildRuntimeContextBlock({
       workDir: agentWorkDir,
       taskList,
-      recalledMemories
+      recalledMemories,
+      planMode
     });
 
     const sessionId = session ? session.id : null;

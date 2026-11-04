@@ -74,6 +74,10 @@
               <button class="ai-pill-btn active agent" id="pillAgent" title="开启 Agent 工具调用 (支持代码执行与自动生成工作流)">
                 <span>🤖</span> <span>Agent 工具</span>
               </button>
+              <!-- 计划模式（dsh 轻量版：呈交计划 → 批准转任务清单） -->
+              <button class="ai-pill-btn plan" id="pillPlan" title="计划模式：模型先呈交计划供评审，批准后转为任务清单再执行">
+                <span>📋</span> <span>计划模式</span>
+              </button>
               <div class="ai-persona-picker-wrap">
                 <button type="button" class="ai-pill-btn persona" id="btnTogglePersonaPicker" title="选择或搜索助手人设角色 (支持搜索与分页)">
                   <span id="currentPersonaIcon">✨</span> <span id="currentPersonaTitle">通用助手</span> <span class="ai-pill-arrow">▾</span>
@@ -153,7 +157,13 @@
             <div class="ai-input-attachments hidden" id="inputAttachmentsBar"></div>
 
             <div class="ai-input-box">
-              <textarea class="ai-input-textarea" id="chatInput" placeholder="输入消息，Enter 发送，Shift+Enter 换行…" rows="1"></textarea>
+              <textarea class="ai-input-textarea" id="chatInput" placeholder="输入消息，Enter 发送（生成中 Enter=插话），Shift+Enter 换行…" rows="1"></textarea>
+              <!-- 生成中排队发送（steering 之外的补充分发方式；长按发送键同样排队） -->
+              <button type="button" class="ai-btn-action queue hidden" id="btnQueueSend" title="排队发送：当前生成完成后自动发出">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
+                  <path d="M11.99 2C6.47 2 2 6.48 2 12s4.47 10 9.99 10C17.52 22 22 17.52 22 12S17.52 2 11.99 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zM12.5 7H11v6l5.25 3.15.75-1.23-4.5-2.67z"/>
+                </svg>
+              </button>
               <button class="ai-btn-action send" id="btnSendOrStop" title="发送消息">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor">
                   <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z"/>

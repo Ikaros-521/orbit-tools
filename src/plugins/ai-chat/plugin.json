@@ -5,10 +5,10 @@
     "en": "AI Chat"
   },
   "desc": {
-    "zh": "本地 Agent 助手：借鉴 DeepSeek Harness 架构机制，内置三段式工具并发管道、子智能体 (Subagent) 派生体系 (Spawn/Fork)、Prefix Caching 前缀缓存优化、工具调用配对平衡切分、Playwright 浏览器自动化、MCP 市场生态、多轮工具循环、任务规划清单、长期记忆与工作流自动生成",
-    "en": "Local agent assistant: Powered by DeepSeek Harness runtime mechanisms, including 3-stage concurrent tool pipeline, subagent derivations (Spawn/Fork), prefix caching optimization, balanced tool pairing cuts, Playwright automation, MCP ecosystem, multi-round tool loop, and memory."
+    "zh": "本地 Agent 助手：对齐 DeepSeek Harness 交互设计——运行中插话 (Steering)、工具卡参数/结果全程可查与审批内联、Turn 折叠与页脚元数据、轻量计划模式 (呈交→批准转任务清单)、增量流式渲染与代码语法高亮；保留三段式工具并发管道、子智能体派生、Prefix Caching、工具配对切分、Playwright 自动化、MCP 市场与长期记忆",
+    "en": "Local agent assistant aligned with DeepSeek Harness interaction design: mid-run steering, inspectable tool cards with inline approval, turn collapsing & footer metadata, lightweight plan mode, incremental streaming render and syntax highlighting; plus concurrent tool pipeline, subagents, prefix caching, Playwright, MCP ecosystem and memory."
   },
-  "version": "1.7.0",
+  "version": "1.8.0",
   "category": "dev",
   "author": "Ikaros-521",
   "keywords": [

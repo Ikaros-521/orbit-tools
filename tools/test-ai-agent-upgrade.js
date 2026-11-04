@@ -221,8 +221,10 @@ async function main() {
   {
     const msgs = captured[0];
     const sys = msgs.find(m => m.role === 'system');
-    assert.ok(sys && sys.content.includes('[长期记忆]') && sys.content.includes('pnpm'), 'memory recalled into system prompt');
-    assert.ok(sys.content.includes('[当前任务清单]'), 'live task list injected');
+    assert.ok(sys && !sys.content.includes('[长期记忆]'), 'system prompt stays a static prefix-cache anchor (no dynamic facts)');
+    const lastUser = [...msgs].reverse().find(m => m.role === 'user');
+    assert.ok(lastUser && lastUser.content.includes('[长期记忆]') && lastUser.content.includes('pnpm'), 'memory recalled via <system-reminder> on the latest user message');
+    assert.ok(lastUser.content.includes('[当前任务清单]'), 'live task list injected via reminder');
     const asst = msgs.filter(m => m.role === 'assistant' && Array.isArray(m.tool_calls)).pop();
     assert.ok(asst && asst.tool_calls.length === 3, 'history replay keeps the tool-call table');
     const ids = new Set(asst.tool_calls.map(tc => tc.id));
@@ -262,6 +264,109 @@ async function main() {
     assert.strictEqual(uniq.size, 2);
     assert.ok(capChunk.message.content.includes('被迫收尾'));
     console.log('PASS: max-rounds cutoff + dup tool-id rewrite');
+  }
+
+  // Scenario D: dsh Steering — interject mid-run; consumed at the round
+  // boundary, injected as a user message AFTER the round-1 tool results.
+  {
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+    let releaseRound1;
+    const gate = new Promise(r => { releaseRound1 = r; });
+    scripts.push(async (opts, onChunk) => {
+      onChunk({ type: 'content', delta: '先看一下时间。' });
+      emitTool(onChunk, 0, 'tc_time_s', 'get_current_time', {});
+      await gate; // hold round-1 open so steerMessage lands mid-run
+    });
+    scripts.push(async (opts, onChunk) => {
+      const afterTools = opts.messages.filter(m => m.role === 'tool').map(m => m.tool_call_id);
+      const steerMsgs = opts.messages.filter(m => m.role === 'user' && m.content.includes('用户在任务执行中插话'));
+      assert.ok(steerMsgs.length === 1, 'steered message injected into round-2 context');
+      assert.strictEqual(afterTools[afterTools.length - 1], 'tc_time_s', 'tool results still precede the steer injection point');
+      const steerIdx = opts.messages.indexOf(steerMsgs[0]);
+      const lastToolIdx = Math.max(...opts.messages.map((m, i) => (m.role === 'tool' ? i : -1)));
+      assert.ok(steerIdx > lastToolIdx, 'steer lands after the tool run (protocol pairing preserved)');
+      onChunk({ type: 'content', delta: '已收到插话并调整。' });
+    });
+
+    const sendRes = await ctx.call('sendMessage', { sessionId: sid, content: '看时间', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    const steerRes = await ctx.call('steerMessage', { sessionId: sid, content: '顺便改用中文总结' });
+    assert.ok(steerRes.ok && steerRes.userMessage.steered === true, 'steerMessage accepted mid-run');
+    releaseRound1();
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+    const consumedChunk = ctx.chunks.find(c => c.type === 'steer_consumed');
+    assert.ok(consumedChunk && consumedChunk.ids.includes(steerRes.userMessage.id), 'steer_consumed chunk emitted with message id');
+    assert.ok(ctx.chunks.some(c => c.type === 'steered' && c.message.id === steerRes.userMessage.id), 'steered chunk displayed immediately');
+    const sess = ctx.store.sessions.find(s => s.id === sid);
+    assert.ok(sess.messages.some(m => m.role === 'user' && m.steered), 'steered message persisted in session history');
+    console.log('PASS: steering interjection consumed at round boundary');
+  }
+
+  // Scenario E: truncated tool call (max-tokens cut) is NOT executed; protocol
+  // pairing kept via synthetic error result; valid sibling call still runs.
+  {
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+    scripts.push(async (opts, onChunk) => {
+      emitTool(onChunk, 0, 'tc_ok_tr', 'get_current_time', {});
+      onChunk({ type: 'tool_calls', delta: [{ index: 1, id: 'tc_trunc', type: 'function', function: { name: 'read_file', arguments: '{"path": "src/lab' } }] });
+    });
+    scripts.push(async (opts, onChunk) => {
+      const truncResults = opts.messages.filter(m => m.role === 'tool' && m.tool_call_id === 'tc_trunc');
+      assert.strictEqual(truncResults.length, 1, 'truncated call still paired with a tool result');
+      assert.ok(truncResults[0].content.includes('截断'), 'synthetic result explains the truncation drop');
+      onChunk({ type: 'content', delta: '收尾。' });
+    });
+
+    await ctx.call('sendMessage', { sessionId: sid, content: '截断测试', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+    assert.ok(ctx.chunks.some(c => c.type === 'tool_truncated' && c.toolId === 'tc_trunc'), 'tool_truncated chunk emitted');
+    const executedIds = ctx.chunks.filter(c => c.type === 'tool_result').map(c => c.toolId);
+    assert.ok(!executedIds.includes('tc_trunc'), 'truncated call never executed');
+    assert.ok(executedIds.includes('tc_ok_tr'), 'valid sibling call executed');
+    const done = ctx.chunks.filter(c => c.type === 'complete').pop();
+    assert.strictEqual(done.message.toolStatus.tc_trunc, 'truncated', 'truncated status persisted');
+    console.log('PASS: truncated tool call dropped safely with pairing kept');
+  }
+
+  // Scenario F: lightweight plan mode — submit_plan suspends for review,
+  // approval converts the markdown plan into the session task list.
+  {
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+    await ctx.call('setSessionPlanMode', { sessionId: sid, enabled: true });
+    const planMd = '# 重构方案\n\n- [ ] 定位代码\n- [ ] 修改 panel.js\n- [ ] 回归测试';
+
+    scripts.push(async (opts, onChunk) => {
+      assert.ok(Array.isArray(opts.tools) && opts.tools.some(t => t.function.name === 'submit_plan'), 'submit_plan declared only while plan mode is on (progressive disclosure)');
+      emitTool(onChunk, 0, 'tc_plan_submit', 'submit_plan', { plan_markdown: planMd });
+    });
+    scripts.push(async (opts, onChunk) => {
+      onChunk({ type: 'content', delta: '计划已批准，开始执行。' });
+    });
+
+    const sendRes = await ctx.call('sendMessage', { sessionId: sid, content: '请先出计划', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    await waitFor(() => ctx.chunks.some(c => c.type === 'plan_review_request'));
+    const planChunk = ctx.chunks.find(c => c.type === 'plan_review_request');
+    assert.strictEqual(planChunk.markdown, planMd, 'plan markdown streamed to UI');
+
+    const rev = await ctx.call('resolvePlanReview', { streamId: sendRes.streamId, planId: planChunk.planId, approved: true });
+    assert.ok(rev.ok, 'plan review resolved');
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+
+    const taskChunk = ctx.chunks.find(c => c.type === 'task_list' && c.tasks && c.tasks.length === 3);
+    assert.ok(taskChunk, 'approved plan converted into a 3-item task list');
+    const sess = ctx.store.sessions.find(s => s.id === sid);
+    assert.ok(sess.taskList && sess.taskList.length === 3 && sess.taskList[0].content === '定位代码', 'task list persisted on session');
+    const done = ctx.chunks.filter(c => c.type === 'complete').pop();
+    assert.ok(done.message.toolResults.tc_plan_submit && done.message.toolResults.tc_plan_submit.approved === true, 'approval result returned to the model');
+    await ctx.call('setSessionPlanMode', { sessionId: sid, enabled: false });
+    console.log('PASS: lightweight plan mode review → task list conversion');
+  }
+
+  // Turn metadata footer fields
+  {
+    const done = ctx.chunks.filter(c => c.type === 'complete').pop();
+    assert.ok(done.message.endedAt && done.message.model, 'turn footer metadata (endedAt/model) present');
+    assert.ok(Number.isFinite(done.message.rounds), 'turn footer metadata (rounds) present');
+    console.log('PASS: turn footer metadata fields');
   }
 
   // UI-facing IPC: memory CRUD + task list clearing

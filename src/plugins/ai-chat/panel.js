@@ -75,10 +75,13 @@
     const deps = [
       'plugin://ai-chat/lib/markdown-renderer.js',
       'plugin://ai-chat/lib/mermaid-renderer.js',
+      'plugin://ai-chat/lib/stream-renderer.js',
+      'plugin://ai-chat/lib/hljs-renderer.js',
       'plugin://ai-chat/components/panel-template.js',
       'plugin://ai-chat/components/task-drawer.js',
       'plugin://ai-chat/components/prompt-queue.js',
-      'plugin://ai-chat/components/settings-modals.js'
+      'plugin://ai-chat/components/settings-modals.js',
+      'plugin://ai-chat/components/tool-cards.js'
     ];
     return Promise.all(deps.map(loadScript));
   }
@@ -115,8 +118,10 @@
     const messagesScroll = el.querySelector('#messagesScroll');
     const pillCot = el.querySelector('#pillCot');
     const pillAgent = el.querySelector('#pillAgent');
+    const pillPlan = el.querySelector('#pillPlan');
     const chatInput = el.querySelector('#chatInput');
     const btnSendOrStop = el.querySelector('#btnSendOrStop');
+    const btnQueueSend = el.querySelector('#btnQueueSend');
     const btnPlusAttachment = el.querySelector('#btnPlusAttachment');
     const plusPopover = el.querySelector('#plusPopover');
     const btnMenuPickImage = el.querySelector('#btnMenuPickImage');
@@ -402,7 +407,7 @@
     function getLateChunkBuf(sessionId) {
       let b = pendingLateChunks.get(sessionId);
       if (!b) {
-        b = { approvals: [], terminated: false };
+        b = { approvals: [], plans: [], terminated: false };
         pendingLateChunks.set(sessionId, b);
       }
       return b;
@@ -413,6 +418,129 @@
     const TaskDrawer = window.AiChatTaskDrawer;
     const SettingsModals = window.AiChatSettingsModals;
     const MermaidRenderer = window.AiChatMermaid;
+    const HljsRenderer = window.AiChatHljs;
+    const ToolCards = window.AiChatToolCards;
+    const StreamRendererLib = window.AiChatStreamRenderer;
+
+    // 增量流式渲染槽位：messageId::round -> StreamSlot（dsh delta 快路径）
+    const streamSlots = new Map();
+    const getStreamSlot = (mdBlock, messageId, round) => {
+      const key = `${messageId}::${round}`;
+      let slot = streamSlots.get(key);
+      // 会话切换重渲后，旧槽位绑定的节点已脱离 DOM——丢弃并重建，避免内容更新到游离节点
+      if (slot && slot.host && !slot.host.isConnected) {
+        streamSlots.delete(key);
+        slot = null;
+      }
+      if (!slot && StreamRendererLib && mdBlock) {
+        slot = new StreamRendererLib.StreamSlot(mdBlock, renderMarkdown);
+        slot.scheduleUpdate = StreamRendererLib.rafThrottle(text => slot.update(text));
+        slot.key = key;
+        streamSlots.set(key, slot);
+      }
+      return slot;
+    };
+    const finalizeStreamSlots = (bubble, messageId, { deep = false } = {}) => {
+      if (!StreamRendererLib) return;
+      const targets = [];
+      for (const [key, slot] of streamSlots) {
+        if (key.startsWith(`${messageId}::`)) targets.push({ key, slot });
+      }
+      for (const { key, slot } of targets) {
+        const host = slot.finalize();
+        if (host) {
+          if (MermaidRenderer) MermaidRenderer.initMessageDynamicElements(host, { renderMermaid: false, copyToClipboard });
+          if (HljsRenderer) HljsRenderer.highlightContainer(host);
+        }
+        streamSlots.delete(key);
+      }
+      if (deep && bubble && HljsRenderer) HljsRenderer.highlightContainer(bubble);
+    };
+
+    // dsh Turn 折叠：把已完成的工具轮收拢为摘要行，仅保留最新轮展开
+    const collapseCompletedRounds = (timeline, upToRoundExclusive) => {
+      if (!timeline) return;
+      const wrappedRounds = new Set(
+        Array.from(timeline.querySelectorAll('.ai-round-group')).map(g => Number(g.dataset.round))
+      );
+      for (let r = 0; r < upToRoundExclusive; r++) {
+        if (wrappedRounds.has(r)) continue;
+        const children = Array.from(timeline.children).filter(el => {
+          const dr = el.dataset ? el.dataset.round : undefined;
+          return dr !== undefined && Number(dr) === r && !el.classList.contains('ai-round-group');
+        });
+        if (!children.length) continue;
+
+        const toolCount = children.filter(c => c.classList.contains('ai-tool-card')).length;
+        const mdEl = children.find(c => c.classList.contains('ai-md-block'));
+        const contentChars = mdEl ? (mdEl.textContent || '').trim().length : 0;
+        const hasCot = children.some(c => c.classList.contains('ai-cot-box'));
+
+        const bits = [];
+        if (hasCot) bits.push('思考 ✓');
+        if (toolCount > 0) bits.push(`工具 ${toolCount} ✓`);
+        if (contentChars > 0) bits.push(`内容 ${contentChars} 字`);
+        const label = bits.length ? bits.join(' · ') : '已完成';
+
+        const group = document.createElement('details');
+        group.className = 'ai-round-group';
+        group.dataset.round = String(r);
+        group.open = false;
+        group.innerHTML = `<summary class="ai-round-group-summary"><span>第 ${r + 1} 轮 · ${label}</span><span class="ai-round-group-caret">▸</span></summary>`;
+        // 先在首个子元素原位置占位，再搬移子元素，保持轮次顺序不变
+        const firstHost = children[0];
+        if (firstHost) timeline.insertBefore(group, firstHost);
+        else timeline.appendChild(group);
+        for (const child of children) group.appendChild(child);
+        for (const child of children) {
+          if (child.classList.contains('ai-cot-box')) child.open = false;
+        }
+      }
+    };
+
+    const markRoundUpTo = (timeline, round) => {
+      // 新一轮开始时折叠此前所有轮
+      const maxWrapped = Number(round) || 0;
+      collapseCompletedRounds(timeline, maxWrapped);
+    };
+
+    // dsh Turn 页脚：模型（含降级链）、轮数、耗时、Token 与压缩标记
+    const formatDuration = (ms) => {
+      if (!ms || ms < 0) return '';
+      if (ms < 1000) return `${ms}ms`;
+      if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`;
+      const m = Math.floor(ms / 60000);
+      const s = Math.round((ms % 60000) / 1000);
+      return `${m}m${s}s`;
+    };
+    const renderTurnFooter = (bubble, msg) => {
+      if (!bubble || !msg) return;
+      let footer = bubble.querySelector('.ai-turn-footer');
+      const parts = [];
+      const model = msg.model || '';
+      if (model) {
+        if (msg.fallbackFrom) parts.push(`🤖 ${msg.fallbackFrom} → ${model} (降级)`);
+        else parts.push(`🤖 ${model}`);
+      }
+      if (Number.isFinite(msg.rounds) && msg.rounds > 0) parts.push(`${msg.rounds} 轮`);
+      const dur = formatDuration(msg.endedAt ? msg.endedAt - (msg.timestamp || msg.endedAt) : null);
+      if (dur) parts.push(`⏱ ${dur}`);
+      if (msg.usage && msg.usage.totalTokens) {
+        const tok = msg.usage.totalTokens >= 1000 ? `${(msg.usage.totalTokens / 1000).toFixed(1)}k tok` : `${msg.usage.totalTokens} tok`;
+        const cached = msg.usage.cachedTokens ? ` (缓存 ${(msg.usage.cachedTokens / 1000).toFixed(1)}k)` : '';
+        parts.push(`📊 ${tok}${cached}`);
+      }
+      if (msg.compactedDuringTurn) parts.push('🗜️ 已压缩');
+      if (!parts.length) { if (footer) footer.remove(); return; }
+      if (!footer) {
+        footer = document.createElement('div');
+        footer.className = 'ai-turn-footer';
+        const tl = bubble.querySelector('.ai-bubble-timeline');
+        if (tl) tl.insertAdjacentElement('afterend', footer);
+        else bubble.appendChild(footer);
+      }
+      footer.textContent = parts.join(' · ');
+    };
 
     const { openLightbox, closeLightbox } = PromptQueue.initLightbox({
       modalEl: aiLightboxModal,
@@ -464,6 +592,38 @@
         pendingAttachments,
         isGenerating
       });
+      // 生成中显示"排队发送"按钮（steering 之外的补充分发方式）
+      if (btnQueueSend) {
+        const hasText = !!(chatInput && (chatInput.value.trim() || pendingAttachments.length > 0));
+        btnQueueSend.classList.toggle('hidden', !(isGenerating && hasText));
+      }
+    }
+
+    // 计划模式 pill 与会话状态同步（轻量计划模式）
+    function syncPlanPill() {
+      if (pillPlan) pillPlan.classList.toggle('active', !!(currentSession && currentSession.planMode));
+    }
+
+    // dsh Steering：生成中插话，立即上屏并在下一工具轮边界注入上下文
+    async function sendSteerMessage() {
+      if (!currentSession || !isGenerating) return false;
+      const text = chatInput.value.trim();
+      if (!text) return false;
+      try {
+        const res = await ctx.call('steerMessage', { sessionId: currentSession.id, content: text });
+        if (res && res.ok) {
+          chatInput.value = '';
+          autoResizeInput();
+          updateSendOrStopButton();
+          return true;
+        }
+        // 无进行中的流（竞态：刚结束）→ 回退为普通发送
+        if (res && res.error && !isGenerating) {
+          sendMessage();
+          return true;
+        }
+      } catch {}
+      return false;
     }
 
     function setGeneratingState(generating) {
@@ -511,26 +671,110 @@
     }
 
     chatInput.addEventListener('keydown', (e) => {
+      // IME 组合中（如中文输入法选词）的 Enter 只确认候选词，不发送消息
+      if (e.isComposing) return;
       if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault();
         if (isGenerating) {
-          PromptQueue.enqueueCurrentInput({
-            chatInput,
-            pendingAttachments,
-            currentSession,
-            sessionPromptQueues,
-            onAfterEnqueue: () => {
-              syncAttachmentsBar();
-              autoResizeInput();
-              updateSendOrStopButton();
-              syncPromptQueueBar();
-            }
+          // dsh Steering：生成中 Enter=插话（下一工具轮边界生效）；失败再回退排队
+          sendSteerMessage().then(steered => {
+            if (steered) return;
+            PromptQueue.enqueueCurrentInput({
+              chatInput,
+              pendingAttachments,
+              currentSession,
+              sessionPromptQueues,
+              onAfterEnqueue: () => {
+                syncAttachmentsBar();
+                autoResizeInput();
+                updateSendOrStopButton();
+                syncPromptQueueBar();
+              }
+            });
           });
         } else {
           sendMessage();
         }
       }
     });
+
+    // 排队按钮：生成中把消息排入待发队列（完成自动发出）
+    if (btnQueueSend) {
+      btnQueueSend.addEventListener('click', () => {
+        if (!isGenerating) return;
+        PromptQueue.enqueueCurrentInput({
+          chatInput,
+          pendingAttachments,
+          currentSession,
+          sessionPromptQueues,
+          onAfterEnqueue: () => {
+            syncAttachmentsBar();
+            autoResizeInput();
+            updateSendOrStopButton();
+            syncPromptQueueBar();
+          }
+        });
+      });
+    }
+
+    // 长按发送键（生成中为停止键）：长按=排队发送，短按保持停止语义
+    {
+      let pressTimer = null;
+      let longPressed = false;
+      btnSendOrStop.addEventListener('pointerdown', () => {
+        if (!isGenerating) return;
+        longPressed = false;
+        pressTimer = setTimeout(() => {
+          longPressed = true;
+          if (chatInput && (chatInput.value.trim() || pendingAttachments.length > 0)) {
+            PromptQueue.enqueueCurrentInput({
+              chatInput,
+              pendingAttachments,
+              currentSession,
+              sessionPromptQueues,
+              onAfterEnqueue: () => {
+                syncAttachmentsBar();
+                autoResizeInput();
+                updateSendOrStopButton();
+                syncPromptQueueBar();
+              }
+            });
+          }
+        }, 550);
+      });
+      const cancelLongPress = () => {
+        if (pressTimer) { clearTimeout(pressTimer); pressTimer = null; }
+      };
+      btnSendOrStop.addEventListener('pointerup', cancelLongPress);
+      btnSendOrStop.addEventListener('pointerleave', cancelLongPress);
+      btnSendOrStop.addEventListener('click', e => {
+        if (longPressed) {
+          e.stopImmediatePropagation();
+          e.preventDefault();
+          longPressed = false;
+        }
+      }, true);
+    }
+
+    // 计划模式开关（轻量版：呈交计划 → 批准转任务清单）
+    if (pillPlan) {
+      pillPlan.addEventListener('click', async () => {
+        if (!currentSession) return;
+        const next = !pillPlan.classList.contains('active');
+        pillPlan.classList.toggle('active', next);
+        try {
+          const res = await ctx.call('setSessionPlanMode', { sessionId: currentSession.id, enabled: next });
+          if (res && res.ok) {
+            currentSession.planMode = !!res.planMode;
+            pillPlan.classList.toggle('active', !!res.planMode);
+          } else {
+            pillPlan.classList.toggle('active', !next);
+          }
+        } catch {
+          pillPlan.classList.toggle('active', !next);
+        }
+      });
+    }
 
     btnSendOrStop.addEventListener('click', () => {
       if (btnSendOrStop.classList.contains('stop')) {
@@ -1201,6 +1445,7 @@
             renderMessages();
             renderSessionsList();
             restorePendingLateChunks();
+            syncPlanPill();
           }
         });
 
@@ -1877,6 +2122,7 @@
           <button type="button" class="ai-msg-tool-btn btn-tool-del" title="删除此消息">
             <span>🗑️</span> <span>删除</span>
           </button>
+          ${msg.steered ? `<span class="ai-steer-tag${msg.steerState === 'consumed' ? ' ok' : (msg.steerState === 'deferred' ? ' deferred' : '')}" title="运行中插话：在下一工具轮边界注入模型上下文">${msg.steerState === 'consumed' ? '🧭 已生效 ✓' : (msg.steerState === 'deferred' ? '🧭 本轮未消费 · 已入历史' : '🧭 已插话')}</span>` : ''}
           ${isShadowed ? '<span class="ai-msg-shadowed-tag" title="此消息已被模型上下文折叠，但在历史中完整保留供随时查看">📜 历史归档</span>' : ''}
           <span class="ai-msg-meta">${timeStr}</span>
         `;
@@ -1925,8 +2171,6 @@
         const renderSingleToolBadge = (tc, explicitResult, container = timeline) => {
           const statusMap = msg.toolStatus || {};
           const st = statusMap[tc.id];
-          const toolBadge = document.createElement('div');
-          toolBadge.className = 'ai-tool-badge' + (st === 'denied' ? ' denied' : '');
 
           let result = explicitResult !== undefined ? explicitResult : (msg.toolResults ? msg.toolResults[tc.id] : undefined);
           if (result === undefined && tc.result !== undefined) result = tc.result;
@@ -1935,68 +2179,15 @@
             if (tm) result = tm.content;
           }
 
-          let parsedResult = null;
-          if (typeof result === 'object' && result !== null) {
-            parsedResult = result;
-          } else if (typeof result === 'string' && result.trim().startsWith('{')) {
-            try { parsedResult = JSON.parse(result); } catch {}
-          }
-
-          let stopBtnHtml = '';
-          if (parsedResult && parsedResult.background && parsedResult.pid) {
-            stopBtnHtml = `<button type="button" class="ai-tool-stop-proc-btn" data-pid="${parsedResult.pid}" title="停止此后台进程树 (PID: ${parsedResult.pid})">⏹ 停止进程</button>`;
-          }
-
-          let label;
-          if (st === 'denied') {
-            label = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-          } else if (parsedResult && parsedResult.background && parsedResult.pid) {
-            label = `<span>⚡ 后台运行中 (PID: ${parsedResult.pid}):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-          } else if (tc.function.name === 'stop_process' && parsedResult && parsedResult.ok) {
-            label = `<span>⏹ 已停止进程 (PID: ${parsedResult.pid}):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-          } else if (tc.function.name === 'dispatch_task_to_ai_ide') {
-            let ideName = 'AI IDE';
-            try {
-              const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
-              if (args && args.target) ideName = args.target;
-            } catch {}
-            label = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
-          } else if (tc.function.name.startsWith('mcp__Playwright__') || tc.function.name.startsWith('mcp__playwright__')) {
-            const op = tc.function.name.replace(/^mcp__[Pp]laywright__/, '');
-            label = `<span>🌐 Playwright 浏览器自动化:</span> <strong>${escapeHtml(op)}</strong> ${st === 'approved' ? '(已批准)' : ''}`;
-          } else if (tc.function.name === 'list_available_ai_ides') {
-            label = `<span>🔍 本地 AI 环境探测</span>`;
-          } else if (tc.function.name === 'list_processes') {
-            const count = (parsedResult && parsedResult.count !== undefined) ? parsedResult.count : 0;
-            label = `<span>📋 进程清单:</span> <strong>共 ${count} 个活跃进程</strong>`;
-          } else if (st === 'approved') {
-            label = `<span>✓ 已执行 (手动批准):</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-          } else {
-            label = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong>`;
-          }
-
-          let resultHtml = '';
-          if (result !== undefined && result !== null && st !== 'denied') {
-            const formatted = formatToolResultForDisplay(result);
-            const previewLen = formatted.length > 1024 ? `(${(formatted.length / 1024).toFixed(1)} KB)` : `(${formatted.length} 字符)`;
-            resultHtml = `
-              <details class="ai-tool-result-details">
-                <summary class="ai-tool-result-summary">
-                  <span>📋 查看执行结果</span>
-                  <span style="opacity:0.6;font-size:10px;">${previewLen} ▾</span>
-                </summary>
-                <pre class="ai-tool-result-pre"><code>${escapeHtml(formatted)}</code></pre>
-              </details>
-            `;
-          }
-
-          toolBadge.innerHTML = `
-            <div class="ai-tool-badge-head">
-              <div class="ai-tool-badge-title">${label}</div>
-              ${stopBtnHtml}
-            </div>
-            ${resultHtml}
-          `;
+          const toolBadge = ToolCards
+            ? ToolCards.createToolCard(tc, { phase: st === 'denied' ? 'denied' : 'done', result })
+            : (() => {
+                const d = document.createElement('div');
+                d.className = 'ai-tool-badge';
+                d.dataset.tool = tc.id;
+                d.innerHTML = `<div class="ai-tool-badge-head"><div class="ai-tool-badge-title"><span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong></div></div>`;
+                return d;
+              })();
           (container || timeline || bubble).appendChild(toolBadge);
         };
 
@@ -2004,6 +2195,7 @@
           if (!text || !text.trim()) return;
           const cotBox = document.createElement('details');
           cotBox.className = 'ai-cot-box';
+          cotBox.dataset.round = String(roundIdx);
           cotBox.open = false;
           const title = totalSteps <= 1 ? '🧠 思考过程' : (roundIdx === 0 ? '🧠 思考过程' : `🧠 进一步思考 (第 ${roundIdx + 1} 步)`);
           cotBox.innerHTML = `
@@ -2186,6 +2378,24 @@
       if (MermaidRenderer) {
         MermaidRenderer.initMessageDynamicElements(bubble, { renderMermaid: true, copyToClipboard });
       }
+      if (HljsRenderer) {
+        HljsRenderer.highlightContainer(bubble);
+      }
+      // 历史态：多轮工具回合折叠为摘要行（保留最后一轮正文展开）+ Turn 页脚
+      const histTimeline = bubble.querySelector('.ai-bubble-timeline');
+      if (histTimeline) {
+        const histRoundNums = Array.from(histTimeline.children)
+          .map(el => (el.dataset ? Number(el.dataset.round) : NaN))
+          .filter(n => !Number.isNaN(n));
+        if (histRoundNums.length) {
+          const histMax = Math.max(...histRoundNums);
+          const toolRounds = Array.from(histTimeline.children)
+            .filter(el => el.classList && el.classList.contains('ai-tool-card'))
+            .map(el => Number(el.dataset.round) || 0);
+          if (toolRounds.length) collapseCompletedRounds(histTimeline, histMax);
+        }
+      }
+      renderTurnFooter(bubble, msg);
       bubble.querySelectorAll('img:not(.ai-attachment-thumb)').forEach(img => {
         img.style.cursor = 'zoom-in';
         img.addEventListener('click', () => {
@@ -2302,36 +2512,59 @@
     function appendApprovalCard(bubble, payload, chunk, onResolved) {
       let card = bubble ? bubble.querySelector(`.ai-tool-approval[data-approval="${chunk.toolId}"]`) : null;
       if (!card) {
+        // dsh: 审批挂接到已流式展示的工具卡上（callId 关联），不渲染第二份参数副本；
+        // 工具卡缺失（迟到分片等场景）时回退为独立审批卡
+        const toolCard = bubble ? bubble.querySelector(`.ai-tool-card[data-tool="${chunk.toolId}"]`) : null;
+        const inlineSlot = toolCard ? toolCard.querySelector('.ai-tool-approval-slot') : null;
+
         card = document.createElement('div');
         card.className = 'ai-tool-approval';
         card.dataset.approval = chunk.toolId;
-        let argsPretty = chunk.args || '';
-        try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
-        card.innerHTML = `
-          <div class="ai-approval-head">
-            <div class="ai-approval-title">
-              <span class="ai-approval-ico">${chunk.toolName === 'dispatch_task_to_ai_ide' ? '🚀' : '🔐'}</span>
-              <span>${chunk.toolName === 'dispatch_task_to_ai_ide' ? '请求派发任务至外部 AI IDE / CLI' : `请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong>`}</span>
+        if (inlineSlot) {
+          card.classList.add('inline');
+          card.innerHTML = `
+            <div class="ai-approval-head">
+              <div class="ai-approval-title">
+                <span class="ai-approval-ico">🔐</span>
+                <span>需要批准执行 · 参数见上方「查看调用参数」</span>
+              </div>
             </div>
-            <button type="button" class="ai-approval-copy-btn" title="复制参数">📋 复制参数</button>
-          </div>
-          <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
-          <div class="ai-approval-actions">
-            <button type="button" class="ai-approval-btn allow">✓ 允许执行</button>
-            <button type="button" class="ai-approval-btn deny">✗ 拒绝</button>
-            <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
-          </div>
-        `;
-        const copyBtn = card.querySelector('.ai-approval-copy-btn');
-        if (copyBtn) {
-          copyBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            await copyToClipboard(argsPretty);
-            copyBtn.textContent = '✓ 已复制';
-            setTimeout(() => { copyBtn.textContent = '📋 复制参数'; }, 1500);
-          });
+            <div class="ai-approval-actions">
+              <button type="button" class="ai-approval-btn allow">✓ 允许执行</button>
+              <button type="button" class="ai-approval-btn deny">✗ 拒绝</button>
+              <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
+            </div>
+          `;
+        } else {
+          let argsPretty = chunk.args || '';
+          try { argsPretty = JSON.stringify(JSON.parse(chunk.args), null, 2); } catch {}
+          card.innerHTML = `
+            <div class="ai-approval-head">
+              <div class="ai-approval-title">
+                <span class="ai-approval-ico">${chunk.toolName === 'dispatch_task_to_ai_ide' ? '🚀' : '🔐'}</span>
+                <span>${chunk.toolName === 'dispatch_task_to_ai_ide' ? '请求派发任务至外部 AI IDE / CLI' : `请求执行工具 <strong>${escapeHtml(chunk.toolName)}</strong>`}</span>
+              </div>
+              <button type="button" class="ai-approval-copy-btn" title="复制参数">📋 复制参数</button>
+            </div>
+            <pre class="ai-approval-args">${escapeHtml(argsPretty)}</pre>
+            <div class="ai-approval-actions">
+              <button type="button" class="ai-approval-btn allow">✓ 允许执行</button>
+              <button type="button" class="ai-approval-btn deny">✗ 拒绝</button>
+              <button type="button" class="ai-approval-btn always">允许并记住（本会话）</button>
+            </div>
+          `;
+          const copyBtn = card.querySelector('.ai-approval-copy-btn');
+          if (copyBtn) {
+            copyBtn.addEventListener('click', async (e) => {
+              e.stopPropagation();
+              await copyToClipboard(argsPretty);
+              copyBtn.textContent = '✓ 已复制';
+              setTimeout(() => { copyBtn.textContent = '📋 复制参数'; }, 1500);
+            });
+          }
         }
-        if (bubble) {
+        if (inlineSlot) inlineSlot.appendChild(card);
+        else if (bubble) {
           const badge = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
           if (badge) badge.insertAdjacentElement('afterend', card);
           else bubble.appendChild(card);
@@ -2352,6 +2585,64 @@
         });
       }
       return card;
+    }
+
+    // 轻量计划模式评审卡：批准→转任务清单 / 继续规划→带反馈修订（dsh plan review）
+    function appendPlanReviewCard(timeline, payload, chunk) {
+      if (!timeline || !chunk || !chunk.planId) return;
+      let card = timeline.querySelector(`.ai-plan-review[data-plan="${chunk.planId}"]`);
+      if (card) return;
+      const streamId = payload && payload.streamId;
+
+      card = document.createElement('div');
+      card.className = 'ai-plan-review';
+      card.dataset.plan = chunk.planId;
+      card.innerHTML = `
+        <div class="ai-plan-head">
+          <span class="ai-plan-ico">📋</span>
+          <span class="ai-plan-title">执行计划评审</span>
+        </div>
+        <div class="ai-plan-body">${renderMarkdown(chunk.markdown || '')}</div>
+        <div class="ai-plan-feedback hidden">
+          <textarea class="ai-plan-feedback-input" rows="2" placeholder="反馈：哪些步骤需要调整？"></textarea>
+        </div>
+        <div class="ai-plan-actions">
+          <button type="button" class="ai-plan-btn approve">✓ 批准并生成任务清单</button>
+          <button type="button" class="ai-plan-btn revise">✎ 继续规划</button>
+        </div>
+      `;
+      timeline.appendChild(card);
+
+      if (HljsRenderer) HljsRenderer.highlightContainer(card);
+      if (MermaidRenderer) MermaidRenderer.initMessageDynamicElements(card, { renderMermaid: false, copyToClipboard });
+
+      const actionsEl = card.querySelector('.ai-plan-actions');
+      const feedbackWrap = card.querySelector('.ai-plan-feedback');
+      const feedbackInput = card.querySelector('.ai-plan-feedback-input');
+
+      card.querySelector('.ai-plan-btn.approve').addEventListener('click', async () => {
+        try {
+          await ctx.call('resolvePlanReview', { streamId, planId: chunk.planId, approved: true });
+        } catch {}
+        actionsEl.innerHTML = '<span class="ai-plan-status ok">✓ 已批准 · 已生成任务清单，任务面板已更新</span>';
+        feedbackWrap.classList.add('hidden');
+      });
+
+      const reviseBtn = card.querySelector('.ai-plan-btn.revise');
+      reviseBtn.addEventListener('click', async () => {
+        if (feedbackWrap.classList.contains('hidden')) {
+          feedbackWrap.classList.remove('hidden');
+          reviseBtn.textContent = '📤 提交反馈';
+          if (feedbackInput) feedbackInput.focus();
+          return;
+        }
+        const feedback = feedbackInput ? feedbackInput.value.trim() : '';
+        try {
+          await ctx.call('resolvePlanReview', { streamId, planId: chunk.planId, approved: false, feedback });
+        } catch {}
+        actionsEl.innerHTML = `<span class="ai-plan-status revise">✎ 已反馈${feedback ? '：' + escapeHtml(feedback.slice(0, 80)) : ''} · 等待模型修订计划</span>`;
+        feedbackWrap.classList.add('hidden');
+      });
     }
 
     function restorePendingLateChunks() {
@@ -2376,7 +2667,16 @@
           messagesScroll.appendChild(card);
         }
       });
-      if (buf.approvals.length) scrollToBottom();
+      buf.plans.forEach(p => {
+        if (messagesScroll.querySelector(`.ai-plan-review[data-plan="${p.chunk.planId}"]`)) return;
+        const msgEl = messagesScroll.querySelector(`.ai-msg[data-id="${p.messageId}"]`);
+        const bubble = msgEl ? msgEl.querySelector('.ai-msg-bubble') : null;
+        if (bubble) {
+          const tl = bubble.querySelector('.ai-bubble-timeline') || bubble;
+          appendPlanReviewCard(tl, p, p.chunk);
+        }
+      });
+      if (buf.approvals.length || buf.plans.length) scrollToBottom();
     }
 
     // Stream Chunk Listener via IPC
@@ -2388,6 +2688,7 @@
       if (!currentSession || payload.sessionId !== currentSession.id) {
         const buf = getLateChunkBuf(payload.sessionId);
         if (chunk.type === 'tool_approval_request') buf.approvals.push(payload);
+        if (chunk.type === 'plan_review_request') buf.plans.push(payload);
         if (isTerminal) buf.terminated = true;
         if (chunk.type === 'task_list' || (isTerminal && chunk.taskList !== undefined)) {
           const targetSess = sessions.find(s => s.id === payload.sessionId);
@@ -2405,6 +2706,32 @@
       if (chunk.type === 'task_list') {
         currentSession.taskList = Array.isArray(chunk.tasks) ? chunk.tasks : [];
         renderTaskCard();
+        return;
+      }
+
+      // dsh Steering：插话立即上屏 / 状态回写
+      if (chunk.type === 'steered') {
+        if (currentSession && Array.isArray(currentSession.messages) && chunk.message) {
+          if (!currentSession.messages.some(m => m.id === chunk.message.id)) {
+            currentSession.messages.push(chunk.message);
+          }
+          const steerEl = createMessageElement(chunk.message);
+          messagesScroll.appendChild(steerEl);
+          scrollToBottom();
+        }
+        return;
+      }
+      if (chunk.type === 'steer_consumed' || chunk.type === 'steer_deferred') {
+        const stateText = chunk.type === 'steer_consumed' ? '已生效 ✓' : '本轮未消费 · 已入历史';
+        for (const sid of chunk.ids || []) {
+          const tag = messagesScroll.querySelector(`.ai-msg[data-id="${sid}"] .ai-steer-tag`);
+          if (tag) {
+            tag.textContent = `🧭 ${stateText}`;
+            tag.classList.add(chunk.type === 'steer_consumed' ? 'ok' : 'deferred');
+          }
+          const localMsg = currentSession && currentSession.messages.find(m => m.id === sid);
+          if (localMsg) localMsg.steerState = chunk.type === 'steer_consumed' ? 'consumed' : 'deferred';
+        }
         return;
       }
 
@@ -2497,9 +2824,16 @@
           mdBlock.dataset.round = String(round);
           timeline.appendChild(mdBlock);
         }
-        mdBlock.innerHTML = renderMarkdown(textToRender);
-        if (MermaidRenderer) {
-          MermaidRenderer.initMessageDynamicElements(mdBlock, { renderMermaid: false, copyToClipboard });
+        // dsh 增量渲染：settled 前缀只渲一次，活动尾块按帧合帧重渲，
+        // Mermaid/高亮延后到轮次结束时统一执行
+        const slot = getStreamSlot(mdBlock, messageId, round);
+        if (slot) {
+          slot.scheduleUpdate(textToRender);
+        } else {
+          mdBlock.innerHTML = renderMarkdown(textToRender);
+          if (MermaidRenderer) {
+            MermaidRenderer.initMessageDynamicElements(mdBlock, { renderMermaid: false, copyToClipboard });
+          }
         }
         scrollToBottom();
       } else if (chunk.type === 'tool_calls') {
@@ -2519,42 +2853,64 @@
             const prefix = (r && Number(r) > 0) ? `🧠 进一步思考 (第 ${Number(r) + 1} 步)` : '🧠 思考过程';
             sum.textContent = `${prefix} (已完成)`;
           }
+          // dsh: 思考过程完成后自动收起，保持时间线聚焦在工具与内容
+          activeCot.open = false;
         }
 
         for (const tc of chunk.toolCalls) {
           if (!timeline.querySelector(`.ai-tool-badge[data-tool="${tc.id}"]`)) {
-            const b = document.createElement('div');
-            b.className = 'ai-tool-badge';
-            b.dataset.tool = tc.id;
-            let title = `<span>🛠️ 工具调用:</span> <strong>${escapeHtml(tc.function.name)}</strong> <span class="ai-tool-badge-status">(参数就绪)</span>`;
-            if (tc.function.name === 'dispatch_task_to_ai_ide') {
-              let ideName = 'AI IDE';
-              try {
-                const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
-                if (args && args.target) ideName = args.target;
-              } catch {}
-              title = `<span>🚀 任务分派:</span> <strong>${escapeHtml(ideName)}</strong> <span class="ai-tool-badge-status">(准备中)</span>`;
-            } else if (tc.function.name === 'list_available_ai_ides') {
-              title = `<span>🔍 探测本地 AI IDE/CLI:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
-            } else if (tc.function.name === 'list_processes') {
-              title = `<span>📋 查看后台进程:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
-            } else if (tc.function.name === 'stop_process') {
-              let pidText = '';
-              try {
-                const args = typeof tc.function.arguments === 'string' ? JSON.parse(tc.function.arguments) : tc.function.arguments;
-                if (args && args.pid) pidText = `(PID: ${args.pid})`;
-              } catch {}
-              title = `<span>⏹ 停止后台进程 ${pidText}:</span> <span class="ai-tool-badge-status">(准备中)</span>`;
+            const b = ToolCards
+              ? ToolCards.createToolCard(tc, { phase: 'streaming' })
+              : null;
+            if (b) {
+              if (tc.round !== undefined && tc.round !== null) b.dataset.round = String(tc.round);
+              timeline.appendChild(b);
             }
-            b.innerHTML = `
-              <div class="ai-tool-badge-head">
-                <div class="ai-tool-badge-title">${title}</div>
-              </div>
-            `;
-            timeline.appendChild(b);
           }
         }
         scrollToBottom();
+      } else if (chunk.type === 'tool_exec_start') {
+        // 参数已定稿：升级工具卡为"执行中"并展示可查参数（dsh: 参数事后可查）
+        let timeline = bubble.querySelector('.ai-bubble-timeline');
+        if (!timeline) {
+          timeline = document.createElement('div');
+          timeline.className = 'ai-bubble-timeline';
+          bubble.appendChild(timeline);
+        }
+        let minRound = Infinity;
+        for (const tc of chunk.toolCalls || []) {
+          const card = bubble.querySelector(`.ai-tool-card[data-tool="${tc.id}"]`);
+          if (card && ToolCards) ToolCards.applyExecStart(card, tc);
+          else if (!card && ToolCards) {
+            const c = ToolCards.createToolCard(tc, { phase: 'running' });
+            timeline.appendChild(c);
+          }
+          if (tc.round !== undefined && tc.round !== null) minRound = Math.min(minRound, Number(tc.round));
+        }
+        if (Number.isFinite(minRound) && minRound > 0) {
+          // 下一轮已开始：结算上一轮渲染槽并折叠更早轮次
+          markRoundUpTo(timeline, minRound);
+          finalizeStreamSlots(bubble, messageId, {});
+        }
+        scrollToBottom();
+      } else if (chunk.type === 'tool_truncated') {
+        const note = document.createElement('div');
+        note.className = 'ai-tool-truncated-note';
+        note.textContent = `⚠️ 工具 ${chunk.toolName || ''} 参数疑似被 max-tokens 截断，已安全丢弃本次调用（模型会重新发起）`;
+        const tl = bubble.querySelector('.ai-bubble-timeline');
+        if (tl) tl.appendChild(note); else bubble.appendChild(note);
+        scrollToBottom();
+      } else if (chunk.type === 'status') {
+        // dsh 压缩透明化：compaction / overflow 等状态以轻量行内提示呈现
+        if (chunk.status === 'compaction_start' || chunk.status === 'compaction_end' || chunk.status === 'overflow_recovery') {
+          const note = document.createElement('div');
+          note.className = 'ai-status-note';
+          note.dataset.status = chunk.status;
+          note.textContent = (chunk.status === 'compaction_end' ? '🗜️ ' : '⏳ ') + (chunk.message || chunk.status);
+          const tl = bubble.querySelector('.ai-bubble-timeline');
+          if (tl) tl.appendChild(note); else bubble.appendChild(note);
+          scrollToBottom();
+        }
       } else if (chunk.type === 'tool_approval_request') {
         let timeline = bubble.querySelector('.ai-bubble-timeline') || bubble;
         appendApprovalCard(timeline, payload, chunk, () => {
@@ -2581,97 +2937,25 @@
             actions.replaceWith(status);
           }
         }
+      } else if (chunk.type === 'plan_review_request') {
+        const tl = bubble.querySelector('.ai-bubble-timeline') || bubble;
+        appendPlanReviewCard(tl, payload, chunk);
+        scrollToBottom();
       } else if (chunk.type === 'tool_result') {
         const b = bubble.querySelector(`.ai-tool-badge[data-tool="${chunk.toolId}"]`);
-        if (b) {
-          let titleHtml = '';
-          let stopBtnHtml = '';
+        if (b && ToolCards) {
+          ToolCards.applyToolResult(b, chunk.toolName, chunk.result);
+          // 停止进程联动：跨消息把同 PID 的停止按钮标记为已停止
           const res = chunk.result || {};
-          if (res.denied) {
-            b.classList.add('denied');
-            titleHtml = `<span>✗ 已拒绝:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
-          } else if (res.background && res.pid) {
-            titleHtml = `<span>⚡ 后台运行中 (PID: ${res.pid}):</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
-            stopBtnHtml = `<button type="button" class="ai-tool-stop-proc-btn" data-pid="${res.pid}" title="停止此后台进程树 (PID: ${res.pid})">⏹ 停止进程</button>`;
-          } else if (chunk.toolName === 'stop_process' && res.ok) {
-            titleHtml = `<span>⏹ 已停止进程 (PID: ${res.pid}):</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
-            if (res.pid) {
-              const allWithPid = messagesScroll.querySelectorAll(`.ai-tool-stop-proc-btn[data-pid="${res.pid}"]`);
-              allWithPid.forEach(btn => {
-                btn.textContent = '✓ 已停止';
-                btn.classList.add('stopped');
-                btn.disabled = true;
-              });
-            }
-          } else if (chunk.toolName === 'dispatch_subagent') {
-            const res = chunk.result || {};
-            const modeLabel = res.mode === 'fork' ? '分叉探索' : '专项派生';
-            const role = res.role || '子智能体';
-            const state = res.ok ? `完成 (${res.rounds_executed || 1} 轮 · ${res.total_tool_calls || 0} 次工具)` : '失败';
-            titleHtml = `<span>🤖 子智能体 [${escapeHtml(role)}] (${modeLabel}):</span> <strong>${state}</strong>`;
-          } else if (chunk.toolName === 'dispatch_task_to_ai_ide') {
-            const res = chunk.result || {};
-            const ide = res.targetName || res.target || '外部 AI';
-            const mode = res.mode === 'headless' ? '批处理' : (res.mode === 'terminal' ? '终端' : 'IDE窗口');
-            const state = res.ok ? '成功' : '失败';
-            titleHtml = `<span>🚀 任务已派发至:</span> <strong>${escapeHtml(ide)}</strong> <span style="opacity:0.85">(${mode}·${state})</span>`;
-          } else if (chunk.toolName.startsWith('mcp__Playwright__') || chunk.toolName.startsWith('mcp__playwright__')) {
-            const op = chunk.toolName.replace(/^mcp__[Pp]laywright__/, '');
-            titleHtml = `<span>🌐 Playwright 执行完成:</span> <strong>${escapeHtml(op)}</strong>`;
-          } else if (chunk.toolName === 'list_available_ai_ides') {
-            const count = (chunk.result && chunk.result.count !== undefined) ? chunk.result.count : 0;
-            titleHtml = `<span>🔍 本地 AI 环境探测:</span> <strong>已找到 ${count} 个可用工具</strong>`;
-          } else if (chunk.toolName === 'list_processes') {
-            const count = (res.count !== undefined) ? res.count : 0;
-            titleHtml = `<span>📋 进程清单:</span> <strong>共 ${count} 个活跃进程</strong>`;
-          } else {
-            titleHtml = `<span>✓ 工具已执行:</span> <strong>${escapeHtml(chunk.toolName)}</strong>`;
+          if (chunk.toolName === 'stop_process' && res.ok && res.pid) {
+            const allWithPid = messagesScroll.querySelectorAll(`.ai-tool-stop-proc-btn[data-pid="${res.pid}"]`);
+            allWithPid.forEach(btn => {
+              btn.textContent = '✓ 已停止';
+              btn.classList.add('stopped');
+              btn.disabled = true;
+            });
           }
-
-          let detailsHtml = '';
-          if (chunk.result && !chunk.result.denied) {
-            const formatForDisplay = (res) => {
-              if (res === null || res === undefined) return '(无执行结果)';
-              if (typeof res === 'string') return res;
-              if (typeof res === 'object') {
-                if (Array.isArray(res.content)) {
-                  const texts = res.content.map(c => (c && c.text) ? c.text : JSON.stringify(c)).filter(Boolean);
-                  if (texts.length > 0) return texts.join('\n');
-                }
-                if (res.stdout !== undefined || res.stderr !== undefined) {
-                  let out = '';
-                  if (res.stdout) out += res.stdout;
-                  if (res.stderr) out += (out ? '\n[stderr]\n' : '') + res.stderr;
-                  if (res.exitCode !== undefined) out += `\n[退出码: ${res.exitCode}]`;
-                  return out || '(无控制台输出)';
-                }
-                if (res.result !== undefined) {
-                  return typeof res.result === 'object' ? JSON.stringify(res.result, null, 2) : String(res.result);
-                }
-                return JSON.stringify(res, null, 2);
-              }
-              return String(res);
-            };
-            const formatted = formatForDisplay(chunk.result);
-            const previewLen = formatted.length > 1024 ? `(${(formatted.length / 1024).toFixed(1)} KB)` : `(${formatted.length} 字符)`;
-            detailsHtml = `
-              <details class="ai-tool-result-details">
-                <summary class="ai-tool-result-summary">
-                  <span>📋 查看执行结果</span>
-                  <span style="opacity:0.6;font-size:10px;">${previewLen} ▾</span>
-                </summary>
-                <pre class="ai-tool-result-pre"><code>${escapeHtml(formatted)}</code></pre>
-              </details>
-            `;
-          }
-
-          b.innerHTML = `
-            <div class="ai-tool-badge-head">
-              <div class="ai-tool-badge-title">${titleHtml}</div>
-              ${stopBtnHtml}
-            </div>
-            ${detailsHtml}
-          `;
+          if (HljsRenderer) HljsRenderer.highlightContainer(b);
         }
         scrollToBottom();
       } else if (chunk.type === 'usage') {
@@ -2693,9 +2977,22 @@
         updateContextProgress();
       } else if (chunk.type === 'complete' || chunk.type === 'aborted' || chunk.type === 'error') {
         setGeneratingState(false);
+        // 结算全部增量渲染槽：最终 DOM 与历史渲染路径完全一致
+        finalizeStreamSlots(bubble, messageId, { deep: true });
         if (MermaidRenderer) {
           MermaidRenderer.initMessageDynamicElements(bubble, { renderMermaid: true, copyToClipboard });
         }
+        // 折叠更早轮次（保留最后一轮正文展开）+ CoT 全部收起 + Turn 页脚
+        const tlEnd = bubble.querySelector('.ai-bubble-timeline');
+        if (tlEnd) {
+          const roundNums = Array.from(tlEnd.children)
+            .map(el => (el.dataset ? Number(el.dataset.round) : NaN))
+            .filter(n => !Number.isNaN(n));
+          const maxRound = roundNums.length ? Math.max(...roundNums) : 0;
+          collapseCompletedRounds(tlEnd, maxRound);
+          if (HljsRenderer) HljsRenderer.highlightContainer(tlEnd);
+        }
+        renderTurnFooter(bubble, chunk.message || {});
         scrollToBottom();
         if (chunk.message && currentSession && currentSession.messages) {
           let m = currentSession.messages.find(x => x.id === messageId);
@@ -2736,6 +3033,7 @@
             if (MermaidRenderer) {
               MermaidRenderer.initMessageDynamicElements(mdBlock, { renderMermaid: true, copyToClipboard });
             }
+            if (HljsRenderer) HljsRenderer.highlightContainer(mdBlock);
           }
         }
         const cotBoxes = bubble.querySelectorAll('.ai-cot-box');
@@ -2746,6 +3044,7 @@
             const prefix = (r && Number(r) > 0) ? `🧠 进一步思考 (第 ${Number(r) + 1} 步)` : '🧠 思考过程';
             sum.textContent = `${prefix} (已完成)`;
           }
+          cb.open = false;
         });
         if (chunk.sessionTotalTokens) {
           if (currentSession) currentSession.totalTokens = chunk.sessionTotalTokens;
@@ -2781,6 +3080,7 @@
       renderSessionsList();
       updateHeader();
       renderMessages();
+      syncPlanPill();
 
       if (ctx.payload && (typeof ctx.payload === 'string' || ctx.payload.text)) {
         const pv = typeof ctx.payload === 'string' ? ctx.payload : ctx.payload.text;

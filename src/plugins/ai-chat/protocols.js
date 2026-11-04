@@ -404,16 +404,36 @@ const OpenAIResponsesAdapter = {
   parseSyncResponse(data) {
     let content = '';
     let reasoning = '';
+    let toolCalls = null;
     if (data && data.output) {
       if (typeof data.output === 'string') content = data.output;
       else if (Array.isArray(data.output)) {
-        content = data.output.map(o => o.text || o.content || '').join('');
+        const textParts = [];
+        const calls = [];
+        for (const o of data.output) {
+          if (!o) continue;
+          if (o.type === 'function_call') {
+            // Restore typed items to the OpenAI-chat tool_calls shape the agent
+            // loop consumes, mirroring buildRequest's outgoing mapping.
+            calls.push({
+              id: o.call_id || o.id || `call_${calls.length}`,
+              type: 'function',
+              function: { name: o.name || '', arguments: o.arguments || '{}' }
+            });
+          } else if (o.type === 'reasoning' && o.summary) {
+            reasoning += o.summary.map(s => (s && s.text) || '').join('');
+          } else if (o.text || o.content) {
+            textParts.push(o.text || o.content);
+          }
+        }
+        content = textParts.join('');
+        if (calls.length > 0) toolCalls = calls;
       }
     }
     return {
       content,
       reasoning,
-      toolCalls: data && data.tool_calls ? data.tool_calls : null,
+      toolCalls: toolCalls || (data && data.tool_calls ? data.tool_calls : null),
       usage: data && data.usage ? {
         promptTokens: data.usage.input_tokens || 0,
         completionTokens: data.usage.output_tokens || 0,

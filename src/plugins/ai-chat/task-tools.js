@@ -93,10 +93,62 @@ function extractTasksFromMarkdown(content) {
   return matches;
 }
 
+/* Lightweight plan mode (deepseek-harness plan review seam): the model submits
+   a full markdown plan; on approval it converts into the session task list.
+   Progressive disclosure — the tool is only declared when planMode is on. */
+const SUBMIT_PLAN_TOOL_DEFINITION = {
+  type: 'function',
+  function: {
+    name: 'submit_plan',
+    description: '呈交执行计划供用户评审（仅在计划模式下可用）。计划必须是完整的 Markdown 文档：以 # 标题开头，用任务清单(- [ ] ...)列出执行步骤。用户批准后计划会自动转为任务清单；若用户要求继续规划，你会收到反馈并修订后重新呈交。批准前不要执行任何写操作。',
+    parameters: {
+      type: 'object',
+      properties: {
+        plan_markdown: { type: 'string', description: '完整计划 Markdown 文档（# 标题 + 任务清单）' }
+      },
+      required: ['plan_markdown']
+    }
+  }
+};
+
+/**
+ * Convert an approved plan markdown into a normalized task list.
+ * Priority: markdown checklists; fallback: heading/bullet lines.
+ * @returns {{ ok: boolean, tasks?: Array, error?: string }}
+ */
+function planMarkdownToTasks(markdown) {
+  const md = String(markdown || '').trim();
+  if (!md) return { ok: false, error: '计划内容为空' };
+
+  let items = extractTasksFromMarkdown(md);
+  if (items.length === 0) {
+    // Fallback: numbered/bulleted lines and ## headings as steps
+    items = [];
+    for (const line of md.split(/\r?\n/)) {
+      const m = line.match(/^\s*(?:\d+[.)]|[-*+]|#{2,4})\s+(.+)$/);
+      if (m) {
+        const text = m[1].replace(/[*_`#]+/g, '').trim();
+        if (text && text.length > 1) items.push({ content: text, status: 'pending' });
+      }
+    }
+  }
+  if (items.length === 0) {
+    // Last resort: treat the # title itself as a single task
+    const title = (md.match(/^#\s+(.+)$/m) || [])[1];
+    if (title) items = [{ content: title.trim(), status: 'pending' }];
+  }
+
+  const norm = normalizeTaskList(items);
+  if (!norm.ok) return norm;
+  return { ok: true, tasks: norm.tasks };
+}
+
 module.exports = {
   TASK_LIMIT,
   TASK_STATUSES,
   TASK_TOOLS_DEFINITIONS,
+  SUBMIT_PLAN_TOOL_DEFINITION,
+  planMarkdownToTasks,
   normalizeTaskList,
   summarizeTaskProgress,
   formatTaskListForPrompt,

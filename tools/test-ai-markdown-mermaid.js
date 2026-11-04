@@ -144,4 +144,104 @@ console.log(answer);
   console.log('PASS: extractTasksFromContent for floating task panel');
 }
 
+// 8. Incremental stream renderer: splitSettledPrefix safety boundaries
+{
+  const { splitSettledPrefix, rafThrottle } = require('../src/plugins/ai-chat/lib/stream-renderer');
+
+  const r1 = splitSettledPrefix('第一段\n\n第二段还在写');
+  assert.strictEqual(r1.settled, '第一段\n');
+  assert.strictEqual(r1.active, '第二段还在写');
+
+  const r2 = splitSettledPrefix('文本\n\n```js\nconst a = 1;\n\n围栏内空行\n继续流');
+  assert.strictEqual(r2.settled, '文本\n', 'blank lines inside an open fence must not split');
+  assert.ok(r2.active.startsWith('```js'));
+
+  const r3 = splitSettledPrefix('文本\n\n```js\ncode\n```\n\n后续');
+  assert.ok(r3.settled.includes('```'), 'closed fence can settle');
+  assert.strictEqual(r3.active, '后续');
+
+  const r4 = splitSettledPrefix('表头|列\n---|---\n行1|a\n\n尾段');
+  assert.ok(r4.settled.includes('行1'), 'a full table settles as one unit');
+  assert.strictEqual(r4.active, '尾段');
+
+  const r5 = splitSettledPrefix('|a|b|\n|-|-|\n|1|2|');
+  assert.strictEqual(r5.settled, '', 'unfinished table stays in the active tail');
+
+  assert.deepStrictEqual(splitSettledPrefix(''), { settled: '', active: '' });
+
+  // Incremental equivalence: settled deltas + active rendered separately must
+  // equal one full render (the renderer is purely line/block based).
+  const sample = '标题段\n\n- 项目一\n- 项目二\n\n```py\nprint("hi")\n```\n\n| a | b |\n| - | - |\n| 1 | 2 |\n\n收尾文字…';
+  const sp = splitSettledPrefix(sample);
+  const whole = renderMarkdown(sample);
+  const combined = renderMarkdown(sp.settled) + renderMarkdown(sp.active);
+  assert.strictEqual(combined, whole, 'split render must be byte-identical with full render');
+
+  assert.strictEqual(typeof rafThrottle, 'function');
+  console.log('PASS: splitSettledPrefix streaming boundaries + incremental render equivalence');
+}
+
+// 9. highlight.js renderer: graceful degradation without a DOM/vendor
+{
+  const { highlightContainer, LANG_ALIAS } = require('../src/plugins/ai-chat/lib/hljs-renderer');
+  assert.strictEqual(LANG_ALIAS.ts, 'typescript');
+  assert.strictEqual(LANG_ALIAS.py, 'python');
+  assert.strictEqual(LANG_ALIAS.yml, 'yaml');
+  // No document / no vendor: must not throw (graceful no-op promise)
+  let threw = false;
+  let p = null;
+  try {
+    p = highlightContainer(null);
+  } catch {
+    threw = true;
+  }
+  assert.ok(!threw, 'no-DOM highlightContainer call must not throw');
+  assert.ok(p && typeof p.then === 'function', 'returns a promise');
+  p.catch(() => {});
+  console.log('PASS: hljs renderer graceful degradation (no-DOM environment)');
+}
+
+// 10. Tool cards: pure presentation helpers
+{
+  const { metaFor, prettyArgs, parseArgs, resultTitle, formatToolResultForDisplay } = require('../src/plugins/ai-chat/components/tool-cards');
+
+  assert.strictEqual(metaFor('read_file').icon, '📖');
+  assert.strictEqual(metaFor('mcp__Playwright__navigate').icon, '🌐');
+  assert.strictEqual(metaFor('totally_unknown_tool').icon, '🛠️', 'unknown tools fall back to the generic entry');
+  assert.ok(metaFor('write_file').title({ path: 'a.js' }).includes('a.js'));
+
+  assert.deepStrictEqual(parseArgs('{"x":1}'), { x: 1 });
+  assert.strictEqual(parseArgs('{"truncated'), null, 'invalid JSON returns null (truncation signal)');
+  assert.ok(prettyArgs('{"a":1}').includes('\n'), 'args pretty-printed');
+
+  const t1 = resultTitle('submit_plan', { approved: true });
+  assert.ok(t1.includes('已批准') && t1.includes('任务清单'));
+  const t2 = resultTitle('submit_plan', { ok: true, approved: false, feedback: '再细化' });
+  assert.ok(t2.includes('修订'), 'feedback state distinguished from pending');
+  const t3 = resultTitle('run_command', { ok: false, error: 'boom' });
+  assert.ok(t3.includes('执行失败') && t3.includes('boom'));
+
+  assert.ok(formatToolResultForDisplay({ stdout: 'a', stderr: 'b', exitCode: 0 }).includes('[退出码: 0]'));
+  assert.strictEqual(formatToolResultForDisplay(null), '(无执行结果)');
+  console.log('PASS: tool-cards meta/pretty-args/result-title helpers');
+}
+
+// 11. Task tools: plan markdown conversion
+{
+  const { planMarkdownToTasks, SUBMIT_PLAN_TOOL_DEFINITION } = require('../src/plugins/ai-chat/task-tools');
+  assert.strictEqual(SUBMIT_PLAN_TOOL_DEFINITION.function.name, 'submit_plan');
+
+  const conv = planMarkdownToTasks('# 方案\n\n- [ ] 步骤一\n- [x] 步骤二\n- [ ] 步骤三');
+  assert.ok(conv.ok && conv.tasks.length === 3);
+  assert.strictEqual(conv.tasks[1].status, 'completed');
+
+  // fallback: numbered/bulleted lines and ## headings without checklists
+  const conv2 = planMarkdownToTasks('# 方案\n\n1. 做甲\n2. 做乙\n## 验证\n- 收尾');
+  assert.ok(conv2.ok && conv2.tasks.length === 4, 'numbered/heading/bullet fallback extracts steps');
+  assert.ok(conv2.tasks.some(t => t.content.includes('验证')), 'headings become steps in fallback');
+
+  assert.ok(!planMarkdownToTasks('').ok);
+  console.log('PASS: planMarkdownToTasks conversion + fallbacks');
+}
+
 console.log('\nALL MARKDOWN & MERMAID & TASK TESTS PASSED!');

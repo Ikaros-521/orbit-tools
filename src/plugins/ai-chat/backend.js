@@ -623,6 +623,27 @@ module.exports = {
     ctx.ipc.handle('sendMessage', sendMessageHandler);
     ctx.ipc.handle('chatStream', sendMessageHandler); // Renderer alias compatibility
 
+    /* --- dsh Steering: interject mid-run (Enter while generating) --- */
+
+    ctx.ipc.handle('steerMessage', async args => {
+      return chatService.steerMessage(args, { ctx, findSession, save, genId });
+    });
+
+    /* --- Lightweight Plan Mode (submit_plan review loop) --- */
+
+    ctx.ipc.handle('resolvePlanReview', args => {
+      return chatService.planService.resolvePlanReview(args || {});
+    });
+
+    ctx.ipc.handle('setSessionPlanMode', args => {
+      const s = findSession(args && args.sessionId);
+      if (!s) return { ok: false, error: '会话不存在' };
+      s.planMode = !!((args && args.enabled));
+      s.updatedAt = Date.now();
+      save();
+      return { ok: true, planMode: s.planMode };
+    });
+
     /* --- Workflow Capability Hook --- */
 
     ctx.ipc.handle('chatComplete', async args => {

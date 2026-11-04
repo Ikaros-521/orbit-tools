@@ -2,27 +2,54 @@
    Loads mermaid.min.js dynamically on demand, renders SVGs, and binds copy/toggle events. */
 (() => {
   let mermaidPromise = null;
+  let lastMermaidTheme = null;
+
+  /* Resolve the host colour scheme so chart theme follows the app theme
+     (html[data-theme] drives the root `color-scheme`; "auto" exposes both
+     values and defers to the OS preference). */
+  function detectHostTheme() {
+    try {
+      const cs = (getComputedStyle(document.documentElement).colorScheme || '').trim();
+      const modes = cs.split(/\s+/).filter(Boolean);
+      if (modes.length === 1) return modes[0] === 'light' ? 'light' : 'dark';
+      if (modes.length > 1 && window.matchMedia) {
+        return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+      }
+    } catch {}
+    return 'dark';
+  }
+
+  function applyMermaidTheme(mermaid) {
+    const theme = detectHostTheme() === 'light' ? 'default' : 'dark';
+    if (theme === lastMermaidTheme) return theme;
+    try {
+      mermaid.initialize({
+        startOnLoad: false,
+        theme,
+        securityLevel: 'loose',
+        fontFamily: 'inherit',
+        flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+        sequence: { useMaxWidth: true },
+        gantt: { useMaxWidth: true },
+      });
+      lastMermaidTheme = theme;
+    } catch (e) {
+      console.warn('[AI-Chat] Mermaid init warning:', e);
+    }
+    return theme;
+  }
 
   function ensureMermaid() {
-    if (window.mermaid) return Promise.resolve(window.mermaid);
+    if (window.mermaid) {
+      applyMermaidTheme(window.mermaid);
+      return Promise.resolve(window.mermaid);
+    }
     if (mermaidPromise) return mermaidPromise;
     mermaidPromise = new Promise((resolve, reject) => {
       const script = document.createElement('script');
       script.src = 'plugin://ai-chat/vendor/mermaid.min.js';
       script.onload = () => {
-        try {
-          window.mermaid.initialize({
-            startOnLoad: false,
-            theme: 'dark',
-            securityLevel: 'loose',
-            fontFamily: 'inherit',
-            flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
-            sequence: { useMaxWidth: true },
-            gantt: { useMaxWidth: true },
-          });
-        } catch (e) {
-          console.warn('[AI-Chat] Mermaid init warning:', e);
-        }
+        applyMermaidTheme(window.mermaid);
         resolve(window.mermaid);
       };
       script.onerror = err => {
@@ -142,6 +169,7 @@
     ensureMermaid,
     renderMermaidInContainer,
     initMessageDynamicElements,
+    detectHostTheme,
   };
 
   if (typeof window !== 'undefined') {

@@ -155,20 +155,39 @@ function buildBoundedContext(messages, maxContext = 16) {
   }
 
   // 2. Clone for inference & isolate image offloading for model
+  // Pass 1 (reverse): mark older user image messages for offloading — only the
+  // most recent two user image messages keep their visual payloads.
+  const offloadIdx = new Set();
   let seenUserImgs = 0;
-  const result = [];
   for (let i = activeSlice.length - 1; i >= 0; i--) {
     const m = activeSlice[i];
-    let offloadImages = false;
     if (m && m.role === 'user' && Array.isArray(m.images) && m.images.length > 0) {
       seenUserImgs++;
-      if (seenUserImgs > 2) {
-        offloadImages = true;
-      }
+      if (seenUserImgs > 2) offloadIdx.add(i);
     }
-    const cloned = cloneForInference(m, { offloadImages });
-    if (cloned) result.unshift(cloned);
   }
+
+  // Pass 2 (forward): assemble inference messages. Steered user messages
+  // (dsh steering) may physically sit between an assistant's tool_calls and
+  // their tool results; a tool run must stay contiguous, so they are deferred
+  // until the current tool run closes. Storage/display order is untouched.
+  const result = [];
+  const deferredSteer = [];
+  const flushDeferred = () => {
+    for (const d of deferredSteer.splice(0)) result.push(d);
+  };
+  for (let i = 0; i < activeSlice.length; i++) {
+    const m = activeSlice[i];
+    if (m && m.role === 'user' && m.steered) {
+      const clonedSteer = cloneForInference(m, { offloadImages: offloadIdx.has(i) });
+      if (clonedSteer) deferredSteer.push(clonedSteer);
+      continue;
+    }
+    if (!m || m.role !== 'tool') flushDeferred();
+    const cloned = cloneForInference(m, { offloadImages: offloadIdx.has(i) });
+    if (cloned) result.push(cloned);
+  }
+  flushDeferred();
 
   return result;
 }
