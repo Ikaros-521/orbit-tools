@@ -28,13 +28,16 @@
 
     if (backdropEl) backdropEl.addEventListener('click', closeLightbox);
     if (closeBtnEl) closeBtnEl.addEventListener('click', closeLightbox);
-    document.addEventListener('keydown', (e) => {
+    const onKeydown = (e) => {
       if (e.key === 'Escape' && modalEl && !modalEl.classList.contains('hidden')) {
         closeLightbox();
       }
-    });
+    };
+    document.addEventListener('keydown', onKeydown);
 
-    return { openLightbox, closeLightbox };
+    // 每次面板挂载都会 initLightbox，document 级监听必须可退订，否则积 N 个
+    const disposeLightbox = () => document.removeEventListener('keydown', onKeydown);
+    return { openLightbox, closeLightbox, disposeLightbox };
   }
 
   function renderAttachmentsBar({

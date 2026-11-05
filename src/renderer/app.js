@@ -166,6 +166,7 @@
   }
 
   /* --- plugin panel lifecycle --- */
+  let panelMountSeq = 0;
   async function openPlugin(id, opts = {}) {
     const p = state.plugins.find(x => x.id === id);
     if (!p) return;
@@ -176,11 +177,17 @@
       if (pluginCenterController) pluginCenterController.renderPlugins();
     }
     if (!p.panel) return;
+    // 同插件挂载进行中（脚本加载/异步 mount 未完成）时直接忽略重复请求：
+    // 两次 mount 并发执行会互相清掉对方的 el，先完成实例的 unsubs 成为
+    // 孤儿（closePanel 永不遍历），订阅与 document 监听泄漏
+    if (state.openId === id && state.panelMountPending) return;
     // 面板直切（palette/桌宠/smart-peek 都不经 setView 直接 openPlugin）：
     // 先完整卸载旧面板的 unmount 与 ctx.onEvent 订阅，否则 state.mounted
     // 被直接覆盖，旧监听器永久泄漏并持续向已摘除的 DOM 派发事件
     closePanel();
     state.openId = id;
+    state.panelMountPending = true;
+    const myMountSeq = ++panelMountSeq;
     els.panelName.textContent = window.I18N.lang === 'en' ? (p.name.en || p.name.zh) : (p.name.zh || p.name.en);
     els.panelIcon.innerHTML = p.iconSvg || escapeHtml(p.iconText);
     els.panelMeta.textContent = `${p.id} · v${p.version}`;
@@ -218,6 +225,9 @@
     mount().catch(err => {
       if (state.openId !== id) return;
       els.panelHost.innerHTML = `<div class="panel-error"><b>${escapeHtml(t('loadError'))}</b><code>${escapeHtml(err.message)}</code></div>`;
+    }).finally(() => {
+      // 只有最新一次挂载有权清标志（快速 A→B 切换时旧挂载的 finally 不清 B 的）
+      if (myMountSeq === panelMountSeq) state.panelMountPending = false;
     });
   }
 

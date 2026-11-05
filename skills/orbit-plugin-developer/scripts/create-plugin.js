@@ -4,6 +4,9 @@ const fs = require('fs');
 const path = require('path');
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
+/* standalone-window 模板里的 IPC 通道/内部标识以此占位符书写，生成时替换为
+   插件 id——写死的话用模板生成两个插件会因 ipcMain 通道重名而冲突 */
+const TEMPLATE_TOKEN = 'my-window-tool';
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -13,9 +16,10 @@ function parseArgs() {
 
   for (const a of args) {
     if (a.startsWith('--template=')) {
-      template = a.split('=')[1];
+      template = a.slice(a.indexOf('=') + 1);
     } else if (a.startsWith('--output=')) {
-      output = a.split('=')[1];
+      // 值里允许出现 '='（Windows 路径完全可能），取首个 = 之后的完整串
+      output = a.slice(a.indexOf('=') + 1);
     } else if (!a.startsWith('-') && !id) {
       id = a;
     }
@@ -24,7 +28,7 @@ function parseArgs() {
   return { id, template, output };
 }
 
-function copyDir(src, dest, transformJson) {
+function copyDir(src, dest, { transformJson, replaceToken, replacement } = {}) {
   fs.mkdirSync(dest, { recursive: true });
   const entries = fs.readdirSync(src, { withFileTypes: true });
 
@@ -33,12 +37,15 @@ function copyDir(src, dest, transformJson) {
     const destPath = path.join(dest, ent.name);
 
     if (ent.isDirectory()) {
-      copyDir(srcPath, destPath, transformJson);
+      copyDir(srcPath, destPath, { transformJson, replaceToken, replacement });
     } else if (ent.name === 'plugin.json' && transformJson) {
       const raw = fs.readFileSync(srcPath, 'utf8');
       const obj = JSON.parse(raw);
       transformJson(obj);
       fs.writeFileSync(destPath, JSON.stringify(obj, null, 2), 'utf8');
+    } else if (replaceToken && /\.(js|html|css|json|md)$/i.test(ent.name)) {
+      const raw = fs.readFileSync(srcPath, 'utf8');
+      fs.writeFileSync(destPath, raw.split(replaceToken).join(replacement), 'utf8');
     } else {
       fs.copyFileSync(srcPath, destPath);
     }
@@ -65,7 +72,13 @@ function main() {
     window: 'standalone-window',
   };
 
-  const tplDirName = tplMap[template] || 'frontend-only';
+  // 拼错的模板名直接报错：静默降级成另一套结构，用户以为拿到的是独立窗口插件
+  if (!tplMap[template]) {
+    console.error(`错误: 未知模板 "${template}"，合法值: ${Object.keys(tplMap).map(k => `--template=${k}`).join(' | ')}`);
+    process.exit(1);
+  }
+
+  const tplDirName = tplMap[template];
   const tplDir = path.join(__dirname, '..', 'templates', tplDirName);
 
   if (!fs.existsSync(tplDir)) {
@@ -81,9 +94,13 @@ function main() {
     process.exit(1);
   }
 
-  copyDir(tplDir, destDir, manifest => {
-    manifest.id = id;
-    manifest.name = { zh: id, en: id };
+  copyDir(tplDir, destDir, {
+    transformJson: manifest => {
+      manifest.id = id;
+      manifest.name = { zh: id, en: id };
+    },
+    replaceToken: TEMPLATE_TOKEN,
+    replacement: id,
   });
 
   console.log(`\n🎉 插件脚手架生成成功！`);

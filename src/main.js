@@ -74,11 +74,19 @@ function createWindow({ show = true } = {}) {
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   if (show) win.once('ready-to-show', () => win.show());
+  let saveBoundsTimer = null;
   const saveBounds = () => {
     if (win.isDestroyed() || win.isMinimized()) return;
+    // 最大化几何不落盘：恢复时会被当作普通 bounds——窗口占满工作区但
+    // isMaximized()=false，标题栏按钮状态与 getWindowState() 全错
+    if (win.isMaximized()) return;
     cfg.set({ windowBounds: win.getBounds() });
   };
-  for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, () => setTimeout(saveBounds, 400));
+  const scheduleSaveBounds = () => {
+    clearTimeout(saveBoundsTimer);
+    saveBoundsTimer = setTimeout(saveBounds, 400); // 尾沿防抖：长拖拽不再每事件写一次盘
+  };
+  for (const ev of ['resize', 'move', 'maximize', 'unmaximize']) win.on(ev, scheduleSaveBounds);
 
   const notifyWindowState = () => {
     if (!win || win.isDestroyed()) return;
@@ -230,7 +238,8 @@ async function toggleActionPalette() {
     const y = Math.round(area.y + Math.max(80, (area.height - 440) * 0.32));
     paletteWin.setPosition(x, y);
   } catch {
-    paletteWin.center();
+    // await 划选捕获期间窗口可能已被退出销毁：center 对已销毁对象会再次抛错
+    if (paletteWin && !paletteWin.isDestroyed()) paletteWin.center();
   }
 
   bringToForeground(paletteWin);
@@ -320,6 +329,10 @@ if (!app.requestSingleInstanceLock()) {
       try { manager.updateManager.cancelDownload(); } catch {}
     }
   });
-  app.on('will-quit', () => { globalShortcut.unregisterAll(); manager && manager.deactivateAll(); });
+  app.on('will-quit', () => {
+    globalShortcut.unregisterAll();
+    manager && manager.deactivateAll();
+    if (tray) { try { tray.destroy(); } catch { /* already gone */ } tray = null; } // 否则退出后托盘残留幽灵图标
+  });
   app.on('window-all-closed', () => { if (process.platform !== 'darwin') { quitting = true; app.quit(); } });
 }

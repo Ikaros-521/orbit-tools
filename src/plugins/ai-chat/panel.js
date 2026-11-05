@@ -390,6 +390,7 @@
     const popoverPageSize = 6;
     let isGenerating = false;
     let currentStreamId = null;
+    let abortRequested = false; // 流 id 未到手时点击停止：记住意图，id 到达立即补发
     let generatingSessionId = null;
     let agentMode = 'ask';
     let thinkLevel = 'auto';
@@ -542,7 +543,7 @@
       footer.textContent = parts.join(' · ');
     };
 
-    const { openLightbox, closeLightbox } = PromptQueue.initLightbox({
+    const { openLightbox, closeLightbox, disposeLightbox } = PromptQueue.initLightbox({
       modalEl: aiLightboxModal,
       imgEl: aiLightboxImg,
       captionEl: aiLightboxCaption,
@@ -626,11 +627,14 @@
       return false;
     }
 
+    let queueDrainTimer = null;
     function setGeneratingState(generating) {
       isGenerating = generating;
       updateSendOrStopButton();
       if (!generating) {
-        setTimeout(() => {
+        if (queueDrainTimer) clearTimeout(queueDrainTimer);
+        queueDrainTimer = setTimeout(() => {
+          queueDrainTimer = null;
           PromptQueue.checkAndTriggerNextQueuedMessage({
             isGenerating,
             currentSession,
@@ -780,7 +784,13 @@
       if (btnSendOrStop.classList.contains('stop')) {
         if (currentStreamId) {
           ctx.call('abortStream', { streamId: currentStreamId });
+          currentStreamId = null;
+          generatingSessionId = null;
           setGeneratingState(false);
+        } else {
+          // sendMessage 的 IPC 往返窗口内流 id 尚未到手：不记意图的话
+          // 首次发送的停止键完全无响应，且后续点击会 abort 上一条 stale id
+          abortRequested = true;
         }
       } else if (btnSendOrStop.classList.contains('queue')) {
         PromptQueue.enqueueCurrentInput({
@@ -1528,6 +1538,7 @@
       workDirCurrentPath.title = cur ? (currentSession.workDir ? cur : `${cur} (默认)`) : '';
       workDirManualRow.classList.add('hidden');
       workDirModalError.classList.add('hidden');
+      workDirModalSessionId = currentSession ? currentSession.id : null;
       workDirModal.classList.remove('hidden');
     });
 
@@ -1535,7 +1546,14 @@
     btnCloseWorkDirModal.addEventListener('click', closeWorkDirModal);
     workDirModal.addEventListener('click', e => { if (e.target === workDirModal) closeWorkDirModal(); });
 
+    // 弹窗不随会话切换关闭：应用时若已切到别的会话，拒绝写入（界面显示的
+    // 是旧会话路径，写进新会话等于静默串档）
+    let workDirModalSessionId = null;
     const applySessionWorkDir = async dir => {
+      if (!currentSession || currentSession.id !== workDirModalSessionId) {
+        closeWorkDirModal();
+        return;
+      }
       const res = await ctx.call('setSessionWorkDir', { sessionId: currentSession.id, dir });
       if (res && res.ok) {
         currentSession.workDir = res.workDir;
@@ -1573,6 +1591,10 @@
     inputWorkDirManual.addEventListener('keydown', e => { if (e.key === 'Enter') submitManualWorkDir(); });
 
     btnWorkDirReset.addEventListener('click', async () => {
+      if (!currentSession || currentSession.id !== workDirModalSessionId) {
+        closeWorkDirModal();
+        return;
+      }
       const res = await ctx.call('setSessionWorkDir', { sessionId: currentSession.id, dir: '' });
       if (res && res.ok) {
         currentSession.workDir = '';
@@ -1929,6 +1951,9 @@
 
       renderTaskCard();
       scrollToBottom(true);
+
+      // 重建后恢复未决审批/计划评审卡：这些分片不会重发，丢了就只能中断流
+      restorePendingLateChunks();
     }
 
     function createCompactionCardElement(msg) {
@@ -2409,7 +2434,9 @@
     async function sendMessage(customContent = null, editMessageId = null, customAttachments = null) {
       if (isGenerating) return;
       let text = customContent !== null ? customContent : chatInput.value.trim();
-      const attachments = customAttachments !== null ? customAttachments : [...pendingAttachments];
+      // != null 同时兜住 undefined：编辑/重发刚发出的纯文本消息时调用方传
+      // atts || msg.images 求值为 undefined，attachments 不可迭代直接 TypeError
+      const attachments = customAttachments != null ? customAttachments : [...pendingAttachments];
       if ((!text && attachments.length === 0) || !currentSession) return;
 
       const images = [];
@@ -2495,13 +2522,22 @@
 
         if (res && res.ok && res.streamId) {
           currentStreamId = res.streamId;
+          if (abortRequested) {
+            abortRequested = false;
+            ctx.call('abortStream', { streamId: currentStreamId });
+            currentStreamId = null;
+            generatingSessionId = null;
+            setGeneratingState(false);
+          }
         } else {
+          abortRequested = false;
           assistantMsg.content = `❌ 发起流式回复失败: ${(res && res.error) || '未知错误'}`;
           setGeneratingState(false);
           generatingSessionId = null;
           renderMessages();
         }
       } catch (err) {
+        abortRequested = false;
         assistantMsg.content = `❌ 请求异常: ${err.message || err}`;
         setGeneratingState(false);
         generatingSessionId = null;
@@ -2620,10 +2656,18 @@
       const feedbackWrap = card.querySelector('.ai-plan-feedback');
       const feedbackInput = card.querySelector('.ai-plan-feedback-input');
 
+      // 决议后从缓冲移除：否则 renderMessages 重建会复活一张带批准按钮的
+      // 已决议计划卡（再点决议后端只会报已处理）
+      const removePlanFromBuf = () => {
+        const b = pendingLateChunks.get(payload && payload.sessionId);
+        if (b) b.plans = b.plans.filter(pl => pl.chunk.planId !== chunk.planId);
+      };
+
       card.querySelector('.ai-plan-btn.approve').addEventListener('click', async () => {
         try {
           await ctx.call('resolvePlanReview', { streamId, planId: chunk.planId, approved: true });
         } catch {}
+        removePlanFromBuf();
         actionsEl.innerHTML = '<span class="ai-plan-status ok">✓ 已批准 · 已生成任务清单，任务面板已更新</span>';
         feedbackWrap.classList.add('hidden');
       });
@@ -2640,6 +2684,7 @@
         try {
           await ctx.call('resolvePlanReview', { streamId, planId: chunk.planId, approved: false, feedback });
         } catch {}
+        removePlanFromBuf();
         actionsEl.innerHTML = `<span class="ai-plan-status revise">✎ 已反馈${feedback ? '：' + escapeHtml(feedback.slice(0, 80)) : ''} · 等待模型修订计划</span>`;
         feedbackWrap.classList.add('hidden');
       });
@@ -2750,18 +2795,33 @@
         msgEl = bubbles.length ? bubbles[bubbles.length - 1].closest('.ai-msg') : null;
       }
 
-      // Robust fallback: If not found by messageId, bind to the latest active assistant bubble
+      // Robust fallback: messageId 找不到时，只在"末尾 assistant 是空占位"
+      // （无正文/无推理/无工具调用，即本流丢联的占位）时重新绑定其 id；
+      // 绝不改写无关历史消息的 id——那会让 complete/aborted 的整段回写
+      // 覆盖历史回答、后续编辑删除命中错误记录。否则新建占位消息与气泡。
       if (!msgEl) {
-        const assistantEls = messagesScroll.querySelectorAll('.ai-msg.assistant');
-        if (assistantEls.length > 0) {
-          msgEl = assistantEls[assistantEls.length - 1];
-          if (messageId && msgEl) {
+        const lastMsg = currentSession?.messages?.[currentSession.messages.length - 1];
+        const isVacant = lastMsg && lastMsg.role === 'assistant' &&
+          !lastMsg.content && !lastMsg.reasoning &&
+          !(Array.isArray(lastMsg.toolCalls) && lastMsg.toolCalls.length);
+        if (isVacant && messageId) {
+          lastMsg.id = messageId;
+          const assistantEls = messagesScroll.querySelectorAll('.ai-msg.assistant');
+          if (assistantEls.length > 0) {
+            msgEl = assistantEls[assistantEls.length - 1];
             msgEl.dataset.id = messageId;
-            const lastMsg = currentSession?.messages?.[currentSession.messages.length - 1];
-            if (lastMsg && lastMsg.role === 'assistant') {
-              lastMsg.id = messageId;
-            }
           }
+        }
+        if (!msgEl && messageId && currentSession && Array.isArray(currentSession.messages)) {
+          const placeholder = {
+            id: messageId, role: 'assistant', content: '', contentSteps: [],
+            reasoning: '', reasoningSteps: [], usage: null, toolCalls: null,
+            toolResults: {}, timestamp: Date.now()
+          };
+          currentSession.messages.push(placeholder);
+          msgEl = createMessageElement(placeholder);
+          messagesScroll.appendChild(msgEl);
+          scrollToBottom();
         }
       }
       if (!msgEl) return;
@@ -2777,6 +2837,11 @@
         fbBadge.textContent = `⚠️ 主模型 [${chunk.fromModel}] 请求异常，已自动为您降级至 [${chunk.toModel}]`;
         const mdBody = bubble.querySelector('.ai-md-body');
         if (mdBody) mdBody.innerHTML = '';
+        // 丢弃该消息的全部增量槽位：清 innerHTML 后槽位若仍被复用，降级
+        // 重试的流式正文会写进脱离 DOM 的节点，直到 complete 才可见
+        for (const key of [...streamSlots.keys()]) {
+          if (key.startsWith(`${messageId}::`)) streamSlots.delete(key);
+        }
         scrollToBottom();
       } else if (chunk.type === 'reasoning') {
         let timeline = bubble.querySelector('.ai-bubble-timeline');
@@ -2912,6 +2977,9 @@
           scrollToBottom();
         }
       } else if (chunk.type === 'tool_approval_request') {
+        // 同会话也入缓冲：renderMessages 重建（编辑取消/删压缩卡等）会清掉
+        // 审批卡，不缓冲的话流挂起等决议却没有任何 UI 入口，只能中断
+        getLateChunkBuf(payload.sessionId).approvals.push(payload);
         let timeline = bubble.querySelector('.ai-bubble-timeline') || bubble;
         appendApprovalCard(timeline, payload, chunk, () => {
           const buf = pendingLateChunks.get(payload.sessionId);
@@ -2938,6 +3006,7 @@
           }
         }
       } else if (chunk.type === 'plan_review_request') {
+        getLateChunkBuf(payload.sessionId).plans.push(payload); // 同会话重渲后可恢复（与审批卡同因）
         const tl = bubble.querySelector('.ai-bubble-timeline') || bubble;
         appendPlanReviewCard(tl, payload, chunk);
         scrollToBottom();
@@ -2968,7 +3037,9 @@
           let m = currentSession.messages.find(x => x.id === messageId);
           if (!m) {
             const assts = currentSession.messages.filter(x => x.role === 'assistant');
-            if (assts.length > 0) m = assts[assts.length - 1];
+            const last = assts.length > 0 ? assts[assts.length - 1] : null;
+            // 兜底只认空占位：usage 落到无关历史回答上属于污染
+            if (last && !last.content && !last.reasoning) m = last;
           }
           if (m) {
             m.usage = chunk.usage;
@@ -2977,6 +3048,9 @@
         updateContextProgress();
       } else if (chunk.type === 'complete' || chunk.type === 'aborted' || chunk.type === 'error') {
         setGeneratingState(false);
+        abortRequested = false; // 流已终态，清掉未消费的中断意图防误杀下一次发送
+        currentStreamId = null;
+        generatingSessionId = null; // 终态不清会永久 stale，后续守卫组合判断失真
         // 结算全部增量渲染槽：最终 DOM 与历史渲染路径完全一致
         finalizeStreamSlots(bubble, messageId, { deep: true });
         if (MermaidRenderer) {
@@ -2998,10 +3072,12 @@
           let m = currentSession.messages.find(x => x.id === messageId);
           if (!m) {
             const assts = currentSession.messages.filter(x => x.role === 'assistant');
-            if (assts.length > 0) m = assts[assts.length - 1];
+            const last = assts.length > 0 ? assts[assts.length - 1] : null;
+            // 兜底只认空占位：整段流式回写落到无关历史回答上等于覆盖用户数据
+            if (last && (!last.content || last.id === messageId)) m = last;
           }
           if (m) {
-            if (messageId) m.id = messageId;
+            if (messageId && !m.content) m.id = messageId;
             m.content = chunk.message.content || m.content;
             m.reasoning = chunk.message.reasoning || m.reasoning;
             if (chunk.message.usage) {
@@ -3099,21 +3175,31 @@
         popoverHideTimer = null;
       }
       document.removeEventListener('click', onDocumentGlobalClickClosePopovers);
+      if (queueDrainTimer) { clearTimeout(queueDrainTimer); queueDrainTimer = null; }
+      if (typeof disposeLightbox === 'function') disposeLightbox();
       if (isGenerating && currentStreamId) {
         ctx.call('abortStream', { streamId: currentStreamId });
       }
     };
   }
 
-  let cleanupFn = null;
+  // mount 是异步的（ensureDependencies 加载 9 个脚本）：unmount 可能发生在
+  // mount promise resolve 之前，单变量 cleanupFn 会让该实例的清理永久丢失
+  //（document 监听 + stream-chunk 订阅泄漏）。用 Set 收集所有实例的清理函数，
+  // unmount 时全部执行并清空。
+  const cleanupFns = new Set();
   if (typeof window !== 'undefined' && window.Toolbox && window.Toolbox.panel) {
     window.Toolbox.panel({
       mount(el, ctx) {
-        mount(el, ctx).then(fn => { cleanupFn = fn; });
+        mount(el, ctx).then(fn => {
+          if (typeof fn === 'function') cleanupFns.add(fn);
+        }).catch(() => {});
       },
       unmount() {
-        if (typeof cleanupFn === 'function') cleanupFn();
-        cleanupFn = null;
+        for (const fn of cleanupFns) {
+          try { fn(); } catch { /* cleanup 自身异常不阻断其余清理 */ }
+        }
+        cleanupFns.clear();
       }
     });
   }
