@@ -14,7 +14,7 @@
   async function mount(el, ctx) {
     const D = await ensureDict();
     if (!D) return;
-    const DICT = D.DICT, maskIp = D.maskIp;
+    const DICT = D.DICT, maskIp = D.maskIp, EYE_ICONS = D.EYE_ICONS;
     let currentLang = ctx.lang === 'en' ? 'en' : 'zh';
     const t = (k, params) => {
       const dict = DICT[currentLang] || DICT.zh;

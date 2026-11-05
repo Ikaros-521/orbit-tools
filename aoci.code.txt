@@ -150,9 +150,9 @@ mcp-market.js[IE6S]: F:MCP市场目录与预设：精选官方/成熟MCP服务�
 backend.js[EB8M]: F:Antigravity启动器主进程后端，提供进程探测、代理注入与命令行拉起IPC服务 | R:code:src/plugins/antigravity-launcher/core/detect.js,code:src/plugins/antigravity-launcher/core/launch.js,code:src/plugins/antigravity-launcher/core/proxy.js | A:init,launchApp | S:-
 icon.svg[CU1T]: F:反重力启动器SVG矢量徽标资源 | R:- | A:- | S:-
 panel.css[CU6M]: F:反重力启动器面板样式表 | R:code:src/plugins/antigravity-launcher/panel.js | A:- | S:-
-panel.js[EU8L]: F:反重力启动器前端视图层：环境诊断状态、代理设置、自适应按钮与运行状态展示（字典已拆至i18n-dict.js，经plugin://按需注入后挂载） | R:code:src/plugins/antigravity-launcher/i18n-dict.js,code:src/plugins/antigravity-launcher/panel.css | A:mount,startDiagnostics,renderTunnel | S:mount改为async等待字典注入；字典缺失时静默不挂载——改加载方式须保留该兕底
+panel.js[EU8L]: F:反重力启动器前端视图层：环境诊断状态、代理设置、自适应按钮与运行状态展示（字典已拆至i18n-dict.js，经plugin://按需注入后挂载） | R:code:src/plugins/antigravity-launcher/i18n-dict.js,code:src/plugins/antigravity-launcher/panel.css | A:mount,startDiagnostics,renderTunnel | S:mount改为async等待字典注入，字典缺失时静默不挂载——改加载方式须保留该兜底；从字典D解构DICT/maskIp/EYE_ICONS三符号，i18n-dict新增共享符号须两侧同步（导出+解构），漏一侧首次repaint即抛ReferenceError、doProbe中断且boot链catch不触发，面板只剩静态骨架
 plugin.json[FE6T]: F:反重力启动器插件清单配置 | R:- | A:- | S:-
-i18n-dict.js[SL6S]: F:反重力启动器双语字典与IP掩码助手（从panel.js拆出）：诊断/代理/启动UI的中英文案 | R:code:src/plugins/antigravity-launcher/panel.js | A:- | S:-
+i18n-dict.js[SL6S]: F:反重力启动器双语字典与IP掩码/眼睛图标助手（从panel.js拆出）：诊断/代理/启动UI的中英文案与EYE_ICONS | R:code:src/plugins/antigravity-launcher/panel.js | A:- | S:EYE_ICONS必须随AntigravityDict一并导出——panel.js按D.EYE_ICONS解构，漏导出会让首次renderTunnel抛ReferenceError令整个检测面板静默停摆、通道内容全不渲染（真实回归已修复）
 
 ===E:/Github_Pro/orbit-tools/src/plugins/antigravity-launcher/core/===
 detect.js[DI7S]: F:Antigravity IDE安装路径与运行中进程状态探测逻辑 | R:- | A:detectInstallation,isProcessRunning | S:-

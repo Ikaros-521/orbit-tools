@@ -192,7 +192,7 @@
     return ip.length > 7 ? `${ip.slice(0, 3)}****${ip.slice(-3)}` : '****';
   }
 
-  const AntigravityDict = { DICT, maskIp };
+  const AntigravityDict = { DICT, maskIp, EYE_ICONS };
   if (typeof window !== 'undefined') window.AntigravityDict = AntigravityDict;
   if (typeof module !== 'undefined' && module.exports) module.exports = AntigravityDict;
 })();
