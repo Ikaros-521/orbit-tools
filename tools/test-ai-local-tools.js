@@ -122,7 +122,7 @@ async function main() {
   }
 
   /* --- 4. backend dispatch + workDir wiring ---------------------------------- */
-  const protocols = require(path.join(PLUGIN, 'protocols.js'));
+  const protocols = require(path.join(PLUGIN, 'protocols'));
   let sawLocalToolDefs = false;
   let turnCounter = 0;
   let lastTurnRequestMessages = null;

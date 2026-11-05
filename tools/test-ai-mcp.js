@@ -354,7 +354,7 @@ async function main() {
   }
 
   /* --- 3. backend: tool merging + approval tiers + skills ----------------- */
-  const protocols = require(path.join(PLUGIN, 'protocols.js'));
+  const protocols = require(path.join(PLUGIN, 'protocols'));
   let streamCalls = 0;
   protocols.streamCompletion = async (opts, onChunk) => {
     streamCalls += 1;

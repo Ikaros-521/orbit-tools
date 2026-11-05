@@ -138,7 +138,7 @@ async function main() {
   }
 
   /* --- 4. backend multi-round agent loop ------------------------------------- */
-  const protocols = require(path.join(PLUGIN, 'protocols.js'));
+  const protocols = require(path.join(PLUGIN, 'protocols'));
   const calls = []; // every streamCompletion invocation: { opts, round# }
   const scripts = []; // per-invocation behavior queue (shifted)
   protocols.streamCompletion = async (opts, onChunk) => {
