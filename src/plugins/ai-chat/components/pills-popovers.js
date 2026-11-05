@@ -7,8 +7,10 @@
   function createPillsPopovers(deps) {
     const {
       state,
+      ctx,
       escapeHtml,
       closeAllPopovers, updateHeader, settingsCtrl,
+      btnOpenSettings,
       pillCot, pillAgent,
       btnAgentMode, agentModeIcon, agentModeLabel, agentModePopover, agentAlwaysRow,
       btnThinkLevel, thinkLevelPopover, thinkLevelLabel,

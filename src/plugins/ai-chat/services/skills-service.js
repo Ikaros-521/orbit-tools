@@ -3,6 +3,8 @@
    and GitHub repository/directory recursive downloading. */
 
 const { parseSkillMarkdown, resolveSkillSourceUrl, pickSkillEntries, pickLocalSkillFiles } = require('../skills-util');
+const { SKILL_MARKET_CATEGORIES, SKILL_MARKET_CATALOG, searchSkillMarket, getSkillMarketItem } = require('../skills-market');
+const { liveSkillsEngine } = require('./live-skills-engine');
 
 const DEFAULT_SKILLS = [
   {
@@ -42,6 +44,167 @@ class SkillsService {
 
   resetSkills() {
     return [...DEFAULT_SKILLS];
+  }
+
+  getSkillMarket({ query, category } = {}, skills = []) {
+    const items = searchSkillMarket(query, category);
+    const installedSet = new Set(skills.map(s => s.name));
+    const itemsWithStatus = items.map(item => ({
+      ...item,
+      installed: installedSet.has(item.name)
+    }));
+    return {
+      ok: true,
+      categories: SKILL_MARKET_CATEGORIES,
+      items: itemsWithStatus
+    };
+  }
+
+  installMarketSkill(marketId, skills, genId) {
+    const item = getSkillMarketItem(marketId);
+    if (!item) {
+      return { ok: false, error: `未找到指定的开源技能「${marketId}」` };
+    }
+    if (skills.some(s => s.name === item.name)) {
+      return { ok: false, error: `技能「${item.name}」已存在，无需重复安装` };
+    }
+    const rec = {
+      id: genId('skill'),
+      name: item.name,
+      desc: item.desc,
+      content: item.content,
+      source: `market:${item.id}`
+    };
+    skills.push(rec);
+    return { ok: true, skill: rec, skills };
+  }
+
+  createSkillFromMarket(marketId, customOverrides, skills, genId) {
+    const item = getSkillMarketItem(marketId);
+    if (!item) {
+      return { ok: false, error: `未找到指定的开源技能模板「${marketId}」` };
+    }
+    const ovr = customOverrides || {};
+    const name = String(ovr.name !== undefined ? ovr.name : item.name || '').trim();
+    const desc = String(ovr.desc !== undefined ? ovr.desc : item.desc || '').trim();
+    const content = String(ovr.content !== undefined ? ovr.content : item.content || '').trim();
+
+    if (!name) return { ok: false, error: '技能名称不能为空' };
+    if (!content) return { ok: false, error: '技能内容不能为空' };
+
+    const rec = {
+      id: ovr.id ? String(ovr.id) : genId('skill'),
+      name,
+      desc,
+      content,
+      source: `template:${item.id}`
+    };
+
+    const idx = skills.findIndex(x => x.id === rec.id);
+    if (idx >= 0) skills[idx] = rec; else skills.push(rec);
+
+    return { ok: true, skill: rec, skills };
+  }
+
+  async searchLiveSkills({ query, category, limit } = {}, skills = []) {
+    const res = await liveSkillsEngine.searchLiveSkills({ query, category, limit }, skills);
+    return {
+      ...res,
+      categories: SKILL_MARKET_CATEGORIES
+    };
+  }
+
+  async fetchRemoteSkillDetail(target) {
+    return await liveSkillsEngine.fetchRemoteSkillContent(target);
+  }
+
+  async installRemoteSkill(target, skills, genId) {
+    const fetched = await liveSkillsEngine.fetchRemoteSkillContent(target);
+    if (!fetched.ok) return fetched;
+
+    if (skills.some(s => s.name === fetched.name)) {
+      return { ok: false, error: `技能「${fetched.name}」已存在，无需重复安装` };
+    }
+
+    const rec = {
+      id: genId('skill'),
+      name: fetched.name,
+      desc: fetched.desc,
+      content: fetched.content,
+      source: fetched.source || (target && target.repo ? `github:${target.repo}` : 'remote')
+    };
+    skills.push(rec);
+    return { ok: true, skill: rec, skills };
+  }
+
+  async createSkillFromRemote(target, customOverrides, skills, genId) {
+    const fetched = await liveSkillsEngine.fetchRemoteSkillContent(target);
+    if (!fetched.ok) return fetched;
+
+    const ovr = customOverrides || {};
+    const name = String(ovr.name !== undefined ? ovr.name : fetched.name || '').trim();
+    const desc = String(ovr.desc !== undefined ? ovr.desc : fetched.desc || '').trim();
+    const content = String(ovr.content !== undefined ? ovr.content : fetched.content || '').trim();
+
+    if (!name) return { ok: false, error: '技能名称不能为空' };
+    if (!content) return { ok: false, error: '技能内容不能为空' };
+
+    const rec = {
+      id: ovr.id ? String(ovr.id) : genId('skill'),
+      name,
+      desc,
+      content,
+      source: `template:${fetched.source || (target && target.repo) || 'remote'}`
+    };
+
+    const idx = skills.findIndex(x => x.id === rec.id);
+    if (idx >= 0) skills[idx] = rec; else skills.push(rec);
+
+    return { ok: true, skill: rec, skills };
+  }
+
+  async installSkillBySource(source, skills, genId) {
+    const s = String(source || '').trim();
+    if (!s) return { ok: false, error: '缺少技能来源标识或链接' };
+
+    if (/^https?:\/\//i.test(s)) {
+      return await this.importSkillFromUrl(s, skills, genId);
+    }
+
+    const item = getSkillMarketItem(s);
+    if (item) {
+      return this.installMarketSkill(item.id, skills, genId);
+    }
+
+    // Try live search match if target looks like a skill identifier or query
+    try {
+      const searchRes = await this.searchLiveSkills({ query: s, limit: 3 }, skills);
+      if (searchRes.ok && searchRes.items && searchRes.items.length > 0) {
+        const topMatch = searchRes.items.find(x => x.name.toLowerCase() === s.toLowerCase() || x.id === s) || searchRes.items[0];
+        if (topMatch.sourceType === 'curated') {
+          return this.installMarketSkill(topMatch.id, skills, genId);
+        }
+        return await this.installRemoteSkill(topMatch, skills, genId);
+      }
+    } catch {}
+
+    return {
+      ok: false,
+      error: `未找到名为或标识为「${s}」的开源技能。请指定有效的开源技能 ID/名称，或提供 GitHub 链接`
+    };
+  }
+
+  async createSkillFromInput(input, skills, genId) {
+    const data = input || {};
+    const tmpl = data.template_id || data.template;
+    if (tmpl) {
+      const localItem = getSkillMarketItem(tmpl);
+      if (localItem) {
+        return this.createSkillFromMarket(localItem.id, data, skills, genId);
+      }
+      return await this.createSkillFromRemote(tmpl, data, skills, genId);
+    }
+    return this.saveSkill(data, skills, genId);
   }
 
   upsertImportedSkills(items, skills, genId) {

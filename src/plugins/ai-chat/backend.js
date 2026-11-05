@@ -19,6 +19,7 @@ const { listAvailableIDEs: listAvailableAiIdes, dispatchTask: dispatchTaskToAiId
 const ApprovalService = require('./services/approval-service');
 const McpService = require('./services/mcp-service');
 const { SkillsService, DEFAULT_SKILLS } = require('./services/skills-service');
+const { liveMcpEngine } = require('./services/live-mcp-engine');
 const { ChatService } = require('./services/chat-service');
 const { processManager } = require('./services/process-manager');
 const { compactionService } = require('./services/compaction-service');
@@ -446,7 +447,7 @@ module.exports = {
     });
 
     ctx.ipc.handle('installMarketMcp', args => {
-      const res = mcpService.installMarketMcp(args && args.marketId, mcpServers);
+      const res = mcpService.installMarketMcp(args && (args.marketId || args.id), mcpServers, args && (args.server || args.item));
       if (res.ok) save();
       return res;
     });
@@ -503,6 +504,67 @@ module.exports = {
     ctx.ipc.handle('importSkillFromUrl', async args => {
       const res = await skillsService.importSkillFromUrl(args && args.url, skills, genId);
       if (res.ok && res.imported > 0) save();
+      return res;
+    });
+
+    ctx.ipc.handle('getSkillMarket', args => {
+      const q = args && args.query;
+      const cat = args && args.category;
+      return skillsService.getSkillMarket({ query: q, category: cat }, skills);
+    });
+
+    ctx.ipc.handle('searchLiveSkills', async args => {
+      return await skillsService.searchLiveSkills(args || {}, skills);
+    });
+
+    ctx.ipc.handle('fetchRemoteSkillDetail', async args => {
+      const target = (args && args.target) || args || {};
+      return await skillsService.fetchRemoteSkillDetail(target);
+    });
+
+    ctx.ipc.handle('installRemoteSkill', async args => {
+      const target = (args && args.target) || args || {};
+      const res = await skillsService.installRemoteSkill(target, skills, genId);
+      if (res && res.ok) {
+        skills = res.skills;
+        save();
+      }
+      return res;
+    });
+
+    ctx.ipc.handle('createSkillFromRemote', async args => {
+      const target = (args && args.target) || args || {};
+      const overrides = (args && args.overrides) || {};
+      const res = await skillsService.createSkillFromRemote(target, overrides, skills, genId);
+      if (res && res.ok) {
+        skills = res.skills;
+        save();
+      }
+      return res;
+    });
+
+    ctx.ipc.handle('searchLiveMcp', async args => {
+      return await liveMcpEngine.searchLiveMcp(args || {}, mcpServers);
+    });
+
+    ctx.ipc.handle('installMarketSkill', args => {
+      const marketId = args && (args.marketId || args.id);
+      const res = skillsService.installMarketSkill(marketId, skills, genId);
+      if (res.ok) {
+        skills = res.skills;
+        save();
+      }
+      return res;
+    });
+
+    ctx.ipc.handle('createSkillFromMarket', args => {
+      const marketId = args && (args.marketId || args.id);
+      const overrides = (args && args.overrides) || args || {};
+      const res = skillsService.createSkillFromMarket(marketId, overrides, skills, genId);
+      if (res.ok) {
+        skills = res.skills;
+        save();
+      }
       return res;
     });
 
@@ -612,6 +674,7 @@ module.exports = {
         getPersona,
         memories,
         skills,
+        skillsService,
         mcpServers,
         mcpService,
         approvalService,

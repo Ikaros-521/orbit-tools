@@ -23,6 +23,7 @@ const { RuntimeContextService } = require('./runtime-context-service');
 const { SubagentManager } = require('./subagent-service');
 const { compactionService } = require('./compaction-service');
 const PlanReviewService = require('./plan-service');
+const { SkillsService } = require('./skills-service');
 
 const MEMORY_TOOL_NAMES = new Set(MEMORY_TOOLS_DEFINITIONS.map(d => d.function.name));
 
@@ -115,17 +116,81 @@ class ChatService {
     return { ok: true, streamId, userMessage: userMsg };
   }
 
-  async dispatchAgentTool(name, rawArgs, rt, { skills, memories, save, ctx, config }) {
+  async dispatchAgentTool(name, rawArgs, rt, { skills, skillsService, memories, save, ctx, config, genId }) {
     const parseArgs = () => {
       try { return typeof rawArgs === 'string' ? JSON.parse(rawArgs) : (rawArgs || {}); } catch { return {}; }
     };
+    const svc = skillsService || new SkillsService();
+    const gid = genId || (prefix => `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`);
+
     if (name === 'list_skills') {
       return { ok: true, skills: (skills || []).map(s => ({ id: s.id, name: s.name, desc: s.desc })) };
     }
     if (name === 'read_skill') {
-      const skill = (skills || []).find(s => s.id === parseArgs().skill_id || s.name === parseArgs().skill_id);
+      const pArgs = parseArgs();
+      const target = pArgs.skill_id || pArgs.id || pArgs.name;
+      const skill = (skills || []).find(s => s.id === target || s.name === target);
       if (!skill) return { ok: false, error: '技能不存在，请先调用 list_skills 获取可用列表' };
-      return { ok: true, skill_id: skill.id, content: skill.content };
+      return { ok: true, skill_id: skill.id, name: skill.name, content: skill.content };
+    }
+    if (name === 'list_open_source_skills') {
+      const pArgs = parseArgs();
+      const isOnline = pArgs.online !== false;
+      let res;
+      if (isOnline) {
+        res = await svc.searchLiveSkills({ query: pArgs.query, category: pArgs.category, limit: pArgs.limit || 15 }, skills);
+      } else {
+        res = svc.getSkillMarket({ query: pArgs.query, category: pArgs.category }, skills);
+      }
+      return {
+        ok: true,
+        total: res.items.length,
+        skills: res.items.map(it => ({
+          id: it.id,
+          name: it.name,
+          category: it.category,
+          desc: it.desc,
+          repo: it.repo || '',
+          stars: it.stars || 0,
+          sourceUrl: it.sourceUrl || '',
+          sourceType: it.sourceType || 'curated',
+          official: !!it.official,
+          installed: !!it.installed
+        }))
+      };
+    }
+    if (name === 'install_skill') {
+      const pArgs = parseArgs();
+      const source = pArgs.source || pArgs.skill_id || pArgs.market_id || pArgs.url;
+      if (!source) return { ok: false, error: '缺少 source 参数 (可为开源技能 ID/名称或 GitHub 链接)' };
+      const res = await svc.installSkillBySource(source, skills, gid);
+      if (res && res.ok) {
+        if (typeof save === 'function') save();
+        if (rt.emit) rt.emit({ type: 'skill_installed', skill: res.skill || (res.names && res.names[0]) });
+        return {
+          ok: true,
+          message: res.names ? `成功导入 ${res.imported} 个技能：${res.names.join('、')}` : `开源技能「${res.skill.name}」已成功安装！`,
+          ...res
+        };
+      }
+      return { ok: false, error: (res && res.error) || '安装技能失败' };
+    }
+    if (name === 'create_skill') {
+      const pArgs = parseArgs();
+      const res = await svc.createSkillFromInput(pArgs, skills, gid);
+      if (res && res.ok) {
+        if (typeof save === 'function') save();
+        if (rt.emit) rt.emit({ type: 'skill_created', skill: res.skill });
+        return {
+          ok: true,
+          skill_id: res.skill.id,
+          name: res.skill.name,
+          desc: res.skill.desc,
+          source: res.skill.source,
+          message: `技能「${res.skill.name}」已成功创建并保存！后续可通过 list_skills 与 read_skill 读取执行。`
+        };
+      }
+      return { ok: false, error: (res && res.error) || '创建技能失败' };
     }
     if (MEMORY_TOOL_NAMES.has(name)) {
       return executeMemoryTool(name, parseArgs(), { memories, save, scope: rt.workDir || 'global' });
@@ -193,7 +258,7 @@ class ChatService {
             };
             const [res] = await this.toolPipeline.dispatchBatch(
               [subTc],
-              (n, parsedArgs) => this.dispatchAgentTool(n, parsedArgs, rt, { skills, memories, save, ctx, config }),
+              (n, parsedArgs) => this.dispatchAgentTool(n, parsedArgs, rt, { skills, skillsService, memories, save, ctx, config, genId }),
               {
                 approvalService: rt.approvalService,
                 agentApprovalMode: rt.agentApprovalMode || 'ask',
@@ -205,7 +270,7 @@ class ChatService {
             );
             return res ? res.postResult.rawResult : { ok: false, error: '子代理工具调度失败' };
           }
-          return await this.dispatchAgentTool(subToolName, subArgs, rt, { skills, memories, save, ctx, config });
+          return await this.dispatchAgentTool(subToolName, subArgs, rt, { skills, skillsService, memories, save, ctx, config, genId });
         },
         emitChunk: rt.emit,
         signal: rt.signal
@@ -230,7 +295,7 @@ class ChatService {
     return executeAgentTool(name, rawArgs, { ...ctx, workDir: rt.workDir || os.homedir() });
   }
 
-  async sendMessage(args, { ctx, config, findSession, getPersona, memories, skills, mcpServers, mcpService, approvalService, save, genId }) {
+  async sendMessage(args, { ctx, config, findSession, getPersona, memories, skills, skillsService, mcpServers, mcpService, approvalService, save, genId }) {
     const {
       sessionId,
       content,
@@ -618,7 +683,7 @@ class ChatService {
                 // 子代理 toolDispatcher 复用同一 rt，审批服务/档位须随行
                 approvalService,
                 agentApprovalMode
-              }, { skills, memories, save, ctx, config });
+              }, { skills, skillsService, memories, save, ctx, config, genId });
             },
             {
               approvalService,

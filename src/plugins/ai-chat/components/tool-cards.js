@@ -56,7 +56,12 @@
     'list_dir': { icon: '📁', title: (args) => `浏览目录${args && args.path ? `: ${args.path}` : ''}` },
     'run_javascript': { icon: '🧮', title: () => '执行 JavaScript' },
     'submit_plan': { icon: '📋', title: () => '呈交执行计划' },
-    'update_task_list': { icon: '✅', title: () => '更新任务清单' }
+    'update_task_list': { icon: '✅', title: () => '更新任务清单' },
+    'list_skills': { icon: '🧠', title: () => '读取技能列表' },
+    'read_skill': { icon: '📖', title: (args) => `读取技能${(args && args.skill_id) ? `: ${args.skill_id}` : ''}` },
+    'list_open_source_skills': { icon: '🛒', title: () => '检索开源技能库' },
+    'install_skill': { icon: '⬇️', title: (args) => `安装技能${(args && (args.source || args.skill_id)) ? `: ${args.source || args.skill_id}` : ''}` },
+    'create_skill': { icon: '🧠', title: (args) => `创建技能${(args && args.name) ? `: ${args.name}` : ''}` }
   };
 
   const metaFor = (name) => {

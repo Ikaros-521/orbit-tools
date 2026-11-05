@@ -175,7 +175,7 @@
       if (!marketServerList) return;
       marketServerList.innerHTML = '<div class="ai-model-empty-tip">正在加载 MCP 市场…</div>';
       try {
-        const res = await ctx.call('getMcpMarket', { query: marketSearchQuery, category: marketActiveCategory });
+        const res = await ctx.call('searchLiveMcp', { query: marketSearchQuery, category: marketActiveCategory });
         if (!res || !res.ok) {
           marketServerList.innerHTML = `<div class="ai-model-empty-tip">加载市场失败: ${escapeHtml((res && res.error) || '未知错误')}</div>`;
           return;
@@ -247,7 +247,7 @@
               btn.disabled = true;
               btn.textContent = '安装中…';
               try {
-                const addRes = await ctx.call('installMarketMcp', { marketId: item.id });
+                const addRes = await ctx.call('installMarketMcp', { marketId: item.id, item });
                 if (addRes && addRes.ok) {
                   updateState({ mcpServers: addRes.mcpServers });
                   btn.className = 'ai-market-btn installed';

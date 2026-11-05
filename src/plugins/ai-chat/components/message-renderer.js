@@ -8,6 +8,9 @@
   function createMessageRenderer(deps) {
     const {
       state,
+      ctx,
+      sendMessage,
+      openLightbox,
       escapeHtml, renderMarkdown, copyToClipboard,
       chatInput, pillAgent, pillCot,
       autoResizeInput, renderMessages, renderSessionsList,
@@ -423,7 +426,9 @@
           if (idx !== -1) {
             state.currentSession.messages.splice(idx, 1);
             renderMessages();
-            await ctx.call('deleteMessage', { sessionId: state.currentSession.id, messageId: msg.id });
+            if (ctx && typeof ctx.call === 'function') {
+              await ctx.call('deleteMessage', { sessionId: state.currentSession.id, messageId: msg.id });
+            }
           }
         });
       }
@@ -460,7 +465,11 @@
             const thumb = document.createElement('div');
             thumb.className = 'ai-msg-image-thumb';
             thumb.innerHTML = `<img src="${escapeHtml(url)}" alt="图片 ${idx + 1}" /><span class="ai-msg-image-zoom">🔍</span>`;
-            thumb.addEventListener('click', () => openLightbox(url, (img && img.name) || `图片 ${idx + 1}`));
+            thumb.addEventListener('click', () => {
+              if (typeof openLightbox === 'function') {
+                openLightbox(url, (img && img.name) || `图片 ${idx + 1}`);
+              }
+            });
             imgsWrap.appendChild(thumb);
           });
           bubble.appendChild(imgsWrap);
@@ -723,12 +732,14 @@
             alert('正在生成中…');
             return;
           }
-          const res = await ctx.call('deleteMessage', { sessionId: state.currentSession.id, messageId: msg.id });
-          if (res && res.ok) {
-            state.currentSession = res.session;
-            renderMessages();
-            renderSessionsList();
-            updateHeader();
+          if (ctx && typeof ctx.call === 'function') {
+            const res = await ctx.call('deleteMessage', { sessionId: state.currentSession.id, messageId: msg.id });
+            if (res && res.ok) {
+              state.currentSession = res.session;
+              renderMessages();
+              renderSessionsList();
+              updateHeader();
+            }
           }
         });
       }
@@ -751,9 +762,15 @@
           bubble.querySelector('.cancel').addEventListener('click', () => renderMessages());
           bubble.querySelector('.save').addEventListener('click', () => {
             const val = ta.value.trim();
-            const atts = (msg.attachments && msg.attachments.length > 0) ? msg.attachments : (parsed.legacyAttachments.length > 0 ? parsed.legacyAttachments : undefined);
+            const atts = (msg.attachments && msg.attachments.length > 0)
+              ? msg.attachments
+              : (parsed.legacyAttachments && parsed.legacyAttachments.length > 0)
+                ? parsed.legacyAttachments
+                : (msg.images || []);
             if (val || (atts && atts.length > 0)) {
-              sendMessage(val, msg.id, atts || msg.images);
+              if (typeof sendMessage === 'function') {
+                sendMessage(val, msg.id, atts);
+              }
             }
           });
         });
@@ -763,8 +780,14 @@
       if (btnResend) {
         btnResend.addEventListener('click', () => {
           const parsed = parseDisplayMessage(msg);
-          const atts = (msg.attachments && msg.attachments.length > 0) ? msg.attachments : (parsed.legacyAttachments.length > 0 ? parsed.legacyAttachments : undefined);
-          sendMessage(parsed.text, msg.id, atts || msg.images);
+          const atts = (msg.attachments && msg.attachments.length > 0)
+            ? msg.attachments
+            : (parsed.legacyAttachments && parsed.legacyAttachments.length > 0)
+              ? parsed.legacyAttachments
+              : (msg.images || []);
+          if (typeof sendMessage === 'function') {
+            sendMessage(parsed.text, msg.id, atts);
+          }
         });
       }
 
@@ -776,8 +799,14 @@
             const prevUserMsg = state.currentSession.messages[idx - 1];
             if (prevUserMsg && prevUserMsg.role === 'user') {
               const parsed = parseDisplayMessage(prevUserMsg);
-              const atts = (prevUserMsg.attachments && prevUserMsg.attachments.length > 0) ? prevUserMsg.attachments : (parsed.legacyAttachments.length > 0 ? parsed.legacyAttachments : undefined);
-              sendMessage(parsed.text, prevUserMsg.id, atts || prevUserMsg.images);
+              const atts = (prevUserMsg.attachments && prevUserMsg.attachments.length > 0)
+                ? prevUserMsg.attachments
+                : (parsed.legacyAttachments && parsed.legacyAttachments.length > 0)
+                  ? parsed.legacyAttachments
+                  : (prevUserMsg.images || []);
+              if (typeof sendMessage === 'function') {
+                sendMessage(parsed.text, prevUserMsg.id, atts);
+              }
             }
           }
         });
@@ -807,7 +836,9 @@
       bubble.querySelectorAll('img:not(.ai-attachment-thumb)').forEach(img => {
         img.style.cursor = 'zoom-in';
         img.addEventListener('click', () => {
-          openLightbox(img.src, img.alt || '查看图片');
+          if (typeof openLightbox === 'function') {
+            openLightbox(img.src, img.alt || '查看图片');
+          }
         });
       });
 

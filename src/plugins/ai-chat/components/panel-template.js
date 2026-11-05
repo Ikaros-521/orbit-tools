@@ -488,13 +488,16 @@
                 <div class="ai-ext-market-panel hidden" id="mcpMarketPanel">
                   <div class="ai-ext-market-head">
                     <div class="ai-ext-market-title-wrap">
-                      <span class="ai-ext-market-title">🛒 MCP 市场（官方与成熟社区生态）</span>
-                      <span class="ai-ext-market-subtitle">精选开箱即用的 GitHub / npm 成熟 MCP 服务，支持一键安装接入本地 Agent</span>
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="ai-ext-market-title">🛒 MCP 市场（官方与成熟社区生态）</span>
+                        <span class="ai-live-badge">🌐 实时 npm / GitHub 生态</span>
+                      </div>
+                      <span class="ai-ext-market-subtitle">精选成熟官方预设 + 实时在线全网检索 npm/GitHub MCP 服务，支持一键安装接入本地 Agent</span>
                     </div>
                     <button type="button" class="ai-modal-close" id="btnCloseMcpMarket">×</button>
                   </div>
                   <div class="ai-ext-market-toolbar">
-                    <input type="text" class="ai-form-input ai-market-search" id="inputMarketSearch" placeholder="🔍 检索 MCP 市场（例如：Playwright、网页抓取、文件系统、数据库…）">
+                    <input type="text" class="ai-form-input ai-market-search" id="inputMarketSearch" placeholder="🔍 检索或全网搜索 MCP（例如：Playwright、postgres、sqlite、redis、docker、fetch…）">
                     <div class="ai-market-categories" id="marketCategoriesBar"></div>
                   </div>
                   <div class="ai-market-list" id="marketServerList"></div>
@@ -558,6 +561,7 @@
                     <span class="ai-ext-hint">任务级指令包（标准结构：&lt;技能名&gt;/SKILL.md）：Agent 通过 list_skills / read_skill 工具按需加载并遵循执行</span>
                   </div>
                   <div class="ai-personas-actions">
+                    <button type="button" class="ai-edit-btn" id="btnOpenSkillMarket" title="精选开源成熟 Agent 技能库">🛒 开源技能库</button>
                     <button type="button" class="ai-btn-text-action" id="btnResetSkills" title="恢复内置默认技能">🔄 恢复默认</button>
                     <button type="button" class="ai-edit-btn primary" id="btnCreateSkill">+ 新建技能</button>
                   </div>
@@ -583,11 +587,36 @@
                   <button type="button" class="ai-page-btn" id="btnNextSkillPage">下一页 ▶</button>
                 </div>
 
+                <!-- 内联开源技能市场与检索面板 -->
+                <div class="ai-ext-market-panel hidden" id="skillMarketPanel">
+                  <div class="ai-ext-market-head">
+                    <div class="ai-ext-market-title-wrap">
+                      <div style="display:flex;align-items:center;gap:8px;">
+                        <span class="ai-ext-market-title">🛒 开源技能库 (Open-Source Skills)</span>
+                        <span class="ai-live-badge">🌐 实时全网生态</span>
+                      </div>
+                      <span class="ai-ext-market-subtitle">精选官方与 GitHub 实时全网开源 Agent 技能，支持实时搜索、一键安装与基于开源源码创建专属技能</span>
+                    </div>
+                    <button type="button" class="ai-modal-close" id="btnCloseSkillMarket">×</button>
+                  </div>
+                  <div class="ai-ext-market-toolbar">
+                    <input type="text" class="ai-form-input ai-market-search" id="inputSkillMarketSearch" placeholder="🔍 实时全网检索开源技能（输入例如：docker、vue、python、review、tdd、git、fastapi…）">
+                    <div class="ai-market-categories" id="skillMarketCategoriesBar"></div>
+                  </div>
+                  <div class="ai-market-list" id="skillMarketList"></div>
+                </div>
+
                 <!-- 内联技能编辑器 -->
                 <div class="ai-ext-editor hidden" id="skillEditPanel">
                   <div class="ai-ext-editor-head">
                     <span id="skillEditTitle">新建技能</span>
                     <button type="button" class="ai-modal-close" id="btnCloseSkillEdit">×</button>
+                  </div>
+                  <div class="ai-form-group">
+                    <label class="ai-form-label">选用开源技能模板 (可选，一键载入开源指令集)</label>
+                    <select class="ai-form-select" id="selectSkillTemplate">
+                      <option value="">-- 自定义编写 (不使用模板) --</option>
+                    </select>
                   </div>
                   <div class="ai-form-group">
                     <label class="ai-form-label">技能名称</label>

@@ -112,8 +112,21 @@ class McpService {
     return { ok: true, items: enriched, categories: MARKET_CATEGORIES };
   }
 
-  installMarketMcp(marketId, mcpServers) {
-    const target = MCP_MARKET_CATALOG.find(x => x.id === marketId);
+  installMarketMcp(marketId, mcpServers, customTarget = null) {
+    let target = customTarget || MCP_MARKET_CATALOG.find(x => x.id === marketId);
+    if (!target && typeof marketId === 'string' && marketId.startsWith('npm:')) {
+      const pkgName = marketId.slice(4);
+      target = {
+        id: marketId,
+        name: pkgName,
+        packageName: pkgName,
+        command: 'npx',
+        args: ['-y', `${pkgName}@latest`],
+        env: {},
+        desc: `来自 npm 实时检索的 MCP 服务: ${pkgName}`,
+        official: pkgName.startsWith('@modelcontextprotocol/')
+      };
+    }
     if (!target) return { ok: false, error: '未找到指定市场 MCP 服务' };
     const existing = mcpServers.find(s => s.id === target.id || (s.name && s.name.toLowerCase() === target.name.toLowerCase()));
     if (existing) {
@@ -124,8 +137,8 @@ class McpService {
       id: target.id,
       name: target.name,
       transport: 'stdio',
-      command: target.command,
-      args: [...target.args],
+      command: target.command || 'npx',
+      args: Array.isArray(target.args) ? [...target.args] : ['-y', `${target.name}@latest`],
       env: { ...(target.env || {}) },
       enabled: true,
       desc: target.desc,

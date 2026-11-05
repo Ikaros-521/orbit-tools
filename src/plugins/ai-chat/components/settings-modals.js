@@ -133,6 +133,7 @@
     const skillsCardList = panelEl.querySelector('#skillsCardList');
     const inputSearchSkills = panelEl.querySelector('#inputSearchSkills');
     const btnCreateSkill = panelEl.querySelector('#btnCreateSkill');
+    const btnOpenSkillMarket = panelEl.querySelector('#btnOpenSkillMarket');
     const btnResetSkills = panelEl.querySelector('#btnResetSkills');
     const inputSkillUrl = panelEl.querySelector('#inputSkillUrl');
     const btnImportSkillUrl = panelEl.querySelector('#btnImportSkillUrl');
@@ -141,8 +142,14 @@
     const btnImportSkillFolder = panelEl.querySelector('#btnImportSkillFolder');
     const inputSkillFolder = panelEl.querySelector('#inputSkillFolder');
     const skillImportResult = panelEl.querySelector('#skillImportResult');
+    const skillMarketPanel = panelEl.querySelector('#skillMarketPanel');
+    const btnCloseSkillMarket = panelEl.querySelector('#btnCloseSkillMarket');
+    const inputSkillMarketSearch = panelEl.querySelector('#inputSkillMarketSearch');
+    const skillMarketCategoriesBar = panelEl.querySelector('#skillMarketCategoriesBar');
+    const skillMarketList = panelEl.querySelector('#skillMarketList');
     const skillEditPanel = panelEl.querySelector('#skillEditPanel');
     const skillEditTitle = panelEl.querySelector('#skillEditTitle');
+    const selectSkillTemplate = panelEl.querySelector('#selectSkillTemplate');
     const inputSkillName = panelEl.querySelector('#inputSkillName');
     const inputSkillDesc = panelEl.querySelector('#inputSkillDesc');
     const inputSkillContent = panelEl.querySelector('#inputSkillContent');
@@ -191,6 +198,7 @@
       if (tabName === 'ext') {
         closeMcpEditor();
         closeSkillEditor();
+        if (typeof closeSkillMarket === 'function') closeSkillMarket();
         renderMcpList();
         renderSkillsList();
       }
@@ -215,8 +223,8 @@
     const { renderMcpList, openMcpEditor, closeMcpEditor } = Parts.createMcpTab({
       PRESET_CHANNELS, btnCancelMcpEdit, btnCloseMcpEdit, btnCloseMcpMarket, btnCreateMcp, btnOpenMcpMarket, btnResetMcp, btnSaveMcp, btnTestMcp, chkMcpEnabled, ctx, escapeHtml, getState, grpMcpApiKey, grpMcpArgs, grpMcpCommand, grpMcpEnv, grpMcpUrl, inputMarketSearch, inputMcpApiKey, inputMcpArgs, inputMcpCommand, inputMcpEnv, inputMcpName, inputMcpUrl, marketCategoriesBar, marketServerList, mcpEditPanel, mcpEditTitle, mcpMarketPanel, mcpServerList, mcpTestResult, onConfigSaved, onPersonasChanged, panelEl, selectMcpTransport, switchSettingsTab, updateState
     });
-    const { renderSkillsList, closeSkillEditor } = Parts.createSkillTab({
-      PRESET_CHANNELS, btnCancelSkillEdit, btnCloseSkillEdit, btnCreateSkill, btnImportSkillFile, btnImportSkillFolder, btnImportSkillUrl, btnNextSkillPage, btnPrevSkillPage, btnResetSkills, btnSaveSkill, ctx, escapeHtml, getState, inputSearchSkills, inputSkillContent, inputSkillDesc, inputSkillFile, inputSkillFolder, inputSkillName, inputSkillUrl, onConfigSaved, onPersonasChanged, panelEl, skillEditPanel, skillEditTitle, skillImportResult, skillPageInfo, skillsCardList, switchSettingsTab, updateState
+    const { renderSkillsList, closeSkillEditor, openSkillMarket, closeSkillMarket } = Parts.createSkillTab({
+      PRESET_CHANNELS, btnCancelSkillEdit, btnCloseSkillEdit, btnCloseSkillMarket, btnCreateSkill, btnImportSkillFile, btnImportSkillFolder, btnImportSkillUrl, btnNextSkillPage, btnOpenSkillMarket, btnPrevSkillPage, btnResetSkills, btnSaveSkill, ctx, escapeHtml, getState, inputSearchSkills, inputSkillContent, inputSkillDesc, inputSkillFile, inputSkillFolder, inputSkillMarketSearch, inputSkillName, inputSkillUrl, onConfigSaved, onPersonasChanged, panelEl, selectSkillTemplate, skillEditPanel, skillEditTitle, skillImportResult, skillMarketCategoriesBar, skillMarketList, skillMarketPanel, skillPageInfo, skillsCardList, switchSettingsTab, updateState
     });
     const { renderModelSearchResults, renderChannelChips, getAllPresetModels } = Parts.createModelTab({
       PRESET_CHANNELS, btnClearModelSearch, btnFetchModels, btnToggleApiKey, btnToggleModelSearch, cfgApiKey, cfgBaseUrl, cfgChannel, cfgModel, cfgProtocol, channelModelChips, countAllModels, countChannelModels, countRemoteModels, ctx, escapeHtml, getState, iconFetchSpin, inputModelSearch, modelFilterTabs, modelSearchPanel, modelSearchResults, onConfigSaved, onPersonasChanged, panelEl, switchSettingsTab, tabRemoteModels, updateState
@@ -308,6 +316,8 @@
       renderMcpList,
       renderSkillsList,
       renderModelSearchResults,
+      openSkillMarket,
+      closeSkillMarket,
     };
   }
 

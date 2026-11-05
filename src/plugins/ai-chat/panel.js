@@ -171,6 +171,9 @@
       createMessageElement, createCompactionCardElement
     } = MessageRendererLib.createMessageRenderer({
       state: rendererState,
+      ctx,
+      sendMessage: (...args) => sendMessage(...args),
+      openLightbox: (...args) => (typeof openLightbox === 'function' ? openLightbox(...args) : undefined),
       escapeHtml, renderMarkdown, copyToClipboard,
       chatInput, pillAgent, pillCot,
       autoResizeInput, renderMessages, renderSessionsList,
@@ -693,6 +696,8 @@
       renderPersonas, updateActivePersonaPill, closeCtrlPopovers
     } = (window.AiChatPillsPopovers).createPillsPopovers({
       state: pillsState,
+      ctx,
+      btnOpenSettings,
       escapeHtml, closeAllPopovers, updateHeader, settingsCtrl,
       pillCot, pillAgent,
       btnAgentMode, agentModeIcon, agentModeLabel, agentModePopover, agentAlwaysRow,
@@ -962,6 +967,7 @@
       calculateCurrentContextTokens, updateContextProgress
     } = (window.AiChatContextRing).createContextRing({
       state: ringState,
+      ctx,
       renderMessages, renderSessionsList, updateHeader,
       btnCompactContext, contextRingMeter, contextRingText, contextRingWrap
     });
@@ -1124,9 +1130,8 @@
     async function sendMessage(customContent = null, editMessageId = null, customAttachments = null) {
       if (isGenerating) return;
       let text = customContent !== null ? customContent : chatInput.value.trim();
-      // != null 同时兜住 undefined：编辑/重发刚发出的纯文本消息时调用方传
-      // atts || msg.images 求值为 undefined，attachments 不可迭代直接 TypeError
-      const attachments = customAttachments != null ? customAttachments : [...pendingAttachments];
+      // != null 同时兜住 undefined：编辑/重发时如未显式传附件则回退为空数组（避免意外拾取输入框当前草稿附件）
+      const attachments = customAttachments != null ? customAttachments : (editMessageId ? [] : [...pendingAttachments]);
       if ((!text && attachments.length === 0) || !currentSession) return;
 
       const images = [];

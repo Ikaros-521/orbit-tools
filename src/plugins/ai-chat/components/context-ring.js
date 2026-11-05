@@ -6,6 +6,7 @@
   function createContextRing(deps) {
     const {
       state,
+      ctx,
       renderMessages, renderSessionsList, updateHeader,
       btnCompactContext, contextRingMeter, contextRingText, contextRingWrap
     } = deps;

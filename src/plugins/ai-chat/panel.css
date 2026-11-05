@@ -3534,6 +3534,54 @@ input.hidden {
   border: 1px solid var(--line);
 }
 
+.ai-live-badge {
+  font-size: 10px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.12);
+  color: var(--green, #10b981);
+  border: 1px solid var(--green, #10b981);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.ai-market-stars-badge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(245, 158, 11, 0.12);
+  color: #f59e0b;
+  border: 1px solid rgba(245, 158, 11, 0.4);
+  font-weight: 600;
+}
+
+.ai-market-repo-badge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--panel-hi);
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  font-family: var(--font-mono);
+}
+
+.ai-market-preview-box {
+  background: var(--panel-lo);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--ink);
+  max-height: 180px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  font-family: var(--font-mono);
+  margin-top: 4px;
+}
+
 .ai-market-repo-link {
   font-size: 10.5px;
   color: var(--ink-faint);
@@ -3567,6 +3615,34 @@ input.hidden {
   color: var(--ink-faint);
   border-color: var(--line);
   cursor: default;
+}
+
+.ai-market-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.ai-market-btn.secondary {
+  background: var(--panel-hi);
+  border-color: var(--line-strong);
+  color: var(--ink);
+}
+
+.ai-market-btn.secondary:hover {
+  background: var(--panel-lo);
+  border-color: var(--accent);
+}
+
+.ai-skill-source-badge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--inset);
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  margin-left: 4px;
 }
 
 .ai-market-card-desc {

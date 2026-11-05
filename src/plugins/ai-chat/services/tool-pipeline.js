@@ -21,6 +21,7 @@ const CONCURRENCY_SAFE_TOOLS = new Set([
   'list_workflows',
   'list_skills',
   'read_skill',
+  'list_open_source_skills',
   'memory_search',
   'memory_list',
   'list_available_ai_ides'

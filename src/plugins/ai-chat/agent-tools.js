@@ -14,6 +14,9 @@ const AGENT_TOOL_META = {
   create_workflow: { risk: 'high', label: '创建并保存工作流' },
   list_skills: { risk: 'low', label: '列出可用技能' },
   read_skill: { risk: 'low', label: '读取技能内容' },
+  create_skill: { risk: 'high', label: '创建并保存技能' },
+  install_skill: { risk: 'high', label: '安装开源技能' },
+  list_open_source_skills: { risk: 'low', label: '检索开源技能库' },
   // Local assistant tools (local-tools.js): reads are low-risk, writes/commands high
   list_dir: { risk: 'low', label: '列出本地目录' },
   read_file: { risk: 'low', label: '读取本地文件' },
@@ -179,6 +182,76 @@ const AGENT_TOOLS_DEFINITIONS = [
           }
         },
         required: ['skill_id']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'list_open_source_skills',
+      description: '实时检索或浏览开源技能生态库 (Skills Market / GitHub)，支持按关键词全网实时搜索开源技能、领域与安装状态。用于发现开源方法论、获取真实开源 SKILL.md 或作为创建专属技能的基底。',
+      parameters: {
+        type: 'object',
+        properties: {
+          query: {
+            type: 'string',
+            description: '搜索关键词，如 "docker", "fastapi", "vue", "tdd", "git", "重构", "安全" 等'
+          },
+          category: {
+            type: 'string',
+            description: '分类过滤：all (全部), dev (代码与重构), qa (测试与质量), prompt (提示词与架构), workflow (规范与流程), security (分析与安全)'
+          },
+          online: {
+            type: 'boolean',
+            description: '是否开启实时在线检索 (默认 true)：联网检索 GitHub 开源技能生态与知名技能库'
+          }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'install_skill',
+      description: '一键安装开源技能到当前助手的技能库中。source 可指定开源技能标识（如 "market-code-review"、"market-unit-testing"）、开源技能名称，或指定远程 GitHub 链接（.md 文件或技能仓库）。',
+      parameters: {
+        type: 'object',
+        properties: {
+          source: {
+            type: 'string',
+            description: '开源技能 ID (来自 list_open_source_skills)、开源技能名称，或远程 GitHub SKILL.md/仓库 URL'
+          }
+        },
+        required: ['source']
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'create_skill',
+      description: '在 Orbit 技能库中创建并保存一个新的技能 (Skill)。支持直接编写完整的 Markdown 指令集，也可以通过 template_id 指定某个开源技能作为基底（自动继承或在此基础上定制调整）。创建后 Agent 可通过 list_skills / read_skill 按需加载执行。',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: '技能名称，例如：Vue3组件重构规范、Python数据清洗方法论'
+          },
+          desc: {
+            type: 'string',
+            description: '技能简介（一句话说明适用场景与触发条件，供模型在后续任务中判断何时使用）'
+          },
+          content: {
+            type: 'string',
+            description: '技能完整内容（Markdown 格式的指令集、步骤、约束、格式规范）'
+          },
+          template_id: {
+            type: 'string',
+            description: '可选：引用的开源技能模板 ID（例如 market-code-review、market-unit-testing），将以该开源技能为基底'
+          }
+        },
+        required: ['name', 'content']
       }
     }
   },

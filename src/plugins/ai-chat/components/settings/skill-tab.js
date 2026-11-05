@@ -4,14 +4,15 @@
 (() => {
   function createSkillTab(deps) {
     const {
-      PRESET_CHANNELS, btnCancelSkillEdit, btnCloseSkillEdit, btnCreateSkill,
-      btnImportSkillFile, btnImportSkillFolder, btnImportSkillUrl, btnNextSkillPage,
-      btnPrevSkillPage, btnResetSkills, btnSaveSkill, ctx,
-      escapeHtml, getState, inputSearchSkills, inputSkillContent,
-      inputSkillDesc, inputSkillFile, inputSkillFolder, inputSkillName,
-      inputSkillUrl, onConfigSaved, onPersonasChanged, panelEl,
-      skillEditPanel, skillEditTitle, skillImportResult, skillPageInfo,
-      skillsCardList, switchSettingsTab, updateState
+      PRESET_CHANNELS, btnCancelSkillEdit, btnCloseSkillEdit, btnCloseSkillMarket,
+      btnCreateSkill, btnImportSkillFile, btnImportSkillFolder, btnImportSkillUrl,
+      btnNextSkillPage, btnOpenSkillMarket, btnPrevSkillPage, btnResetSkills,
+      btnSaveSkill, ctx, escapeHtml, getState, inputSearchSkills,
+      inputSkillContent, inputSkillDesc, inputSkillFile, inputSkillFolder,
+      inputSkillMarketSearch, inputSkillName, inputSkillUrl, onConfigSaved,
+      onPersonasChanged, panelEl, selectSkillTemplate, skillEditPanel,
+      skillEditTitle, skillImportResult, skillMarketCategoriesBar, skillMarketList,
+      skillMarketPanel, skillPageInfo, skillsCardList, switchSettingsTab, updateState
     } = deps;
     if (!panelEl) return null;
 
@@ -19,7 +20,20 @@
     let skillSearchKeyword = '';
     let skillCurrentPage = 1;
     const skillPageSize = 8;
-        function renderSkillsList() {
+
+    let skillMarketActiveCategory = 'all';
+    let skillMarketSearchQuery = '';
+    let cachedMarketCatalog = [];
+
+    const catIcons = {
+      dev: '💻',
+      qa: '🧪',
+      prompt: '📝',
+      workflow: '🚀',
+      security: '🔍'
+    };
+
+    function renderSkillsList() {
       if (!skillsCardList) return;
       const skills = (getState().skills) || [];
       skillsCardList.innerHTML = '';
@@ -40,7 +54,7 @@
       if (filtered.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'ai-model-empty-tip';
-        empty.textContent = q ? `未找到匹配 "${q}" 的技能` : '暂无技能，点击右上角新建、下载导入或恢复默认';
+        empty.textContent = q ? `未找到匹配 "${q}" 的技能` : '暂无技能，可点击右上角「🛒 开源技能库」一键安装或「+ 新建技能」';
         skillsCardList.appendChild(empty);
         return;
       }
@@ -49,11 +63,23 @@
       filtered.slice(start, start + skillPageSize).forEach(sk => {
         const card = document.createElement('div');
         card.className = 'ai-skill-card';
+
+        let sourceBadge = '';
+        if (sk.source) {
+          if (sk.source.startsWith('market:')) {
+            sourceBadge = '<span class="ai-skill-source-badge">开源预设</span>';
+          } else if (sk.source.startsWith('template:')) {
+            sourceBadge = '<span class="ai-skill-source-badge">模板衍生</span>';
+          } else if (sk.source.startsWith('http')) {
+            sourceBadge = '<span class="ai-skill-source-badge">远程导入</span>';
+          }
+        }
+
         card.innerHTML = `
           <div class="ai-mcp-card-head">
             <span class="ai-mcp-ico">🧠</span>
             <div class="ai-mcp-card-info">
-              <span class="ai-mcp-name" title="${escapeHtml(sk.source || '内置 / 手动创建')}">${escapeHtml(sk.name)}</span>
+              <span class="ai-mcp-name" title="${escapeHtml(sk.source || '内置 / 手动创建')}">${escapeHtml(sk.name)}${sourceBadge}</span>
               <span class="ai-mcp-target" title="${escapeHtml(sk.desc || '')}">${escapeHtml(sk.desc || '(未设置简介)')}</span>
             </div>
             <div class="ai-persona-card-btns">
@@ -65,10 +91,12 @@
         card.querySelector('.edit').addEventListener('click', () => {
           editingSkillId = sk.id;
           if (skillEditTitle) skillEditTitle.textContent = `编辑技能: ${sk.name}`;
+          if (selectSkillTemplate) selectSkillTemplate.value = '';
           if (inputSkillName) inputSkillName.value = sk.name || '';
           if (inputSkillDesc) inputSkillDesc.value = sk.desc || '';
           if (inputSkillContent) inputSkillContent.value = sk.content || '';
           if (skillsCardList) skillsCardList.classList.add('hidden');
+          if (skillMarketPanel) skillMarketPanel.classList.add('hidden');
           if (skillEditPanel) skillEditPanel.classList.remove('hidden');
           if (inputSkillName) inputSkillName.focus();
         });
@@ -103,6 +131,291 @@
       if (res.overflow) t += `，超出数量上限 ${res.overflow} 个未下载`;
       if (res.truncated) t += '（仓库过大，扫描结果可能不完整）';
       return t;
+    }
+
+    /* --- Open Source Skills Market Controller --- */
+
+    async function ensureMarketCatalogLoaded() {
+      if (cachedMarketCatalog.length > 0) return cachedMarketCatalog;
+      try {
+        const res = await ctx.call('searchLiveSkills', { query: '', category: 'all', limit: 30 });
+        if (res && res.ok && Array.isArray(res.items)) {
+          cachedMarketCatalog = res.items;
+          populateSkillTemplateDropdown();
+        }
+      } catch {}
+      return cachedMarketCatalog;
+    }
+
+    function populateSkillTemplateDropdown() {
+      if (!selectSkillTemplate) return;
+      const currentVal = selectSkillTemplate.value;
+      selectSkillTemplate.innerHTML = '<option value="">-- 自定义编写 (不使用模板) --</option>';
+      for (const it of cachedMarketCatalog) {
+        const opt = document.createElement('option');
+        opt.value = it.id;
+        const repoPrefix = it.repo ? `[${it.repo.split('/')[0]}] ` : '';
+        opt.textContent = `${repoPrefix}${it.name} - ${(it.desc || '').slice(0, 32)}`;
+        selectSkillTemplate.appendChild(opt);
+      }
+      selectSkillTemplate.value = currentVal || '';
+    }
+
+    async function loadAndRenderSkillMarket() {
+      if (!skillMarketList) return;
+      skillMarketList.innerHTML = '<div class="ai-model-empty-tip">🌐 正在全网实时检索开源技能生态（GitHub / 权威技能库）…</div>';
+
+      try {
+        const res = await ctx.call('searchLiveSkills', { query: skillMarketSearchQuery, category: skillMarketActiveCategory, limit: 30 });
+        if (!res || !res.ok) {
+          skillMarketList.innerHTML = `<div class="ai-model-empty-tip">开源技能库加载失败: ${escapeHtml((res && res.error) || '未知错误')}</div>`;
+          return;
+        }
+
+        cachedMarketCatalog = res.items || [];
+        populateSkillTemplateDropdown();
+
+        if (skillMarketCategoriesBar && Array.isArray(res.categories)) {
+          skillMarketCategoriesBar.innerHTML = '';
+          res.categories.forEach(cat => {
+            const catBtn = document.createElement('button');
+            catBtn.type = 'button';
+            catBtn.className = 'ai-market-cat-btn' + (skillMarketActiveCategory === cat.id ? ' active' : '');
+            catBtn.textContent = cat.label;
+            catBtn.addEventListener('click', () => {
+              skillMarketActiveCategory = cat.id;
+              loadAndRenderSkillMarket();
+            });
+            skillMarketCategoriesBar.appendChild(catBtn);
+          });
+        }
+
+        skillMarketList.innerHTML = '';
+        if (!res.items || res.items.length === 0) {
+          skillMarketList.innerHTML = '<div class="ai-model-empty-tip">未找到匹配的开源技能，可尝试更换关键词或分类</div>';
+          return;
+        }
+
+        res.items.forEach(item => {
+          const card = document.createElement('div');
+          card.className = 'ai-market-card';
+
+          const icon = catIcons[item.category] || '🧠';
+          const repoLink = item.sourceUrl
+            ? `<a href="#" class="ai-market-repo-link" title="在 GitHub 查看源码与项目">GitHub ↗</a>`
+            : '';
+
+          const starsBadge = item.stars
+            ? `<span class="ai-market-stars-badge" title="GitHub Stars">★ ${item.stars >= 1000 ? Math.round(item.stars / 1000) + 'k' : item.stars}</span>`
+            : '';
+
+          const repoBadge = item.repo
+            ? `<span class="ai-market-repo-badge" title="所属开源仓库">${escapeHtml(item.repo)}</span>`
+            : '';
+
+          const typeBadge = item.official
+            ? '<span class="ai-market-official-badge">Official</span>'
+            : (item.sourceType === 'curated'
+              ? '<span class="ai-market-official-badge">精选预设</span>'
+              : '<span class="ai-market-community-badge">GitHub 开源</span>');
+
+          card.innerHTML = `
+            <div class="ai-market-card-top">
+              <div class="ai-market-info-col">
+                <span class="ai-market-card-ico">${icon}</span>
+                <div class="ai-market-name-row">
+                  <span class="ai-market-card-name">${escapeHtml(item.name)}</span>
+                  ${starsBadge}
+                  ${repoBadge}
+                  ${typeBadge}
+                  ${repoLink}
+                </div>
+              </div>
+              <div class="ai-market-btn-group">
+                <button type="button" class="ai-market-btn secondary btn-preview-skill" title="实时拉取并预览此开源技能 Markdown 内容">👁️ 预览</button>
+                <button type="button" class="ai-market-btn secondary btn-use-template" title="从 GitHub 实时抓取该技能源码作为模板，可自由调整后保存为你的技能">✨ 基于此创建</button>
+                <button type="button" class="ai-market-btn ${item.installed ? 'installed' : 'install'}" ${item.installed ? 'disabled' : ''}>
+                  ${item.installed ? '✓ 已安装' : '⬇️ 一键安装'}
+                </button>
+              </div>
+            </div>
+            <div class="ai-market-card-desc">${escapeHtml(item.desc || '')}</div>
+            <div class="ai-market-preview-box hidden"></div>
+          `;
+
+          const link = card.querySelector('.ai-market-repo-link');
+          if (link && item.sourceUrl) {
+            link.addEventListener('click', e => {
+              e.preventDefault();
+              if (ctx.openExternal) ctx.openExternal(item.sourceUrl);
+            });
+          }
+
+          const previewBox = card.querySelector('.ai-market-preview-box');
+          const btnPreview = card.querySelector('.btn-preview-skill');
+          if (btnPreview && previewBox) {
+            btnPreview.addEventListener('click', async () => {
+              if (!previewBox.classList.contains('hidden')) {
+                previewBox.classList.add('hidden');
+                btnPreview.textContent = '👁️ 预览';
+                return;
+              }
+
+              previewBox.classList.remove('hidden');
+              btnPreview.textContent = '收起预览';
+
+              if (item.content) {
+                previewBox.textContent = item.content;
+                return;
+              }
+
+              previewBox.textContent = '⏳ 正在从 GitHub 实时拉取最新 Markdown 源码…';
+              try {
+                const det = await ctx.call('fetchRemoteSkillDetail', { target: item });
+                if (det && det.ok) {
+                  item.content = det.content;
+                  previewBox.textContent = det.content;
+                } else {
+                  previewBox.textContent = `✗ 获取内容失败: ${(det && det.error) || '未知错误'}`;
+                }
+              } catch (err) {
+                previewBox.textContent = `✗ 抓取异常: ${err.message || err}`;
+              }
+            });
+          }
+
+          const btnUseTemplate = card.querySelector('.btn-use-template');
+          if (btnUseTemplate) {
+            btnUseTemplate.addEventListener('click', async () => {
+              btnUseTemplate.disabled = true;
+              btnUseTemplate.textContent = '⏳ 拉取中…';
+              try {
+                await openSkillEditorWithTemplate(item);
+              } finally {
+                btnUseTemplate.disabled = false;
+                btnUseTemplate.textContent = '✨ 基于此创建';
+              }
+            });
+          }
+
+          const btnInstall = card.querySelector('.ai-market-btn.install');
+          if (btnInstall) {
+            btnInstall.addEventListener('click', async () => {
+              btnInstall.disabled = true;
+              btnInstall.textContent = '⏳ 下载安装中…';
+              try {
+                let addRes;
+                if (item.sourceType === 'curated') {
+                  addRes = await ctx.call('installMarketSkill', { marketId: item.id });
+                } else {
+                  addRes = await ctx.call('installRemoteSkill', { target: item });
+                }
+
+                if (addRes && addRes.ok) {
+                  btnInstall.className = 'ai-market-btn installed';
+                  btnInstall.textContent = '✓ 已安装';
+                  updateState({ skills: addRes.skills });
+                  renderSkillsList();
+                  showSkillImportResult(`✓ 成功安装开源技能「${item.name}」`, 'ok');
+                } else {
+                  btnInstall.disabled = false;
+                  btnInstall.textContent = '⬇️ 一键安装';
+                  alert(`安装失败: ${(addRes && addRes.error) || '未知错误'}`);
+                }
+              } catch (err) {
+                btnInstall.disabled = false;
+                btnInstall.textContent = '⬇️ 一键安装';
+                alert(`安装异常: ${err.message || err}`);
+              }
+            });
+          }
+
+          skillMarketList.appendChild(card);
+        });
+      } catch (err) {
+        skillMarketList.innerHTML = `<div class="ai-model-empty-tip">开源技能库异常: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function openSkillMarket() {
+      if (skillEditPanel) skillEditPanel.classList.add('hidden');
+      if (skillsCardList) skillsCardList.classList.add('hidden');
+      if (skillMarketPanel) skillMarketPanel.classList.remove('hidden');
+      loadAndRenderSkillMarket();
+    }
+
+    function closeSkillMarket() {
+      if (skillMarketPanel) skillMarketPanel.classList.add('hidden');
+      if (skillsCardList) skillsCardList.classList.remove('hidden');
+    }
+
+    async function openSkillEditorWithTemplate(item) {
+      editingSkillId = null;
+      let name = item.name || '';
+      let desc = item.desc || '';
+      let content = item.content || '';
+
+      if (!content) {
+        showSkillImportResult('⏳ 正在从 GitHub 实时拉取最新 Markdown 源码…', '');
+        try {
+          const det = await ctx.call('fetchRemoteSkillDetail', { target: item });
+          if (det && det.ok) {
+            name = det.name || name;
+            desc = det.desc || desc;
+            content = det.content || content;
+            item.content = content;
+          }
+        } catch {}
+      }
+
+      if (skillEditTitle) skillEditTitle.textContent = `基于开源技能创建: ${name}`;
+      if (selectSkillTemplate) selectSkillTemplate.value = item.id || '';
+      if (inputSkillName) inputSkillName.value = name;
+      if (inputSkillDesc) inputSkillDesc.value = desc;
+      if (inputSkillContent) inputSkillContent.value = content;
+
+      if (skillMarketPanel) skillMarketPanel.classList.add('hidden');
+      if (skillsCardList) skillsCardList.classList.add('hidden');
+      if (skillEditPanel) skillEditPanel.classList.remove('hidden');
+      if (inputSkillName) inputSkillName.focus();
+    }
+
+    if (btnOpenSkillMarket) btnOpenSkillMarket.addEventListener('click', openSkillMarket);
+    if (btnCloseSkillMarket) btnCloseSkillMarket.addEventListener('click', closeSkillMarket);
+
+    let skillMarketSearchTimer = null;
+    if (inputSkillMarketSearch) {
+      inputSkillMarketSearch.addEventListener('input', e => {
+        clearTimeout(skillMarketSearchTimer);
+        skillMarketSearchTimer = setTimeout(() => {
+          skillMarketSearchQuery = e.target.value.trim();
+          loadAndRenderSkillMarket();
+        }, 300);
+      });
+    }
+
+    if (selectSkillTemplate) {
+      selectSkillTemplate.addEventListener('change', async () => {
+        const selectedId = selectSkillTemplate.value;
+        if (!selectedId) return;
+        const item = cachedMarketCatalog.find(x => x.id === selectedId);
+        if (item) {
+          if (!inputSkillName.value || !editingSkillId) inputSkillName.value = item.name;
+          if (!inputSkillDesc.value || !editingSkillId) inputSkillDesc.value = item.desc;
+          if (item.content) {
+            inputSkillContent.value = item.content;
+          } else {
+            inputSkillContent.placeholder = '⏳ 正在从 GitHub 实时拉取最新 Markdown 源码…';
+            try {
+              const det = await ctx.call('fetchRemoteSkillDetail', { target: item });
+              if (det && det.ok) {
+                item.content = det.content;
+                inputSkillContent.value = det.content || '';
+              }
+            } catch {}
+          }
+        }
+      });
     }
 
     if (inputSearchSkills) {
@@ -238,18 +551,22 @@
     function closeSkillEditor() {
       if (skillEditPanel) skillEditPanel.classList.add('hidden');
       if (skillsCardList) skillsCardList.classList.remove('hidden');
+      if (selectSkillTemplate) selectSkillTemplate.value = '';
       editingSkillId = null;
     }
 
     if (btnCreateSkill) {
-      btnCreateSkill.addEventListener('click', () => {
+      btnCreateSkill.addEventListener('click', async () => {
         editingSkillId = null;
         if (skillEditTitle) skillEditTitle.textContent = '新建技能';
+        if (selectSkillTemplate) selectSkillTemplate.value = '';
         if (inputSkillName) inputSkillName.value = '';
         if (inputSkillDesc) inputSkillDesc.value = '';
         if (inputSkillContent) inputSkillContent.value = '';
         if (skillsCardList) skillsCardList.classList.add('hidden');
+        if (skillMarketPanel) skillMarketPanel.classList.add('hidden');
         if (skillEditPanel) skillEditPanel.classList.remove('hidden');
+        ensureMarketCatalogLoaded();
         if (inputSkillName) inputSkillName.focus();
       });
     }
@@ -290,8 +607,10 @@
       });
     }
 
+    // Preload market catalog for fast dropdown & market opening
+    ensureMarketCatalogLoaded();
 
-    return { renderSkillsList, closeSkillEditor };
+    return { renderSkillsList, closeSkillEditor, openSkillMarket, closeSkillMarket };
   }
 
   const exportsObj = { createSkillTab };
