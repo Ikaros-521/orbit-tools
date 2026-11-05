@@ -2,19 +2,23 @@
 
 ===E:/Github_Pro/orbit-tools/===
 .gitattributes[FC1T]: F:Git属性配置，指定所有文本文件检出时统一转换为LF换行符 | R:- | A:- | S:-
-.gitignore[FC1T]: F:Git忽略规则，排除依赖、构建产物、插件数据及AOCI/agent本机绑定配置与抓取结果文件 | R:- | A:- | S:.mcp.json、.codex与.aoci本机agent配置绝不能入库，提交前须确认未被强制添加
+.gitignore[FC1T]: F:Git忽略规则，排除依赖、构建产物、插件数据、AOCI/agent本机绑定配置、抓取结果文件与文档站VitePress缓存 | R:- | A:- | S:.mcp.json、.codex与.aoci本机agent配置绝不能入库，提交前须确认未被强制添加
 AGENTS.md[SG7S]: F:仓库级Agent纪律与AOCI协议说明，指导模型在会话中按合同建立和维护系统认知 | R:code:aoci.txt | A:- | S:aoci区块受治理保护，严禁手动绕过或伪造认知收据
 LICENSE[SG1L]: F:项目开源许可证，声明遵循GPL-3.0许可条款 | R:- | A:- | S:-
-README.md[SU7S]: F:Orbit Toolbox项目主说明文档，介绍项目定位、架构特性、内置插件列表与运行指引 | R:code:package.json | A:- | S:-
+README.md[SU7S]: F:Orbit Toolbox项目主说明文档，介绍项目定位、架构特性、内置插件列表、运行指引与官方文档站入口链接 | R:code:package.json,code:docs/index.md | A:- | S:-
 TASK_BRIEF.md[SW3T]: F:AI任务调度交接简报，记录AI对话插件渲染修复与增强任务背景与要求 | R:- | A:- | S:-
 package-lock.json[FV1L]: F:npm依赖版本锁定清单，锁定mermaid图表库运行时依赖与electron/electron-builder构建树完整哈希 | R:code:package.json | A:- | S:-
 package.json[FB8S]: F:Node.js项目元数据与npm脚本，声明Electron主入口、多平台打包配置、mermaid运行时依赖及分域测试脚本链 | R:code:src/main.js | A:main | S:test:ai串起十余个ai-chat专项测试脚本，新增ai-chat测试须同步挂入该链与test:all
 
 ===E:/Github_Pro/orbit-tools/.github/workflows/===
 release.yml[OV6T]: F:GitHub Actions发布流水线，在推送v*标签时触发Windows平台打包并创建GitHub Release草稿 | R:code:package.json | A:- | S:-
+docs.yml[OV6T]: F:文档站GitHub Actions流水线，docs/目录或工作流自身变更时在ubuntu上构建VitePress产物并发布到GitHub Pages | R:code:docs/package.json,code:docs/.vitepress/config.mts | A:- | S:checkout的fetch-depth:0是lastUpdated时间戳前提；Pages须保持workflow构建源，改回branch源会让deploy步骤失败
 
 ===E:/Github_Pro/orbit-tools/docs/===
-plugin-guide.md[SE7M]: F:Orbit插件开发指南，规范纯前端、全栈及独立窗口插件目录结构与manifest规范 | R:code:skills/orbit-plugin-developer/SKILL.md | A:- | S:插件必须遵循安全沙箱边界，全栈插件后端代码仅运行在主进程受限上下文
+plugin-guide.md[SE7M]: F:Orbit插件开发完全指南单页版：架构全景、目录安装、清单规范、面板/后端API、设计令牌、场景示例、调试测试与AI技能，已并入文档站侧边栏 | R:code:skills/orbit-plugin-developer/SKILL.md,code:docs/.vitepress/config.mts | A:- | S:插件必须遵循安全沙箱边界，全栈插件后端代码仅运行在主进程受限上下文；正文含尖括号的泛型（如Promise泛型写法）必须包反引号，裸尖括号标签会被VitePress按HTML解析导致站点构建失败
+index.md[EU6T]: F:文档站VitePress首页：hero行动入口（快速开始/开发插件/GitHub）与六大特性卡片 | R:code:docs/.vitepress/config.mts | A:- | S:-
+package-lock.json[FV1L]: F:文档站npm依赖锁定清单，锁定vitepress^1.6构建树完整哈希供CI npm ci复现 | R:code:docs/package.json | A:- | S:-
+package.json[FB5T]: F:文档站点独立npm元数据：vitepress devDep与dev/build/preview脚本 | R:code:docs/.vitepress/config.mts | A:- | S:刻意与根package.json隔离——根install牵动electron postinstall与allow-scripts，文档工具链独立可让CI按docs锁文件单独缓存
 
 ===E:/Github_Pro/orbit-tools/skills/orbit-plugin-developer/===
 .gitignore[FC1T]: F:orbit-plugin-developer技能私有Git忽略配置 | R:- | A:- | S:-
@@ -316,3 +320,30 @@ openai-chat.js[IN7S]: F:OpenAI Chat Completions协议适配器：请求构造、
 openai-responses.js[IN7M]: F:OpenAI Responses API适配器：input项function_call/function_call_output构造、扁平工具schema转换、流式文本与函数调用组装 | R:code:src/plugins/ai-chat/protocols/shared.js,code:src/plugins/ai-chat/protocols/sse-parser.js | A:OpenAIResponsesAdapter | S:出方向把chat嵌套工具schema转扁平、入方向把function_call项还原为OpenAI-chat形状toolCalls——两侧转换方向相反须双向对称，漏一侧即官方API 400或agent工具上下文丢失
 shared.js[IN5T]: F:协议适配器共享助手：baseUrl规范化（尾斜杠/已含端点去重）与流式tool-call参数JSON完化（坏JSON退化'{}'） | R:- | A:normalizeUrl,finalizeToolArgs | S:-
 sse-parser.js[IN6T]: F:协议无关SSE流解析器：跨feed分块的event/data组装状态、[DONE]识别与残留冲刷 | R:- | A:SSEParser | S:pendingEvent/pendingData是实例字段——降回局部变量会在TCP分块处丢事件前半段
+
+===E:/Github_Pro/orbit-tools/docs/.vitepress/===
+config.mts[FV6T]: F:文档站VitePress配置：zh-CN语言、base子路径、导航与三段侧边栏、中文本地搜索、lastUpdated与logo注入 | R:code:docs/package.json,code:docs/public/logo.svg | A:- | S:base必须保持与仓库名一致的/orbit-tools/子路径，仓库改名或绑独立域名须同步修改，否则站点资源全部404
+
+===E:/Github_Pro/orbit-tools/docs/guide/===
+architecture.md[SG6T]: F:架构总览文档：主/渲染/插件双态信任模型图、core与renderer模块职责表、IPC数据流与关键生命周期行为 | R:code:src/core/plugin-manager.js,code:src/main.js | A:- | S:-
+getting-started.md[SU6T]: F:快速开始文档：环境要求、安装运行、常用脚本表、目录速览、electron-builder打包、release流水线与文档站本地预览 | R:code:package.json,code:.github/workflows/release.yml | A:- | S:-
+introduction.md[SU6T]: F:项目简介文档：定位与插件化理念、技术选型表、内置能力一览、文档导航与双重许可说明 | R:code:README.md | A:- | S:-
+security.md[SS6T]: F:安全模型文档：contextIsolation+sandbox强制默认、preload白名单桥、plugin://越界防护、后端受控上下文、原子写与插件作者安全清单 | R:code:src/preload.js,code:src/core/plugin-protocol.js | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/docs/plugin/===
+ai-skill.md[SE5T]: F:AI技能脚手架文档：orbit-plugin-developer技能使用方式、三种模板说明与create-plugin脚本行为 | R:code:skills/orbit-plugin-developer/SKILL.md,code:skills/orbit-plugin-developer/scripts/create-plugin.js | A:- | S:-
+backend.md[SE6S]: F:后端模块开发文档：activate/deactivate生命周期、PluginContext全量API表、windows.create默认值、data持久化语义与跨插件协作示例 | R:code:src/core/plugin-manager.js | A:- | S:-
+debugging.md[SE6T]: F:调试与测试文档：junction软链开发布局、前端会话缓存与后端热重载差异、Node/Electron两类测试运行方式与CI说明 | R:code:package.json,code:tools/smoke-plugins.js | A:- | S:文中脚本名与npm脚本清单强耦合，package.json增删测试脚本须同步本页
+manifest.md[SE6T]: F:清单规范文档：plugin.json全字段表、actions与热键声明、consumes信封推荐、capabilities入口、校验失败呈现与图标建议 | R:code:src/core/plugin-manager.js | A:- | S:字段表须随plugin-manager的discover/serialize读取面演进同步更新
+overview.md[SE6T]: F:插件系统概览：插件即文件夹、三种形态对比、目录优先级与同id覆盖、发现校验、生命周期流程与IPC路由数据流图 | R:code:src/core/plugin-manager.js | A:- | S:-
+panel.md[SE6T]: F:前端面板开发文档：Toolbox.panel注册、mount/unmount契约、面板ctx API表、与后端事件流及开发迭代提示 | R:code:src/renderer/app.js | A:- | S:-
+theming.md[SE6T]: F:设计系统文档：light-dark主题机制、颜色/圆角令牌表、公共类名、样式作用域建议与双主题验证清单 | R:code:src/renderer/style.css | A:- | S:-
+windows.md[SE6S]: F:独立窗口开发文档：窗口四件套结构、ctx.windows.create默认值与webPreferences合并策略、窗口preload模式、全屏/多显示器/重入守卫实战要点 | R:code:src/plugins/screenshot-pin/backend.js | A:- | S:-
+workflows.md[SE6S]: F:工作流与能力文档：数据信封模型、11种内置嗅探类型表、capabilities声明与解析顺序、节点类型表、模板变量、执行语义与API入口 | R:code:src/core/workflows.js,code:src/core/capabilities.js | A:- | S:表格内双花括号模板占位符必须以v-pre包裹，裸双花括号会被Vue当插值解析导致构建失败
+
+===E:/Github_Pro/orbit-tools/docs/public/===
+logo.svg[CU2T]: F:文档站logo：琥珀行星与轨道环卫星SVG，用作首页hero图与站点favicon | R:code:docs/.vitepress/config.mts | A:- | S:-
+
+===E:/Github_Pro/orbit-tools/docs/reference/===
+builtin-plugins.md[SE5T]: F:内置插件一览：12个内置插件功能与默认热键表、宿主级热键、生态插件仓库链接与冲突提示 | R:code:README.md | A:- | S:默认热键取自各plugin.json的actions.hotkey，插件改默认键后须同步本表
+faq.md[SU5T]: F:常见问题：插件加载失败排查、热键占用处理、数据文件位置、平台能力差异、构建发布触发与文档站发布方式 | R:- | A:- | S:-
