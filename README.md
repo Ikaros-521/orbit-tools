@@ -73,7 +73,9 @@ npm start
 - **安装 = 复制文件夹**：放到用户插件目录（设置页有入口），重新扫描即生效。同 id 的用户插件**覆盖**内置插件 —— 升级内置工具不用改主程序。
 - **轻量**：无打包器、无运行时依赖（生产 files 只有 `src/`），主进程只加载已启用插件的后端。
 
-插件开发指南见 [docs/plugin-guide.md](docs/plugin-guide.md)。
+📖 **官方开发文档**：<https://ikaros-521.github.io/orbit-tools/> —— 架构总览 / 插件开发 / 工作流编排 / API 参考，由 GitHub Actions 自动构建发布（源码在 [docs/](docs/)，VitePress）。
+
+插件开发指南单页版见 [docs/plugin-guide.md](docs/plugin-guide.md)。
 
 ## 架构
 

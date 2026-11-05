@@ -1,0 +1,14 @@
+{
+  "name": "orbit-docs",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Orbit Toolbox 官方开发文档（VitePress 站点源，构建产物发布到 GitHub Pages）",
+  "scripts": {
+    "dev": "vitepress dev",
+    "build": "vitepress build",
+    "preview": "vitepress preview"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}

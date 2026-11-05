@@ -184,10 +184,10 @@ Orbit Toolbox 支持两类插件目录（用户插件在 ID 冲突时具有更�
 | `ctx.plugin` | object | 插件元数据（包含 id, name, version, category, hasBackend 等） |
 | `ctx.lang` | string | 当前宿主语言（`'zh'` 或 `'en'`） |
 | `ctx.platform` | string | 当前运行平台操作系统（`'win32'`, `'darwin'`, `'linux'`） |
-| `ctx.call(method, args)` | Promise<any> | 调用本插件 `backend.js` 中通过 `ctx.ipc.handle(method)` 注册的处理函数 |
+| `ctx.call(method, args)` | `Promise<any>` | 调用本插件 `backend.js` 中通过 `ctx.ipc.handle(method)` 注册的处理函数 |
 | `ctx.onEvent(channel, fn)` | Function | 监听本插件后端发送的广播事件，返回解除订阅的取消函数 |
-| `ctx.openExternal(url)` | Promise<void> | 唤起系统默认浏览器安全打开网页链接（必须为 `http://` 或 `https://`） |
-| `ctx.savePng()` | Promise<string\|null> | 唤起系统文件保存对话框，选择 PNG 存储路径 |
+| `ctx.openExternal(url)` | `Promise<void>` | 唤起系统默认浏览器安全打开网页链接（必须为 `http://` 或 `https://`） |
+| `ctx.savePng()` | `Promise<string\|null>` | 唤起系统文件保存对话框，选择 PNG 存储路径 |
 
 ---
 
@@ -286,7 +286,7 @@ module.exports = {
 
 为了让开发者能够结合 AI 编程助手（如 Antigravity、Cursor、Claude Code、Windsurf 等）瞬间构建出符合规范的高质量插件，本项目配套推出了专用的 Agentic AI Skill：
 
-👉 **[Orbit Plugin Developer Skill 独立仓库规范](../skills/orbit-plugin-developer/README.md)**
+👉 **[Orbit Plugin Developer Skill 独立仓库规范](https://github.com/Ikaros-521/orbit-tools/tree/main/skills/orbit-plugin-developer)**
 
 您只需对 AI 说：
 > "帮我开发一个用于 Orbit Toolbox 的 JSON 格式化与美化插件，支持高亮和一键压缩"
