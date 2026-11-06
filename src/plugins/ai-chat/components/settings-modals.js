@@ -31,11 +31,31 @@
 
     // Model elements
     const cfgChannel = panelEl.querySelector('#cfgChannel');
+    const btnCreateChannel = panelEl.querySelector('#btnCreateChannel');
+    const btnDeleteChannel = panelEl.querySelector('#btnDeleteChannel');
+    const chkActiveChannel = panelEl.querySelector('#chkActiveChannel');
+    const channelCustomMeta = panelEl.querySelector('#channelCustomMeta');
+    const cfgChannelName = panelEl.querySelector('#cfgChannelName');
+    const cfgChannelIcon = panelEl.querySelector('#cfgChannelIcon');
     const cfgProtocol = panelEl.querySelector('#cfgProtocol');
     const cfgBaseUrl = panelEl.querySelector('#cfgBaseUrl');
     const cfgApiKey = panelEl.querySelector('#cfgApiKey');
     const btnToggleApiKey = panelEl.querySelector('#btnToggleApiKey');
     const cfgModel = panelEl.querySelector('#cfgModel');
+    const inputAddChannelModel = panelEl.querySelector('#inputAddChannelModel');
+    const btnAddChannelModel = panelEl.querySelector('#btnAddChannelModel');
+    const btnToggleCreateChannel = panelEl.querySelector('#btnToggleCreateChannel');
+    const boxCreateChannel = panelEl.querySelector('#boxCreateChannel');
+    const selectChannelTemplate = panelEl.querySelector('#selectChannelTemplate');
+    const inputCreateChannelName = panelEl.querySelector('#inputCreateChannelName');
+    const btnConfirmCreateChannel = panelEl.querySelector('#btnConfirmCreateChannel');
+    const btnCancelCreateChannel = panelEl.querySelector('#btnCancelCreateChannel');
+    const channelKeyCountBadge = panelEl.querySelector('#channelKeyCountBadge');
+    const channelKeysList = panelEl.querySelector('#channelKeysList');
+    const inputNewKeyName = panelEl.querySelector('#inputNewKeyName');
+    const inputNewKeyValue = panelEl.querySelector('#inputNewKeyValue');
+    const btnToggleNewKey = panelEl.querySelector('#btnToggleNewKey');
+    const btnAddKey = panelEl.querySelector('#btnAddKey');
     const cfgFallbackModel = panelEl.querySelector('#cfgFallbackModel');
     const cfgTempRange = panelEl.querySelector('#cfgTempRange');
     const cfgTempVal = panelEl.querySelector('#cfgTempVal');
@@ -57,6 +77,8 @@
     const tabRemoteModels = panelEl.querySelector('#tabRemoteModels');
     const btnFetchModels = panelEl.querySelector('#btnFetchModels');
     const iconFetchSpin = panelEl.querySelector('#iconFetchSpin');
+    const btnSyncFetchedModels = panelEl.querySelector('#btnSyncFetchedModels');
+    const remoteSyncBar = panelEl.querySelector('#remoteSyncBar');
     const btnCloseSettings = panelEl.querySelector('#btnCloseSettings');
     const btnCancelSettings = panelEl.querySelector('#btnCancelSettings');
     const btnSaveSettings = panelEl.querySelector('#btnSaveSettings');
@@ -163,16 +185,6 @@
 
     // Local state for modals
 
-    // Populate channels dropdown once
-    if (cfgChannel && cfgChannel.options.length <= 1) {
-      PRESET_CHANNELS.forEach(ch => {
-        const opt = document.createElement('option');
-        opt.value = ch.id;
-        opt.textContent = ch.name;
-        cfgChannel.appendChild(opt);
-      });
-    }
-
     /* --- Tab Switcher --- */
     function switchSettingsTab(tabName) {
       if (tabNavModel) tabNavModel.classList.toggle('active', tabName === 'model');
@@ -226,27 +238,48 @@
     const { renderSkillsList, closeSkillEditor, openSkillMarket, closeSkillMarket } = Parts.createSkillTab({
       PRESET_CHANNELS, btnCancelSkillEdit, btnCloseSkillEdit, btnCloseSkillMarket, btnCreateSkill, btnImportSkillFile, btnImportSkillFolder, btnImportSkillUrl, btnNextSkillPage, btnOpenSkillMarket, btnPrevSkillPage, btnResetSkills, btnSaveSkill, ctx, escapeHtml, getState, inputSearchSkills, inputSkillContent, inputSkillDesc, inputSkillFile, inputSkillFolder, inputSkillMarketSearch, inputSkillName, inputSkillUrl, onConfigSaved, onPersonasChanged, panelEl, selectSkillTemplate, skillEditPanel, skillEditTitle, skillImportResult, skillMarketCategoriesBar, skillMarketList, skillMarketPanel, skillPageInfo, skillsCardList, switchSettingsTab, updateState
     });
-    const { renderModelSearchResults, renderChannelChips, getAllPresetModels } = Parts.createModelTab({
-      PRESET_CHANNELS, btnClearModelSearch, btnFetchModels, btnToggleApiKey, btnToggleModelSearch, cfgApiKey, cfgBaseUrl, cfgChannel, cfgModel, cfgProtocol, channelModelChips, countAllModels, countChannelModels, countRemoteModels, ctx, escapeHtml, getState, iconFetchSpin, inputModelSearch, modelFilterTabs, modelSearchPanel, modelSearchResults, onConfigSaved, onPersonasChanged, panelEl, switchSettingsTab, tabRemoteModels, updateState
+    const modelTabCtrl = Parts.createModelTab({
+      PRESET_CHANNELS, btnClearModelSearch, btnFetchModels, btnToggleApiKey,
+      btnToggleModelSearch, cfgApiKey, cfgBaseUrl, cfgChannel,
+      cfgModel, cfgProtocol, channelModelChips, countAllModels,
+      countChannelModels, countRemoteModels, ctx, escapeHtml,
+      getState, iconFetchSpin, inputModelSearch, modelFilterTabs,
+      modelSearchPanel, modelSearchResults, onConfigSaved, onPersonasChanged,
+      panelEl, switchSettingsTab, tabRemoteModels, updateState,
+      btnCreateChannel, btnDeleteChannel, chkActiveChannel, channelCustomMeta,
+      cfgChannelName, cfgChannelIcon, inputAddChannelModel, btnAddChannelModel,
+      btnSyncFetchedModels, remoteSyncBar,
+      btnToggleCreateChannel, boxCreateChannel, selectChannelTemplate,
+      inputCreateChannelName, btnConfirmCreateChannel, btnCancelCreateChannel,
+      channelKeyCountBadge, channelKeysList, inputNewKeyName, inputNewKeyValue,
+      btnToggleNewKey, btnAddKey
     });
+    const { renderModelSearchResults, renderChannelChips, getAllPresetModels, initChannels, collectConfig } = modelTabCtrl;
+
 
     function openSettings(initialTab = 'model') {
       const state = getState();
       const config = state.config || {};
       switchSettingsTab(initialTab);
-      const chId = config.channel || 'openai';
-      if (cfgChannel) cfgChannel.value = PRESET_CHANNELS.some(x => x.id === chId) ? chId : 'custom';
-      if (cfgProtocol) cfgProtocol.value = config.protocol || 'openai-chat';
-      if (cfgBaseUrl) cfgBaseUrl.value = config.baseUrl || 'https://api.openai.com/v1';
-      if (cfgApiKey) {
-        cfgApiKey.value = config.apiKey || '';
-        cfgApiKey.type = 'password';
+      if (typeof initChannels === 'function') {
+        initChannels(config);
+      } else {
+        const chId = config.channel || 'openai';
+        if (cfgChannel) cfgChannel.value = PRESET_CHANNELS.some(x => x.id === chId) ? chId : 'custom';
+        if (cfgProtocol) cfgProtocol.value = config.protocol || 'openai-chat';
+        if (cfgBaseUrl) cfgBaseUrl.value = config.baseUrl || 'https://api.openai.com/v1';
+        if (cfgApiKey) {
+          cfgApiKey.value = config.apiKey || '';
+          cfgApiKey.type = 'password';
+        }
+        if (cfgModel) cfgModel.value = config.model || 'gpt-4o-mini';
+        if (cfgChannel) renderChannelChips(cfgChannel.value);
+        renderModelSearchResults();
       }
       if (btnToggleApiKey) {
         btnToggleApiKey.textContent = '👁️';
         btnToggleApiKey.title = '显示密钥';
       }
-      if (cfgModel) cfgModel.value = config.model || 'gpt-4o-mini';
       if (cfgFallbackModel) cfgFallbackModel.value = config.fallbackModel || '';
       if (cfgTempRange) cfgTempRange.value = config.temperature ?? 0.7;
       if (cfgTempVal) cfgTempVal.textContent = config.temperature ?? 0.7;
@@ -256,8 +289,6 @@
       if (cfgAgentWorkDir) cfgAgentWorkDir.value = config.agentWorkDir || '';
       if (modelSearchPanel) modelSearchPanel.classList.add('hidden');
       if (inputModelSearch) inputModelSearch.value = '';
-      if (cfgChannel) renderChannelChips(cfgChannel.value);
-      renderModelSearchResults();
       if (settingsModal) settingsModal.classList.remove('hidden');
     }
 
@@ -276,18 +307,23 @@
 
     if (btnSaveSettings) {
       btnSaveSettings.addEventListener('click', async () => {
+        const modelTabConfig = (typeof collectConfig === 'function')
+          ? collectConfig()
+          : {
+              channel: cfgChannel.value,
+              protocol: cfgProtocol.value,
+              baseUrl: cfgBaseUrl.value.trim(),
+              apiKey: cfgApiKey.value.trim(),
+              model: cfgModel.value.trim()
+            };
         const patch = {
-          channel: cfgChannel.value,
-          protocol: cfgProtocol.value,
-          baseUrl: cfgBaseUrl.value.trim(),
-          apiKey: cfgApiKey.value.trim(),
-          model: cfgModel.value.trim(),
           fallbackModel: cfgFallbackModel.value.trim(),
           temperature: Number(cfgTempRange.value),
           maxContextMessages: Number(cfgMaxContext.value) || 16,
           maxContextTokens: Math.max(4000, Number(cfgMaxContextTokens ? cfgMaxContextTokens.value : 200000) || 200000),
           agentMaxRounds: Math.min(40, Math.max(1, Number(cfgAgentMaxRounds.value) || 8)),
-          agentWorkDir: cfgAgentWorkDir.value.trim()
+          agentWorkDir: cfgAgentWorkDir.value.trim(),
+          ...modelTabConfig
         };
         const res = await ctx.call('saveConfig', patch);
         if (res && res.ok) {

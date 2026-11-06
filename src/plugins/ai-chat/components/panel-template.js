@@ -208,6 +208,8 @@
                       <input type="text" class="ai-model-popover-search" id="inputModelQuickSearch" placeholder="搜索或输入模型名称…" autocomplete="off">
                       <button type="button" class="ai-model-search-clear hidden" id="btnClearModelQuickSearch">×</button>
                     </div>
+                    <!-- 渠道快捷切换标签栏 -->
+                    <div class="ai-model-popover-channels" id="modelPopoverChannels"></div>
                     <div class="ai-model-popover-list" id="modelPopoverList"></div>
                     <div class="ai-model-popover-footer">
                       <button type="button" class="ai-model-popover-settings-btn" id="btnModelPopoverOpenSettings">
@@ -252,9 +254,62 @@
             <!-- 板块 1: 模型与渠道配置 -->
             <div class="ai-modal-body ai-tab-pane active" id="paneModelSettings">
               <div class="ai-form-group">
-                <label class="ai-form-label">对接渠道 (Channel Preset)</label>
-                <select class="ai-form-select" id="cfgChannel"></select>
-                <span class="ai-form-hint">选择主流 AI 渠道即可自动配置 Base URL 与推荐模型</span>
+                <div class="ai-form-label-row">
+                  <label class="ai-form-label">已配置渠道 (Configured Channels)</label>
+                  <div class="ai-channel-header-actions">
+                    <button type="button" class="ai-btn-text-action" id="btnToggleCreateChannel" title="从预设模版快速创建或自定义渠道">+ 创建渠道</button>
+                  </div>
+                </div>
+
+                <!-- 创建新渠道下拉/弹层面板 (默认收起隐藏) -->
+                <div class="ai-create-channel-box hidden" id="boxCreateChannel">
+                  <div class="ai-create-channel-title">➕ 创建新渠道</div>
+                  <div class="ai-create-channel-fields">
+                    <div class="ai-form-row">
+                      <label class="ai-sub-label">选择预设模板</label>
+                      <select class="ai-form-select" id="selectChannelTemplate">
+                        <option value="deepseek">🐋 DeepSeek (深度求索)</option>
+                        <option value="openai">🟢 OpenAI (官方)</option>
+                        <option value="claude">🟣 Anthropic Claude (官方)</option>
+                        <option value="siliconflow">⚡ SiliconFlow (硅基流动)</option>
+                        <option value="moonshot">🌙 Moonshot (月之暗面 / Kimi)</option>
+                        <option value="dashscope">🟠 Aliyun (阿里百炼 / 通义千问)</option>
+                        <option value="zhipu">🧠 Zhipu GLM (智谱清言)</option>
+                        <option value="ollama">🦙 Ollama (本地私有部署)</option>
+                        <option value="openrouter">🌐 OpenRouter (全球模型聚合)</option>
+                        <option value="groq">🚀 Groq (极速推理)</option>
+                        <option value="custom">🛠️ 自定义渠道 (Custom API)</option>
+                      </select>
+                    </div>
+                    <div class="ai-form-row">
+                      <label class="ai-sub-label">渠道名称</label>
+                      <input type="text" class="ai-form-input" id="inputCreateChannelName" placeholder="如: 公司内网 DeepSeek">
+                    </div>
+                    <div class="ai-create-channel-actions">
+                      <button type="button" class="ai-btn-action-sm secondary" id="btnCancelCreateChannel">取消</button>
+                      <button type="button" class="ai-btn-action-sm primary" id="btnConfirmCreateChannel">确定创建</button>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 渠道选择与右侧紧邻删除操作 -->
+                <div class="ai-channel-select-row">
+                  <select class="ai-form-select" id="cfgChannel" title="选择要查看或配置的渠道"></select>
+                  <button type="button" class="ai-btn-action-delete-ch" id="btnDeleteChannel" title="删除当前选中的渠道">🗑️ 删除此渠道</button>
+                </div>
+                <div class="ai-channel-active-subrow">
+                  <label class="ai-channel-active-checkbox" title="勾选后，当前选中的渠道将作为全局默认对话渠道">
+                    <input type="checkbox" id="chkActiveChannel" checked> <span>设为当前使用渠道</span>
+                  </label>
+                </div>
+                <!-- 渠道基础名称/图标配置 -->
+                <div class="ai-channel-custom-meta" id="channelCustomMeta">
+                  <div class="ai-channel-meta-inputs">
+                    <input type="text" class="ai-form-input" id="cfgChannelName" placeholder="渠道显示名称 (如: 我的 DeepSeek)">
+                    <input type="text" class="ai-form-input ai-channel-icon-input" id="cfgChannelIcon" placeholder="图标" maxlength="4" style="max-width:70px;text-align:center;">
+                  </div>
+                </div>
+                <span class="ai-form-hint">对话区仅能检索并使用您在此处创建的渠道；未创建的渠道绝不污染模型列表</span>
               </div>
 
               <div class="ai-form-group">
@@ -272,20 +327,49 @@
                 <input type="text" class="ai-form-input" id="cfgBaseUrl" placeholder="https://api.openai.com/v1">
               </div>
 
+              <!-- 单渠道多密钥管理区 -->
               <div class="ai-form-group">
-                <label class="ai-form-label">API Key 密钥</label>
-                <div class="ai-key-input-wrap">
-                  <input type="password" class="ai-form-input" id="cfgApiKey" placeholder="sk-...">
-                  <button type="button" class="ai-btn-toggle-key" id="btnToggleApiKey" title="显示/隐藏密钥">👁️</button>
+                <div class="ai-form-label-row">
+                  <label class="ai-form-label">API 密钥管理 (支持单渠道多密钥)</label>
+                  <span class="ai-form-hint" id="channelKeyCountBadge">已配置 0 个密钥</span>
                 </div>
+                <div class="ai-channel-keys-wrap">
+                  <!-- 密钥列表容器 -->
+                  <div class="ai-channel-keys-list" id="channelKeysList"></div>
+                  <!-- 添加新密钥输入行 -->
+                  <div class="ai-add-key-row">
+                    <input type="text" class="ai-form-input ai-add-key-name" id="inputNewKeyName" placeholder="备注 (如: 主密钥 / 备用 Key)">
+                    <div class="ai-key-input-wrap" style="flex:2;">
+                      <input type="password" class="ai-form-input" id="inputNewKeyValue" placeholder="填入 API Key 密钥 (sk-...)">
+                      <button type="button" class="ai-btn-toggle-key" id="btnToggleNewKey" title="显示/隐藏密钥">👁️</button>
+                    </div>
+                    <button type="button" class="ai-btn-text-action" id="btnAddKey" style="border:1px solid var(--amber);padding:3px 10px;white-space:nowrap;">+ 添加密钥</button>
+                  </div>
+                </div>
+                <!-- 兼容字段：确保外部依赖与测试完全互通 -->
+                <input type="hidden" id="cfgApiKey" value="">
+                <button type="button" id="btnToggleApiKey" style="display:none;"></button>
+                <span class="ai-form-hint">单渠道可添加多个密钥，单选圆钮指定当前生效密钥</span>
               </div>
 
               <div class="ai-form-group">
                 <div class="ai-form-label-row">
-                  <label class="ai-form-label">模型标识 (Model)</label>
+                  <label class="ai-form-label">当前渠道模型库 (Models)</label>
                   <button type="button" class="ai-btn-text-action" id="btnFetchModels" title="从 API 在线拉取该渠道可用模型 (GET /v1/models)">
                     <span class="ai-fetch-icon" id="iconFetchSpin">🔄</span> 在线拉取模型
                   </button>
+                </div>
+                <!-- 渠道已配置的模型 Chips 列表，支持点击设为默认，点击 × 删除 -->
+                <div class="ai-channel-models-wrap">
+                  <div class="ai-chips-list" id="channelModelChips"></div>
+                  <!-- 手动添加模型输入行 -->
+                  <div class="ai-add-model-row">
+                    <input type="text" class="ai-form-input ai-add-model-input" id="inputAddChannelModel" placeholder="输入新模型标识 (如 claude-3-7-sonnet, deepseek-r1)...">
+                    <button type="button" class="ai-btn-text-action" id="btnAddChannelModel" style="border:1px solid var(--amber);padding:3px 10px;">+ 添加模型</button>
+                  </div>
+                </div>
+                <div class="ai-form-label-row" style="margin-top:8px;">
+                  <label class="ai-form-label" style="font-size:11.5px;color:var(--ink-dim);">当前默认模型标识 (Default Model)</label>
                 </div>
                 <div class="ai-model-combobox-wrap">
                   <input type="text" class="ai-form-input" id="cfgModel" placeholder="选择、搜索或输入模型标识…" autocomplete="off">
@@ -304,10 +388,11 @@
                     <button type="button" class="ai-filter-tab" data-tab="all">全部预设 (<span id="countAllModels">0</span>)</button>
                     <button type="button" class="ai-filter-tab hidden" data-tab="remote" id="tabRemoteModels">在线拉取 (<span id="countRemoteModels">0</span>)</button>
                   </div>
+                  <div class="ai-remote-sync-bar hidden" id="remoteSyncBar" style="padding:4px 8px;background:var(--inset);border-radius:var(--r-sm);display:flex;justify-content:flex-end;">
+                    <button type="button" class="ai-btn-text-action" id="btnSyncFetchedModels">📥 一键将拉取的全部模型保存至当前渠道</button>
+                  </div>
                   <div class="ai-model-results-list" id="modelSearchResults"></div>
                 </div>
-
-                <div class="ai-chips-list" id="channelModelChips"></div>
               </div>
 
               <div class="ai-form-group">

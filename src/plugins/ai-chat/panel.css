@@ -1323,6 +1323,48 @@
   border-color: var(--amber);
 }
 
+.ai-model-popover-channels {
+  display: flex;
+  gap: 4px;
+  padding: 6px 8px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-subtle);
+  scrollbar-width: none;
+}
+
+.ai-model-popover-channels::-webkit-scrollbar {
+  display: none;
+}
+
+.ai-popover-ch-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  color: var(--ink-dim);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.12s ease;
+  user-select: none;
+}
+
+.ai-popover-ch-btn:hover {
+  border-color: var(--amber);
+  color: var(--ink);
+}
+
+.ai-popover-ch-btn.active {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  color: var(--amber);
+  font-weight: 600;
+}
+
 .ai-model-popover-list {
   max-height: 240px;
   overflow-y: auto;
@@ -1713,6 +1755,283 @@
   color: var(--amber);
 }
 
+.ai-chip.active {
+  background: var(--amber-soft);
+  border-color: var(--amber);
+  color: var(--amber);
+  font-weight: 600;
+}
+
+.ai-channel-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 创建新渠道面板 */
+.ai-create-channel-box {
+  background: var(--surface-subtle);
+  border: 1px solid var(--amber);
+  border-radius: var(--r-sm);
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.ai-create-channel-box.hidden {
+  display: none !important;
+}
+
+.ai-create-channel-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--amber);
+}
+
+.ai-create-channel-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-create-channel-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ai-btn-action-sm {
+  border-radius: var(--r-sm);
+  padding: 3px 10px;
+  font-size: 11.5px;
+  cursor: pointer;
+  border: 1px solid var(--line);
+  background: var(--panel-lo);
+  color: var(--ink);
+  transition: all 0.15s;
+}
+
+.ai-btn-action-sm.primary {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: light-dark(#fff, #111);
+  font-weight: 600;
+}
+
+.ai-btn-action-sm:hover {
+  opacity: 0.9;
+}
+
+/* 单渠道多密钥管理 */
+.ai-channel-keys-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px;
+}
+
+.ai-channel-keys-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.ai-channel-key-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  transition: all 0.15s;
+}
+
+.ai-channel-key-card.active {
+  border-color: var(--amber);
+  background: light-dark(rgba(245, 158, 11, .06), rgba(245, 158, 11, .12));
+}
+
+.ai-key-info {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  overflow: hidden;
+}
+
+.ai-key-radio-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-key-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.ai-key-masked-text {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-dim);
+  background: var(--inset);
+  padding: 2px 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-key-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ai-add-key-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ai-add-key-name {
+  flex: 1;
+  font-size: 11.5px;
+  padding: 4px 8px;
+}
+
+.ai-key-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ai-key-input-wrap input {
+  width: 100%;
+  padding-right: 28px !important;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.ai-btn-toggle-key {
+  position: absolute;
+  right: 6px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.6;
+  padding: 2px;
+}
+
+.ai-btn-toggle-key:hover {
+  opacity: 1;
+}
+
+.ai-channel-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ai-channel-select-row .ai-form-select {
+  flex: 1;
+}
+
+.ai-btn-action-delete-ch {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--danger);
+  background: light-dark(rgba(239, 68, 68, 0.08), rgba(239, 68, 68, 0.16));
+  border: 1px solid light-dark(rgba(239, 68, 68, 0.3), rgba(239, 68, 68, 0.45));
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+  user-select: none;
+}
+
+.ai-btn-action-delete-ch:hover:not(:disabled) {
+  background: var(--danger);
+  color: #fff;
+  border-color: var(--danger);
+}
+
+.ai-btn-action-delete-ch:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  filter: grayscale(0.8);
+}
+
+.ai-channel-active-subrow {
+  display: flex;
+  align-items: center;
+  margin-top: 4px;
+}
+
+.ai-channel-active-checkbox {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink-dim);
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ai-channel-custom-meta {
+  margin-top: 6px;
+}
+
+.ai-channel-meta-inputs {
+  display: flex;
+  gap: 6px;
+}
+
+.ai-channel-models-wrap {
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-add-model-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.ai-add-model-input {
+  flex: 1;
+  font-size: 11.5px;
+  font-family: var(--font-mono);
+  padding: 3px 8px;
+}
+
 .ai-modal-footer {
   padding: 12px 18px;
   display: flex;
@@ -1825,6 +2144,8 @@
   position: relative;
   display: flex;
   align-items: center;
+  width: 100%;
+  z-index: 2;
 }
 
 .ai-search-ico {
@@ -1833,6 +2154,7 @@
   font-size: 12px;
   color: var(--ink-dim);
   pointer-events: none;
+  z-index: 2;
 }
 
 .ai-model-search-input {
@@ -1845,6 +2167,10 @@
   color: var(--ink);
   outline: none;
   box-sizing: border-box;
+  pointer-events: auto !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  cursor: text !important;
 }
 
 .ai-model-search-input:focus {
@@ -1861,6 +2187,7 @@
   cursor: pointer;
   padding: 0 4px;
   line-height: 1;
+  z-index: 2;
 }
 
 .ai-model-search-clear.hidden {
@@ -2746,8 +3073,10 @@
   font-family: var(--font-display);
 }
 
-/* panel.css has no generic `.hidden` rule (host only styles the [hidden]
-   attribute), so every class toggled via classList needs an explicit rule. */
+/* Generic hidden rules ensuring any element with .hidden is reliably hidden */
+.hidden,
+[hidden],
+.ai-create-channel-box.hidden,
 .ai-ext-editor.hidden,
 .ai-ext-list.hidden,
 .ai-form-group.hidden,
@@ -2755,7 +3084,7 @@
 .ai-ext-import-result.hidden,
 .ai-pagination.hidden,
 input.hidden {
-  display: none;
+  display: none !important;
 }
 
 /* ================================================================

@@ -19,7 +19,8 @@
       popoverPersonaList, btnPopoverPrevPage, btnPopoverNextPage, popoverPageText,
       btnToggleModelPicker, modelPopover, modelPopoverList,
       inputModelQuickSearch, btnClearModelQuickSearch, btnModelPopoverOpenSettings,
-      headerModelPill
+      headerModelPill,
+      modelPopoverChannels = (deps.modelPopover && deps.modelPopover.querySelector('#modelPopoverChannels'))
     } = deps;
     if (!pillCot) return null;
 
@@ -255,112 +256,146 @@
       renderPopoverPersonas();
     }
 
-    /* --- Model Quick Picker Controller ---------------------------------- */
+    /* --- Model & Channel Quick Picker Controller ----------------------- */
     let modelQuickSearchText = '';
+    let popoverSelectedChannelId = null;
 
-    function getPresetChannels() {
-      if (typeof window !== 'undefined' && window.AiChatMarkdown && Array.isArray(window.AiChatMarkdown.PRESET_CHANNELS)) {
-        return window.AiChatMarkdown.PRESET_CHANNELS;
+    function getConfiguredChannels() {
+      if (state.config && Array.isArray(state.config.channels)) {
+        return state.config.channels;
       }
-      try {
-        const md = require('./lib/markdown-renderer');
-        return md.PRESET_CHANNELS || [];
-      } catch {}
       return [];
+    }
+
+    function renderModelPopoverChannels(channels) {
+      if (!modelPopoverChannels) return;
+      modelPopoverChannels.innerHTML = '';
+      channels.forEach(ch => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        const isCurrentCh = (ch.id === popoverSelectedChannelId);
+        btn.className = `ai-popover-ch-btn ${isCurrentCh ? 'active' : ''}`;
+        btn.title = `查看/切换至已配置渠道「${ch.name}」`;
+        btn.innerHTML = `<span>${ch.icon || '🤖'}</span> <span>${escapeHtml((ch.name || '').split(' ')[0])}</span>`;
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          popoverSelectedChannelId = ch.id;
+          renderModelPopoverList();
+        });
+        modelPopoverChannels.appendChild(btn);
+      });
     }
 
     function renderModelPopoverList() {
       if (!modelPopoverList) return;
       modelPopoverList.innerHTML = '';
-      const presetChannels = getPresetChannels();
-      const currChannelId = (state.config && state.config.channel) || 'openai';
-      const currModel = ((state.config && state.config.model) || 'gpt-4o-mini').trim();
-      const currentChannel = presetChannels.find(ch => ch.id === currChannelId);
+      const channels = getConfiguredChannels();
 
+      if (channels.length === 0) {
+        if (modelPopoverChannels) modelPopoverChannels.innerHTML = '';
+        const emptyDiv = document.createElement('div');
+        emptyDiv.className = 'ai-model-empty-tip';
+        emptyDiv.style.padding = '22px 14px';
+        emptyDiv.style.textAlign = 'center';
+        emptyDiv.innerHTML = `
+          <div style="font-size:24px;margin-bottom:6px;">🔌</div>
+          <div style="font-size:12.5px;font-weight:600;margin-bottom:4px;color:var(--ink);">暂无已创建的渠道</div>
+          <div style="font-size:11px;color:var(--ink-faint);margin-bottom:12px;line-height:1.4;">
+            对话区仅支持检索与使用您已显式创建的渠道。<br>请前往设置面板添加或创建渠道。
+          </div>
+          <button type="button" class="ai-edit-btn primary" id="btnEmptyPopoverSettings" style="display:inline-flex;margin:0 auto;padding:4px 12px;font-size:11.5px;">⚙️ 前往设置创建渠道</button>
+        `;
+        const gotoBtn = emptyDiv.querySelector('#btnEmptyPopoverSettings');
+        if (gotoBtn) {
+          gotoBtn.addEventListener('click', () => {
+            if (modelPopover) modelPopover.classList.add('hidden');
+            if (typeof btnOpenSettings?.click === 'function') {
+              btnOpenSettings.click();
+            } else if (settingsCtrl && typeof settingsCtrl.openSettings === 'function') {
+              settingsCtrl.openSettings('model');
+            }
+          });
+        }
+        modelPopoverList.appendChild(emptyDiv);
+        return;
+      }
+
+      const activeChannelId = (state.config && (state.config.activeChannelId || state.config.channel)) || (channels[0] && channels[0].id) || 'openai';
+      if (!popoverSelectedChannelId || !channels.some(c => c.id === popoverSelectedChannelId)) {
+        popoverSelectedChannelId = activeChannelId;
+      }
+
+      renderModelPopoverChannels(channels);
+
+      const currModel = ((state.config && state.config.model) || '').trim();
+      const viewingChannel = channels.find(c => c.id === popoverSelectedChannelId) || channels[0];
       const q = modelQuickSearchText.trim().toLowerCase();
       if (btnClearModelQuickSearch) {
         btnClearModelQuickSearch.classList.toggle('hidden', !q);
       }
 
-      // 汇总候选列表
-      // 1. 当前渠道推荐模型
-      const currChannelModels = (currentChannel && currentChannel.models) ? currentChannel.models : [];
-      // 2. 其它渠道预设模型（带渠道标志）
-      const otherChannelModels = [];
-      presetChannels.forEach(ch => {
-        if (ch.id === currChannelId) return;
-        (ch.models || []).forEach(m => {
-          if (!currChannelModels.includes(m) && !otherChannelModels.some(x => x.model === m)) {
-            otherChannelModels.push({ model: m, channelName: ch.name.split(' ')[0], icon: ch.icon || '🤖' });
-          }
+      // 如果有搜索词 q，仅在已创建渠道中进行快速筛选，绝不检索未创建渠道
+      if (q) {
+        let matched = [];
+        channels.forEach(ch => {
+          (ch.models || []).forEach(m => {
+            if (m.toLowerCase().includes(q) || (ch.name && ch.name.toLowerCase().includes(q))) {
+              matched.push({
+                channel: ch,
+                model: m,
+                isActive: (ch.id === activeChannelId && m === currModel)
+              });
+            }
+          });
         });
-      });
 
-      const matchedCurr = currChannelModels.filter(m => !q || m.toLowerCase().includes(q));
-      const matchedOther = otherChannelModels.filter(item => !q || item.model.toLowerCase().includes(q) || item.channelName.toLowerCase().includes(q));
-
-      const totalMatched = matchedCurr.length + matchedOther.length;
-
-      // 如果当前使用的模型既不在当前渠道也不在其他渠道，置顶显示
-      if (currModel && !currChannelModels.includes(currModel) && !otherChannelModels.some(x => x.model === currModel)) {
-        if (!q || currModel.toLowerCase().includes(q)) {
-          const groupTitle = document.createElement('div');
-          groupTitle.className = 'ai-model-popover-group-title';
-          groupTitle.textContent = '当前自定义模型';
-          modelPopoverList.appendChild(groupTitle);
-
-          appendModelItem(currModel, '当前', '✨', true);
+        if (matched.length === 0) {
+          const customOpt = document.createElement('div');
+          customOpt.className = 'ai-model-popover-custom-opt';
+          customOpt.innerHTML = `<span>➕</span> <span>在已配置渠道「${viewingChannel ? viewingChannel.name.split(' ')[0] : '当前渠道'}」使用模型 <b>"${escapeHtml(modelQuickSearchText.trim())}"</b></span>`;
+          customOpt.addEventListener('click', () => {
+            applyQuickChannelAndModel(viewingChannel ? viewingChannel.id : activeChannelId, modelQuickSearchText.trim());
+          });
+          modelPopoverList.appendChild(customOpt);
+          return;
         }
+
+        matched.forEach(item => {
+          appendModelItem(item.channel, item.model, item.channel.name.split(' ')[0], item.channel.icon || '🤖', item.isActive);
+        });
+        return;
       }
 
-      // 渲染当前渠道模型
-      if (matchedCurr.length > 0) {
-        const groupTitle = document.createElement('div');
-        groupTitle.className = 'ai-model-popover-group-title';
-        groupTitle.textContent = currentChannel ? `${currentChannel.name.split(' ')[0]} 推荐` : '当前通道推荐';
-        modelPopoverList.appendChild(groupTitle);
+      // 无搜索词时，直接展示当前所选已创建渠道的模型列表
+      const chModels = (viewingChannel && Array.isArray(viewingChannel.models)) ? viewingChannel.models : [];
+      const chName = viewingChannel ? viewingChannel.name.split(' ')[0] : '渠道';
+      const chIcon = (viewingChannel && viewingChannel.icon) || '⚡';
 
-        matchedCurr.forEach(m => {
-          appendModelItem(m, currentChannel ? currentChannel.name.split(' ')[0] : '推荐', (currentChannel && currentChannel.icon) || '⚡', m === currModel);
-        });
-      }
+      const groupTitle = document.createElement('div');
+      groupTitle.className = 'ai-model-popover-group-title';
+      groupTitle.textContent = `${chName} 可用模型 (${chModels.length})`;
+      modelPopoverList.appendChild(groupTitle);
 
-      // 渲染常用/其它渠道模型
-      if (matchedOther.length > 0) {
-        const groupTitle = document.createElement('div');
-        groupTitle.className = 'ai-model-popover-group-title';
-        groupTitle.textContent = '其它预设模型';
-        modelPopoverList.appendChild(groupTitle);
-
-        matchedOther.forEach(item => {
-          appendModelItem(item.model, item.channelName, item.icon, item.model === currModel);
-        });
-      }
-
-      // 如果有搜索词且当前搜索词不在已知模型中，提供一键使用自定义模型
-      if (q && !currChannelModels.some(m => m.toLowerCase() === q) && !otherChannelModels.some(x => x.model.toLowerCase() === q) && currModel.toLowerCase() !== q) {
-        const customOpt = document.createElement('div');
-        customOpt.className = 'ai-model-popover-custom-opt';
-        customOpt.innerHTML = `<span>➕</span> <span>使用模型 <b>"${escapeHtml(modelQuickSearchText.trim())}"</b></span>`;
-        customOpt.addEventListener('click', () => {
-          applyQuickModel(modelQuickSearchText.trim());
-        });
-        modelPopoverList.appendChild(customOpt);
-      } else if (totalMatched === 0 && !q) {
+      if (chModels.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'ai-model-empty-tip';
         empty.style.padding = '12px';
         empty.style.textAlign = 'center';
         empty.style.color = 'var(--ink-faint)';
         empty.style.fontSize = '12px';
-        empty.textContent = '暂无预设模型，可直接在上方输入模型名称';
+        empty.textContent = '该渠道暂未配置模型，可在设置中添加或直接搜索输入';
         modelPopoverList.appendChild(empty);
+      } else {
+        chModels.forEach(m => {
+          const isActive = (viewingChannel.id === activeChannelId && m === currModel);
+          appendModelItem(viewingChannel, m, chName, chIcon, isActive);
+        });
       }
 
-      function appendModelItem(modelName, badgeText, icon, isActive) {
+      function appendModelItem(channel, modelName, badgeText, icon, isActive) {
         const item = document.createElement('div');
         item.className = 'ai-model-popover-item' + (isActive ? ' active' : '');
-        item.title = `切换为 ${modelName}`;
+        item.title = `切换为 [${channel.name}] ${modelName}`;
         item.innerHTML = `
           <div class="ai-model-item-main">
             <span class="ai-model-item-icon">${icon}</span>
@@ -372,29 +407,46 @@
           </div>
         `;
         item.addEventListener('click', () => {
-          applyQuickModel(modelName);
+          applyQuickChannelAndModel(channel.id, modelName);
         });
         modelPopoverList.appendChild(item);
       }
     }
 
-    async function applyQuickModel(newModel) {
-      if (!newModel) return;
+    async function applyQuickChannelAndModel(channelId, newModel) {
+      if (!channelId || !newModel) return;
       if (modelPopover) modelPopover.classList.add('hidden');
-      if (state.config && state.config.model === newModel) return;
+
+      const currChId = (state.config && (state.config.activeChannelId || state.config.channel)) || 'openai';
+      if (currChId === channelId && state.config && state.config.model === newModel) return;
 
       try {
-        const res = await ctx.call('saveConfig', { model: newModel });
-        if (res && res.ok && res.state.config) {
-          state.config = res.state.config;
+        const res = await ctx.call('switchActiveChannel', { channelId, model: newModel });
+        const newCfg = (res && res.config) || (res && res.state && res.state.config);
+        if (res && res.ok && newCfg) {
+          state.config = newCfg;
           if (headerModelPill) headerModelPill.textContent = state.config.model;
           updateHeader();
         } else {
-          alert('切换模型失败: ' + ((res && res.error) || '未知错误'));
+          // fallback
+          const fb = await ctx.call('saveConfig', { activeChannelId: channelId, channel: channelId, model: newModel });
+          const fbCfg = (fb && fb.config) || (fb && fb.state && fb.state.config);
+          if (fb && fb.ok && fbCfg) {
+            state.config = fbCfg;
+            if (headerModelPill) headerModelPill.textContent = state.config.model;
+            updateHeader();
+          } else {
+            alert('切换渠道与模型失败: ' + ((res && res.error) || '未知错误'));
+          }
         }
       } catch (err) {
-        alert('切换模型异常: ' + (err.message || String(err)));
+        alert('切换渠道与模型异常: ' + (err.message || String(err)));
       }
+    }
+
+    async function applyQuickModel(newModel) {
+      const chId = (state.config && (state.config.activeChannelId || state.config.channel)) || 'openai';
+      return applyQuickChannelAndModel(chId, newModel);
     }
 
     if (btnToggleModelPicker) {
@@ -404,6 +456,7 @@
         const willOpen = modelPopover.classList.contains('hidden');
         closeAllPopovers();
         if (willOpen) {
+          popoverSelectedChannelId = (state.config && (state.config.activeChannelId || state.config.channel)) || 'openai';
           modelQuickSearchText = '';
           if (inputModelQuickSearch) {
             inputModelQuickSearch.value = '';

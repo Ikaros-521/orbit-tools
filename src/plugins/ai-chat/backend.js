@@ -23,9 +23,132 @@ const { liveMcpEngine } = require('./services/live-mcp-engine');
 const { ChatService } = require('./services/chat-service');
 const { processManager } = require('./services/process-manager');
 const { compactionService } = require('./services/compaction-service');
+const { PRESET_CHANNELS } = require('./lib/markdown-renderer');
+
+function createChannelInstance(presetOrData, overrides = {}) {
+  const p = presetOrData || {};
+  const id = overrides.id || p.id || `ch_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+  let apiKeys = Array.isArray(overrides.apiKeys) ? overrides.apiKeys : (
+    Array.isArray(p.apiKeys) ? p.apiKeys : []
+  );
+  if (apiKeys.length === 0) {
+    const singleKey = (overrides.apiKey || p.apiKey || '').trim();
+    if (singleKey) {
+      apiKeys = [{
+        id: `key_${Date.now().toString(36)}_1`,
+        name: '主密钥',
+        key: singleKey
+      }];
+    }
+  }
+  let activeKeyId = overrides.activeKeyId || p.activeKeyId;
+  if (!activeKeyId || !apiKeys.some(k => k.id === activeKeyId)) {
+    activeKeyId = apiKeys[0] ? apiKeys[0].id : '';
+  }
+  const activeKeyObj = apiKeys.find(k => k.id === activeKeyId) || apiKeys[0] || null;
+  const effectiveKey = activeKeyObj ? activeKeyObj.key : (overrides.apiKey || p.apiKey || '');
+
+  const models = Array.isArray(overrides.models)
+    ? [...overrides.models]
+    : (Array.isArray(p.models) ? [...p.models] : []);
+
+  const defaultModel = overrides.defaultModel || p.defaultModel || (models[0] || 'gpt-4o-mini');
+  if (defaultModel && !models.includes(defaultModel)) {
+    models.unshift(defaultModel);
+  }
+
+  return {
+    id,
+    name: (overrides.name || p.name || '新渠道').trim(),
+    icon: overrides.icon || p.icon || '🤖',
+    protocol: overrides.protocol || p.protocol || 'openai-chat',
+    baseUrl: typeof overrides.baseUrl === 'string' ? overrides.baseUrl.trim() : (p.baseUrl || ''),
+    apiKeys,
+    activeKeyId,
+    apiKey: effectiveKey,
+    models,
+    defaultModel,
+    isPreset: overrides.isPreset !== undefined ? overrides.isPreset : (p.id !== 'custom' && !!p.id),
+    presetId: overrides.presetId || p.presetId || (p.id !== 'custom' ? p.id : '')
+  };
+}
+
+function buildInitialConfiguredChannels(rawCfg = {}) {
+  const chId = rawCfg.channel || 'openai';
+  const matchedPreset = (PRESET_CHANNELS || []).find(p => p.id === chId) || (PRESET_CHANNELS && PRESET_CHANNELS[0]) || {
+    id: 'openai',
+    name: 'OpenAI (官方)',
+    icon: '🟢',
+    protocol: 'openai-chat',
+    baseUrl: 'https://api.openai.com/v1',
+    models: ['gpt-4o', 'gpt-4o-mini'],
+    defaultModel: 'gpt-4o-mini'
+  };
+  const singleKey = (rawCfg.apiKey || '').trim();
+  const initialCh = createChannelInstance(matchedPreset, {
+    id: matchedPreset.id,
+    name: matchedPreset.name,
+    baseUrl: rawCfg.baseUrl || matchedPreset.baseUrl,
+    protocol: rawCfg.protocol || matchedPreset.protocol,
+    apiKey: singleKey,
+    defaultModel: rawCfg.model || matchedPreset.defaultModel
+  });
+  return [initialCh];
+}
+
+function sanitizeConfiguredChannels(channels, activeId) {
+  if (!Array.isArray(channels) || channels.length === 0) {
+    return buildInitialConfiguredChannels();
+  }
+  // 智能净化：仅保留配置了密钥的渠道、用户自定义渠道、或者当前处于激活状态的渠道；过滤未配置的空预设占位
+  let sanitized = channels.filter(ch => {
+    const hasKey = (Array.isArray(ch.apiKeys) && ch.apiKeys.some(k => k.key && k.key.trim()))
+      || (typeof ch.apiKey === 'string' && ch.apiKey.trim().length > 0);
+    const isCurrentActive = ch.id === activeId;
+    const isCustom = !ch.isPreset;
+    return hasKey || isCurrentActive || isCustom;
+  });
+
+  if (sanitized.length === 0) {
+    sanitized = [channels[0] || buildInitialConfiguredChannels()[0]];
+  }
+
+  return sanitized.map(ch => createChannelInstance(ch));
+}
+
+function syncActiveChannelToConfig(cfg) {
+  if (!Array.isArray(cfg.channels) || cfg.channels.length === 0) {
+    cfg.channels = buildInitialConfiguredChannels(cfg);
+  }
+  const activeId = cfg.activeChannelId || cfg.channel || cfg.channels[0].id;
+  let activeCh = cfg.channels.find(c => c.id === activeId);
+  if (!activeCh) {
+    activeCh = cfg.channels[0];
+    cfg.activeChannelId = activeCh.id;
+  }
+
+  // 保证 activeCh 的 apiKeys 与 activeKeyId 正确同步
+  if (!Array.isArray(activeCh.apiKeys)) activeCh.apiKeys = [];
+  if (activeCh.apiKeys.length === 0 && activeCh.apiKey && activeCh.apiKey.trim()) {
+    activeCh.apiKeys.push({ id: `key_${activeCh.id}_1`, name: '主密钥', key: activeCh.apiKey.trim() });
+    activeCh.activeKeyId = activeCh.apiKeys[0].id;
+  }
+  const activeKeyObj = activeCh.apiKeys.find(k => k.id === activeCh.activeKeyId) || activeCh.apiKeys[0] || null;
+  activeCh.apiKey = activeKeyObj ? activeKeyObj.key : (activeCh.apiKey || '');
+  activeCh.activeKeyId = activeKeyObj ? activeKeyObj.id : '';
+
+  cfg.channel = activeCh.id;
+  cfg.activeChannelId = activeCh.id;
+  cfg.protocol = activeCh.protocol || 'openai-chat';
+  cfg.baseUrl = activeCh.baseUrl || '';
+  cfg.apiKey = activeCh.apiKey || '';
+  cfg.model = activeCh.defaultModel || (activeCh.models && activeCh.models[0]) || cfg.model || 'gpt-4o-mini';
+}
 
 const DEFAULT_CONFIG = {
   channel: 'openai',
+  activeChannelId: 'openai',
+  channels: buildInitialConfiguredChannels(),
   protocol: 'openai-chat',
   baseUrl: 'https://api.openai.com/v1',
   apiKey: '',
@@ -90,9 +213,25 @@ let disposeAll = null;
 
 module.exports = {
   DEFAULT_CONFIG,
+  PRESET_TEMPLATES: PRESET_CHANNELS,
+  buildInitialConfiguredChannels,
+  sanitizeConfiguredChannels,
+  createChannelInstance,
+  syncActiveChannelToConfig,
   activate(ctx) {
     const rawData = ctx.data.get() || {};
-    let config = { ...DEFAULT_CONFIG, ...(rawData.config || {}) };
+    const rawCfg = rawData.config || {};
+    let config = { ...DEFAULT_CONFIG, ...rawCfg };
+
+    // 向上平滑迁移与渠道智能净化：
+    const needsMigration = !Array.isArray(rawCfg.channels);
+    if (needsMigration) {
+      config.channels = buildInitialConfiguredChannels(rawCfg);
+      config.activeChannelId = rawCfg.channel || 'openai';
+    } else {
+      config.channels = sanitizeConfiguredChannels(rawCfg.channels, config.activeChannelId || config.channel);
+    }
+    syncActiveChannelToConfig(config);
     let personas = Array.isArray(rawData.personas) && rawData.personas.length > 0 ? rawData.personas : [...DEFAULT_PERSONAS];
     let sessions = Array.isArray(rawData.sessions) ? rawData.sessions : [];
     let activeSessionId = rawData.activeSessionId || null;
@@ -121,6 +260,10 @@ module.exports = {
     const save = () => {
       ctx.data.set({ config, personas, sessions, activeSessionId, skills, mcpServers, memories });
     };
+
+    if (needsMigration) {
+      save();
+    }
 
     const validateWorkDir = raw => {
       const dir = String(raw || '').trim().replace(/^"|"$/g, '');
@@ -179,10 +322,227 @@ module.exports = {
       memories
     }));
 
+    ctx.ipc.handle('getPresetTemplates', () => ({
+      ok: true,
+      templates: (PRESET_CHANNELS || []).map(p => ({
+        id: p.id,
+        name: p.name,
+        icon: p.icon || '🤖',
+        protocol: p.protocol || 'openai-chat',
+        baseUrl: p.baseUrl || '',
+        defaultModel: p.defaultModel || (p.models && p.models[0]) || '',
+        models: Array.isArray(p.models) ? [...p.models] : []
+      }))
+    }));
+
+    ctx.ipc.handle('createChannelFromPreset', args => {
+      const { presetId, name, icon, apiKey, apiKeys } = args || {};
+      const template = (PRESET_CHANNELS || []).find(p => p.id === presetId) || {
+        id: 'custom',
+        name: '自定义渠道',
+        icon: '🛠️',
+        protocol: 'openai-chat',
+        baseUrl: '',
+        models: ['gpt-4o-mini'],
+        defaultModel: 'gpt-4o-mini'
+      };
+
+      const newCh = createChannelInstance(template, {
+        id: `ch_${template.id}_${Date.now().toString(36)}`,
+        name: (name && name.trim()) || `${template.name.split(' ')[0]} 渠道`,
+        icon: icon || template.icon || '🤖',
+        apiKey: apiKey || '',
+        apiKeys: Array.isArray(apiKeys) ? apiKeys : undefined
+      });
+
+      if (!Array.isArray(config.channels)) config.channels = [];
+      config.channels.push(newCh);
+      config.activeChannelId = newCh.id;
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, channel: newCh, config };
+    });
+
+    ctx.ipc.handle('addChannelKey', args => {
+      const { channelId, name, key, setActive } = args || {};
+      if (!key || !key.trim()) return { ok: false, error: '密钥内容不能为空' };
+      const targetId = channelId || config.activeChannelId || config.channel;
+      const ch = Array.isArray(config.channels) ? config.channels.find(c => c.id === targetId) : null;
+      if (!ch) return { ok: false, error: '渠道不存在' };
+
+      if (!Array.isArray(ch.apiKeys)) ch.apiKeys = [];
+      const newKey = {
+        id: `key_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 5)}`,
+        name: (name && name.trim()) || `密钥 ${ch.apiKeys.length + 1}`,
+        key: key.trim(),
+        createdAt: Date.now()
+      };
+      ch.apiKeys.push(newKey);
+      if (setActive || ch.apiKeys.length === 1) {
+        ch.activeKeyId = newKey.id;
+      }
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, channel: ch, key: newKey, newKey, config };
+    });
+
+    ctx.ipc.handle('deleteChannelKey', args => {
+      const { channelId, keyId } = args || {};
+      if (!keyId) return { ok: false, error: '缺少 keyId' };
+      const targetId = channelId || config.activeChannelId || config.channel;
+      const ch = Array.isArray(config.channels) ? config.channels.find(c => c.id === targetId) : null;
+      if (!ch) return { ok: false, error: '渠道不存在' };
+
+      ch.apiKeys = (ch.apiKeys || []).filter(k => k.id !== keyId);
+      if (ch.activeKeyId === keyId) {
+        ch.activeKeyId = ch.apiKeys[0] ? ch.apiKeys[0].id : '';
+      }
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, channel: ch, config };
+    });
+
+    ctx.ipc.handle('switchChannelActiveKey', args => {
+      const { channelId, keyId } = args || {};
+      if (!keyId) return { ok: false, error: '缺少 keyId' };
+      const targetId = channelId || config.activeChannelId || config.channel;
+      const ch = Array.isArray(config.channels) ? config.channels.find(c => c.id === targetId) : null;
+      if (!ch) return { ok: false, error: '渠道不存在' };
+
+      if (!ch.apiKeys || !ch.apiKeys.some(k => k.id === keyId)) {
+        return { ok: false, error: '指定密钥不存在' };
+      }
+      ch.activeKeyId = keyId;
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, channel: ch, config };
+    });
+
     ctx.ipc.handle('saveConfig', patch => {
-      config = { ...config, ...(patch || {}) };
+      const p = patch || {};
+      if (Array.isArray(p.channels)) {
+        config.channels = p.channels.map(c => createChannelInstance(c));
+      }
+      if (p.activeChannelId || p.channel) {
+        config.activeChannelId = p.activeChannelId || p.channel;
+      }
+      // 将顶层 model/baseUrl/apiKey/protocol 的变更同步回当前激活的渠道对象中
+      const activeId = config.activeChannelId || config.channel;
+      const activeCh = Array.isArray(config.channels) ? config.channels.find(c => c.id === activeId) : null;
+      if (activeCh) {
+        if (typeof p.model === 'string' && p.model.trim()) {
+          activeCh.defaultModel = p.model.trim();
+          if (!activeCh.models.includes(p.model.trim())) {
+            activeCh.models.unshift(p.model.trim());
+          }
+        }
+        if (typeof p.baseUrl === 'string') activeCh.baseUrl = p.baseUrl.trim();
+        if (typeof p.apiKey === 'string') {
+          activeCh.apiKey = p.apiKey.trim();
+          if (activeCh.apiKey) {
+            if (!Array.isArray(activeCh.apiKeys) || activeCh.apiKeys.length === 0) {
+              activeCh.apiKeys = [{ id: `key_${Date.now().toString(36)}_1`, name: '主密钥', key: activeCh.apiKey }];
+              activeCh.activeKeyId = activeCh.apiKeys[0].id;
+            } else {
+              const curKeyObj = activeCh.apiKeys.find(k => k.id === activeCh.activeKeyId) || activeCh.apiKeys[0];
+              if (curKeyObj) curKeyObj.key = activeCh.apiKey;
+            }
+          }
+        }
+        if (typeof p.protocol === 'string') activeCh.protocol = p.protocol;
+      }
+      config = { ...config, ...p };
+      syncActiveChannelToConfig(config);
       save();
       return { ok: true, config };
+    });
+
+    ctx.ipc.handle('switchActiveChannel', args => {
+      const { channelId, model, activeKeyId } = args || {};
+      if (!channelId) return { ok: false, error: '缺少 channelId' };
+      if (!Array.isArray(config.channels) || config.channels.length === 0) {
+        config.channels = buildInitialConfiguredChannels(config);
+      }
+      const targetCh = config.channels.find(c => c.id === channelId);
+      if (!targetCh) return { ok: false, error: `未找到渠道: ${channelId}` };
+
+      config.activeChannelId = targetCh.id;
+      if (activeKeyId && Array.isArray(targetCh.apiKeys) && targetCh.apiKeys.some(k => k.id === activeKeyId)) {
+        targetCh.activeKeyId = activeKeyId;
+      }
+      if (model && typeof model === 'string' && model.trim()) {
+        targetCh.defaultModel = model.trim();
+        if (!targetCh.models.includes(model.trim())) {
+          targetCh.models.unshift(model.trim());
+        }
+      }
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, config, activeChannel: targetCh };
+    });
+
+    ctx.ipc.handle('saveChannel', chData => {
+      if (!chData) return { ok: false, error: '渠道数据不能为空' };
+      if (!Array.isArray(config.channels)) config.channels = buildInitialConfiguredChannels(config);
+
+      const id = chData.id || genId('ch');
+      const idx = config.channels.findIndex(c => c.id === id);
+      const existing = idx >= 0 ? config.channels[idx] : {};
+
+      const updatedCh = createChannelInstance({ ...existing, ...chData }, { id });
+
+      if (idx >= 0) {
+        config.channels[idx] = updatedCh;
+      } else {
+        config.channels.push(updatedCh);
+      }
+
+      if (chData.isActive || config.activeChannelId === id) {
+        config.activeChannelId = id;
+      }
+
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, channel: updatedCh, config };
+    });
+
+    ctx.ipc.handle('deleteChannel', args => {
+      const id = args && args.id;
+      if (!id) return { ok: false, error: '缺少渠道 ID' };
+      if (!Array.isArray(config.channels) || config.channels.length <= 1) {
+        return { ok: false, error: '必须保留至少一个已配置渠道' };
+      }
+      const idx = config.channels.findIndex(c => c.id === id);
+      if (idx === -1) return { ok: false, error: '渠道不存在' };
+
+      config.channels.splice(idx, 1);
+      if (config.activeChannelId === id) {
+        config.activeChannelId = config.channels[0].id;
+      }
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, config };
+    });
+
+    ctx.ipc.handle('syncChannelModels', args => {
+      const { channelId, models } = args || {};
+      const targetId = channelId || config.activeChannelId || config.channel;
+      if (!Array.isArray(config.channels)) config.channels = buildInitialConfiguredChannels(config);
+      const ch = config.channels.find(c => c.id === targetId);
+      if (!ch) return { ok: false, error: '渠道不存在' };
+
+      if (Array.isArray(models)) {
+        const set = new Set(ch.models || []);
+        models.forEach(m => {
+          const s = String(m || '').trim();
+          if (s) set.add(s);
+        });
+        ch.models = Array.from(set);
+      }
+
+      syncActiveChannelToConfig(config);
+      save();
+      return { ok: true, channel: ch, config };
     });
 
     ctx.ipc.handle('savePersona', p => {

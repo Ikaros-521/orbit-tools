@@ -985,6 +985,17 @@
       headerTitle.textContent = currentSession.title || '新对话';
       headerModelPill.textContent = config.model || 'gpt-4o-mini';
 
+      const activeCh = Array.isArray(config.channels)
+        ? config.channels.find(c => c.id === (config.activeChannelId || config.channel))
+        : null;
+      const chName = activeCh ? (activeCh.name.split(' ')[0]) : (config.channel || 'AI');
+      const chIcon = (activeCh && activeCh.icon) || '🤖';
+      const pickerIcon = btnToggleModelPicker ? btnToggleModelPicker.querySelector('.ai-model-picker-icon') : null;
+      if (pickerIcon) pickerIcon.textContent = chIcon;
+      if (btnToggleModelPicker) {
+        btnToggleModelPicker.title = `渠道: ${chName} | 模型: ${config.model || 'gpt-4o-mini'} (点击切换)`;
+      }
+
       const wd = currentSession.workDir || '';
       const effectiveDefault = config.agentWorkDir || '';
       if (wd) {
