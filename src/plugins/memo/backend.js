@@ -357,40 +357,67 @@ module.exports = {
 
     /* --- Reminder Scheduler (Background Tick) -------------------------------- */
 
+    const isCompanionActive = async () => {
+      if (typeof ctx.callPlugin !== 'function') return false;
+      try {
+        const petState = await ctx.callPlugin('desktop-pet', 'getState').catch(() => null);
+        if (petState && petState.visible) return true;
+      } catch { /* desktop-pet not present or disabled */ }
+      try {
+        const dshState = await ctx.callPlugin('dsh-pet-bridge', 'getState').catch(() => null);
+        if (dshState && dshState.visible) return true;
+      } catch { /* dsh-pet not present or disabled */ }
+      return false;
+    };
+
     clearInterval(reminderTimer);
-    const checkReminders = () => {
+    const checkReminders = async () => {
       const now = Date.now();
-      let changed = false;
+      const due = [];
       for (const t of todos) {
         if (!t.done && !t.reminded && t.remindAt && now >= t.remindAt) {
           t.reminded = true;
-          changed = true;
+          due.push(t);
+        }
+      }
+      if (!due.length) return;
 
-          // 1. Desktop Notification
-          try {
-            if (Notification && typeof Notification.isSupported === 'function' && Notification.isSupported()) {
-              new Notification({
-                title: '备忘录待办提醒 ⏰',
-                body: t.title || '您有一项待办日程时间到了',
-                silent: false,
-              }).show();
-            }
-          } catch { /* notification disabled or headless */ }
+      const hasPet = await isCompanionActive();
 
-          // 2. Broadcast reminder event to host & companion plugins (especially desktop-pet!)
+      for (const t of due) {
+        if (hasPet) {
+          // 桌宠开着：由桌宠在桌面上播报语音与气泡，抑制系统消息通知
           ctx.send('reminder', {
             id: t.id,
             title: t.title,
             dueDate: t.dueDate,
             remindAt: t.remindAt,
           });
+        } else {
+          // 没有桌宠开着：走系统桌面通知，点击可快速打开待办清单
+          try {
+            if (Notification && typeof Notification.isSupported === 'function' && Notification.isSupported()) {
+              const notif = new Notification({
+                title: '备忘录待办提醒 ⏰',
+                body: t.title || '您有一项待办日程时间到了',
+                silent: false,
+              });
+              notif.on('click', () => {
+                if (typeof ctx.openPluginPanel === 'function') {
+                  ctx.openPluginPanel('memo', { view: 'todos' });
+                }
+              });
+              notif.show();
+            }
+          } catch { /* notification disabled or headless */ }
         }
       }
-      if (changed) {
-        save();
-        ctx.send('changed', { kind: 'todo-reminded', todos, stats: getStats() });
-      }
+
+      save();
+      ctx.send('changed', { kind: 'todo-reminded', todos, stats: getStats() });
     };
+
+    module.exports._checkReminders = checkReminders;
     reminderTimer = setInterval(checkReminders, 8000);
     reminderTimer.unref?.();
   },
@@ -398,5 +425,6 @@ module.exports = {
   deactivate() {
     clearInterval(reminderTimer);
     reminderTimer = null;
+    module.exports._checkReminders = null;
   },
 };

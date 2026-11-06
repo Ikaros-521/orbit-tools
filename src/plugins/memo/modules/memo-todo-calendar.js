@@ -114,64 +114,228 @@
       item.className = 'memo-todo-item' + (t.done ? ' done' : '');
       item.dataset.id = t.id;
 
-      const todayStr = formatDateStr(new Date());
-      let dateTag = '';
-      const dStr = t.dueDate || (t.targetTime ? formatDateStr(new Date(t.targetTime)) : null);
-      if (dStr) {
-        const isToday = dStr === todayStr;
-        const isOverdue = !t.done && dStr < todayStr;
-        const cls = isToday ? 'today' : (isOverdue ? 'overdue' : '');
-        let label = isToday ? L('今天', 'Today') : dStr.slice(5);
-        if (t.targetTime) {
-          const dObj = new Date(t.targetTime);
-          label += ` ${pad(dObj.getHours())}:${pad(dObj.getMinutes())}`;
+      function renderView() {
+        item.classList.remove('editing');
+        const todayStr = formatDateStr(new Date());
+        let dateTag = '';
+        const dStr = t.dueDate || (t.targetTime ? formatDateStr(new Date(t.targetTime)) : null);
+        if (dStr) {
+          const isToday = dStr === todayStr;
+          const isOverdue = !t.done && dStr < todayStr;
+          const cls = isToday ? 'today' : (isOverdue ? 'overdue' : '');
+          let label = isToday ? L('今天', 'Today') : dStr.slice(5);
+          if (t.targetTime) {
+            const dObj = new Date(t.targetTime);
+            label += ` ${pad(dObj.getHours())}:${pad(dObj.getMinutes())}`;
+          }
+          dateTag = `<span class="memo-todo-tag ${cls}" title="${dStr}${t.targetTime ? ' ' + new Date(t.targetTime).toLocaleTimeString() : ''}">📅 ${label}</span>`;
         }
-        dateTag = `<span class="memo-todo-tag ${cls}" title="${dStr}${t.targetTime ? ' ' + new Date(t.targetTime).toLocaleTimeString() : ''}">📅 ${label}</span>`;
+
+        let alertTag = '';
+        if (t.remindAt) {
+          const dateObj = new Date(t.remindAt);
+          const timeStr = `${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
+          const isReminded = !!t.reminded;
+          const tip = `${L('提醒时间: ', 'Alert at: ')}${dateObj.toLocaleString()}`;
+          alertTag = `<span class="memo-todo-tag alarm ${isReminded ? 'reminded' : ''}" title="${tip}">⏰ ${timeStr}${isReminded ? ` (${L('已提醒', 'done')})` : ''}</span>`;
+        }
+
+        let priTag = '';
+        if (t.priority === 1) priTag = `<span class="memo-todo-tag pri-1">⭐ ${L('重要', 'High')}</span>`;
+        else if (t.priority === 2) priTag = `<span class="memo-todo-tag pri-2">🔥 ${L('紧急', 'Urgent')}</span>`;
+
+        item.innerHTML = `
+          <input type="checkbox" class="memo-todo-chk" ${t.done ? 'checked' : ''}>
+          <span class="memo-todo-title" title="${L('双击编辑待办', 'Double click to edit')}">${escapeHtml(t.title)}</span>
+          <div class="memo-todo-meta">
+            ${priTag}
+            ${dateTag}
+            ${alertTag}
+            <span class="memo-todo-edit" role="button" title="${L('编辑待办', 'Edit')}">✏️</span>
+            <span class="memo-todo-del" role="button" title="${L('删除待办', 'Delete')}">🗑</span>
+          </div>`;
+
+        item.querySelector('.memo-todo-chk').addEventListener('change', async () => {
+          const res = await ctx.call('todoToggle', { id: t.id }).catch(() => null);
+          if (res && res.ok) {
+            t.done = res.todo.done;
+            item.classList.toggle('done', t.done);
+            renderTodos();
+            if (getCurrentTab() === 'calendar') renderCalendar();
+          }
+        });
+
+        item.querySelector('.memo-todo-title').addEventListener('dblclick', () => {
+          renderEdit();
+        });
+
+        item.querySelector('.memo-todo-edit').addEventListener('click', e => {
+          e.stopPropagation();
+          renderEdit();
+        });
+
+        item.querySelector('.memo-todo-del').addEventListener('click', async e => {
+          e.stopPropagation();
+          const res = await ctx.call('todoDelete', { id: t.id }).catch(() => null);
+          if (res && res.ok) {
+            setTodos(res.todos);
+            renderTodos();
+            if (getCurrentTab() === 'calendar') renderCalendar();
+          }
+        });
       }
 
-      let alertTag = '';
-      if (t.remindAt) {
-        const dateObj = new Date(t.remindAt);
-        const timeStr = `${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
-        const isReminded = !!t.reminded;
-        const tip = `${L('提醒时间: ', 'Alert at: ')}${dateObj.toLocaleString()}`;
-        alertTag = `<span class="memo-todo-tag alarm ${isReminded ? 'reminded' : ''}" title="${tip}">⏰ ${timeStr}${isReminded ? ` (${L('已提醒', 'done')})` : ''}</span>`;
+      function renderEdit() {
+        item.classList.add('editing');
+        const initialDtVal = t.targetTime
+          ? formatDateTimeLocal(new Date(t.targetTime))
+          : (t.dueDate ? `${t.dueDate}T09:00` : '');
+        const strategy = t.remindStrategy || 'none';
+        const pri = t.priority || 0;
+
+        item.innerHTML = `
+          <div class="memo-todo-edit-wrap">
+            <div class="memo-todo-edit-title-row">
+              <input type="text" class="memo-todo-edit-input" value="${escapeHtml(t.title)}" placeholder="${L('待办标题…', 'Task title…')}" spellcheck="false">
+            </div>
+            <div class="memo-todo-edit-opts-row">
+              <div class="memo-todo-opt-group">
+                <span class="memo-todo-opt-label">📅 ${L('时间', 'Time')}:</span>
+                <input type="datetime-local" class="memo-todo-edit-datetime" value="${initialDtVal}">
+                <select class="memo-todo-edit-quick" title="${L('快捷填充', 'Quick fill')}">
+                  <option value="">${L('快捷…', 'Quick…')}</option>
+                  <option value="today18">${L('今天 18:00', 'Today 18:00')}</option>
+                  <option value="today21">${L('今天 21:00', 'Today 21:00')}</option>
+                  <option value="tomorrow09">${L('明天 09:00', 'Tomorrow 09:00')}</option>
+                  <option value="tomorrow18">${L('明天 18:00', 'Tomorrow 18:00')}</option>
+                  <option value="in1h">${L('1小时后', 'In 1 hour')}</option>
+                  <option value="clear">${L('清除时间', 'Clear')}</option>
+                </select>
+              </div>
+              <div class="memo-todo-opt-group">
+                <span class="memo-todo-opt-label">⏰ ${L('提醒', 'Remind')}:</span>
+                <select class="memo-todo-edit-strategy">
+                  <option value="on_time" ${strategy === 'on_time' ? 'selected' : ''}>${L('准时提醒', 'On time')}</option>
+                  <option value="5m" ${strategy === '5m' ? 'selected' : ''}>${L('提前 5 分钟', '5m before')}</option>
+                  <option value="15m" ${strategy === '15m' ? 'selected' : ''}>${L('提前 15 分钟', '15m before')}</option>
+                  <option value="30m" ${strategy === '30m' ? 'selected' : ''}>${L('提前 30 分钟', '30m before')}</option>
+                  <option value="1h" ${strategy === '1h' ? 'selected' : ''}>${L('提前 1 小时', '1h before')}</option>
+                  <option value="1d" ${strategy === '1d' ? 'selected' : ''}>${L('提前 1 天', '1d before')}</option>
+                  <option value="none" ${strategy === 'none' ? 'selected' : ''}>${L('不提醒', 'No alert')}</option>
+                </select>
+              </div>
+              <div class="memo-todo-opt-group">
+                <span class="memo-todo-opt-label">🏷 ${L('优先级', 'Pri')}:</span>
+                <select class="memo-todo-edit-pri">
+                  <option value="0" ${pri === 0 ? 'selected' : ''}>${L('普通', 'Normal')}</option>
+                  <option value="1" ${pri === 1 ? 'selected' : ''}>⭐ ${L('重要', 'High')}</option>
+                  <option value="2" ${pri === 2 ? 'selected' : ''}>🔥 ${L('紧急', 'Urgent')}</option>
+                </select>
+              </div>
+              <div class="memo-todo-edit-actions">
+                <button type="button" class="btn small primary memo-todo-save-btn">${L('保存', 'Save')}</button>
+                <button type="button" class="btn small ghost memo-todo-cancel-btn">${L('取消', 'Cancel')}</button>
+              </div>
+            </div>
+          </div>`;
+
+        const titleInput = item.querySelector('.memo-todo-edit-input');
+        const dtInput = item.querySelector('.memo-todo-edit-datetime');
+        const quickSelect = item.querySelector('.memo-todo-edit-quick');
+        const strategySelect = item.querySelector('.memo-todo-edit-strategy');
+        const priSelect = item.querySelector('.memo-todo-edit-pri');
+        const saveBtn = item.querySelector('.memo-todo-save-btn');
+        const cancelBtn = item.querySelector('.memo-todo-cancel-btn');
+
+        titleInput.focus();
+        titleInput.select();
+
+        quickSelect.addEventListener('change', () => {
+          const val = quickSelect.value;
+          if (!val) return;
+          if (val === 'clear') {
+            dtInput.value = '';
+          } else if (val === 'today18') {
+            const d = new Date(); d.setHours(18, 0, 0, 0);
+            dtInput.value = formatDateTimeLocal(d);
+          } else if (val === 'today21') {
+            const d = new Date(); d.setHours(21, 0, 0, 0);
+            dtInput.value = formatDateTimeLocal(d);
+          } else if (val === 'tomorrow09') {
+            const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+            dtInput.value = formatDateTimeLocal(d);
+          } else if (val === 'tomorrow18') {
+            const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(18, 0, 0, 0);
+            dtInput.value = formatDateTimeLocal(d);
+          } else if (val === 'in1h') {
+            const d = new Date(Date.now() + 60 * 60000); d.setSeconds(0, 0);
+            dtInput.value = formatDateTimeLocal(d);
+          }
+          quickSelect.value = '';
+        });
+
+        async function saveEdit() {
+          const newTitle = titleInput.value.trim();
+          if (!newTitle) {
+            titleInput.focus();
+            return;
+          }
+          const dtVal = dtInput.value;
+          let targetTime = null;
+          let dueDate = null;
+          if (dtVal) {
+            const d = new Date(dtVal);
+            if (!isNaN(d.getTime())) {
+              targetTime = d.getTime();
+              dueDate = dtVal.slice(0, 10);
+            }
+          }
+          const newStrategy = strategySelect.value;
+          const newRemindAt = targetTime ? calcRemindAt(targetTime, newStrategy) : null;
+          const newPriority = Number(priSelect.value) || 0;
+
+          saveBtn.disabled = true;
+          const res = await ctx.call('todoUpdate', {
+            id: t.id,
+            title: newTitle,
+            dueDate,
+            targetTime,
+            remindStrategy: newStrategy,
+            remindAt: newRemindAt,
+            priority: newPriority
+          }).catch(() => null);
+
+          if (res && res.ok) {
+            setTodos(res.todos);
+            renderTodos();
+            if (getCurrentTab() === 'calendar') renderCalendar();
+          } else {
+            saveBtn.disabled = false;
+          }
+        }
+
+        saveBtn.addEventListener('click', saveEdit);
+        cancelBtn.addEventListener('click', () => renderView());
+
+        titleInput.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            saveEdit();
+          } else if (e.key === 'Escape') {
+            e.preventDefault();
+            renderView();
+          }
+        });
+
+        item.addEventListener('keydown', e => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            renderView();
+          }
+        });
       }
 
-      let priTag = '';
-      if (t.priority === 1) priTag = `<span class="memo-todo-tag pri-1">⭐ ${L('重要', 'High')}</span>`;
-      else if (t.priority === 2) priTag = `<span class="memo-todo-tag pri-2">🔥 ${L('紧急', 'Urgent')}</span>`;
-
-      item.innerHTML = `
-        <input type="checkbox" class="memo-todo-chk" ${t.done ? 'checked' : ''}>
-        <span class="memo-todo-title">${escapeHtml(t.title)}</span>
-        <div class="memo-todo-meta">
-          ${priTag}
-          ${dateTag}
-          ${alertTag}
-          <span class="memo-todo-del" role="button" title="${L('删除待办', 'Delete')}">🗑</span>
-        </div>`;
-
-      item.querySelector('.memo-todo-chk').addEventListener('change', async () => {
-        const res = await ctx.call('todoToggle', { id: t.id }).catch(() => null);
-        if (res && res.ok) {
-          t.done = res.todo.done;
-          item.classList.toggle('done', t.done);
-          renderTodos();
-          if (getCurrentTab() === 'calendar') renderCalendar();
-        }
-      });
-
-      item.querySelector('.memo-todo-del').addEventListener('click', async e => {
-        e.stopPropagation();
-        const res = await ctx.call('todoDelete', { id: t.id }).catch(() => null);
-        if (res && res.ok) {
-          setTodos(res.todos);
-          renderTodos();
-          if (getCurrentTab() === 'calendar') renderCalendar();
-        }
-      });
-
+      renderView();
       return item;
     }
 

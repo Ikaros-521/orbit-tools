@@ -212,6 +212,125 @@
 .memo-todo-item:hover .memo-todo-del { opacity: .8; }
 .memo-todo-del:hover { opacity: 1; color: var(--red); }
 
+.memo-todo-edit { opacity: 0; cursor: pointer; font-size: 12px; padding: 2px 4px; color: var(--ink-faint); }
+.memo-todo-item:hover .memo-todo-edit { opacity: .8; }
+.memo-todo-edit:hover { opacity: 1; color: var(--amber); }
+
+.memo-todo-item.editing {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg);
+  border-color: var(--amber);
+}
+
+.memo-todo-edit-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+
+.memo-todo-edit-title-row {
+  display: flex;
+  width: 100%;
+}
+
+.memo-todo-edit-input {
+  width: 100%;
+  font: inherit;
+  font-size: 13.5px;
+  color: var(--ink);
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 6px 10px;
+  outline: none;
+}
+.memo-todo-edit-input:focus {
+  border-color: var(--amber);
+  background: var(--bg);
+}
+
+.memo-todo-edit-opts-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--ink-dim);
+}
+
+.memo-todo-edit-datetime,
+.memo-todo-edit-quick,
+.memo-todo-edit-strategy,
+.memo-todo-edit-pri {
+  font-family: inherit;
+  font-size: 12px;
+  line-height: 24px;
+  height: 26px;
+  color: var(--ink);
+  background: var(--inset);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 0 6px;
+  outline: none;
+}
+.memo-todo-edit-datetime:focus,
+.memo-todo-edit-quick:focus,
+.memo-todo-edit-strategy:focus,
+.memo-todo-edit-pri:focus {
+  border-color: var(--amber);
+}
+
+.memo-todo-edit-datetime { width: 165px; }
+.memo-todo-edit-quick { width: 82px; }
+.memo-todo-edit-strategy { width: 108px; }
+.memo-todo-edit-pri { width: 86px; }
+
+.memo-todo-edit-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.memo-todo-save-btn {
+  background: var(--amber);
+  color: #fff;
+  border: 1px solid var(--amber);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all .15s ease;
+}
+.memo-todo-save-btn:hover {
+  filter: brightness(1.1);
+}
+.memo-todo-save-btn:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.memo-todo-cancel-btn {
+  background: transparent;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 4px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all .15s ease;
+}
+.memo-todo-cancel-btn:hover {
+  background: var(--inset);
+  color: var(--ink);
+}
+
 /* --- Calendar View --------------------------------------------------------- */
 .memo-cal-wrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 16px 20px 32px; display: flex; flex-direction: column; gap: 16px; }
 .memo-cal-card {
