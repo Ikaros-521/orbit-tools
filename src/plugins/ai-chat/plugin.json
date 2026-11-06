@@ -49,7 +49,7 @@
         "en": "Open AI Chat"
       },
       "method": "openPanel",
-      "hotkey": "Ctrl+Shift+A"
+      "hotkey": "Ctrl+Shift+I"
     }
   ],
   "capabilities": [

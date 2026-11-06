@@ -54,6 +54,13 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
     return a ? { pluginId, method: a.method } : null;
   };
 
+  function resolvePluginActionAccel(key, defaultHotkey) {
+    if (Object.prototype.hasOwnProperty.call(cfg.data.pluginHotkeys, key)) {
+      return cfg.data.pluginHotkeys[key] || null;
+    }
+    return defaultHotkey || null;
+  }
+
   /* Every hotkey that WOULD be live with the current config — the source of
      truth for conflict pre-checks, independent of registration order. */
   function effectiveAssignments() {
@@ -63,8 +70,9 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
     for (const p of manager.plugins.values()) {
       if (!p.enabled || !Array.isArray(p.manifest.actions)) continue;
       for (const a of p.manifest.actions) {
-        const accel = cfg.data.pluginHotkeys[`${p.id}:${a.id}`] ?? a.hotkey;
-        if (accel) rows.push({ key: `${p.id}:${a.id}`, accel });
+        const key = `${p.id}:${a.id}`;
+        const accel = resolvePluginActionAccel(key, a.hotkey);
+        if (accel) rows.push({ key, accel });
       }
     }
     return rows;
@@ -129,7 +137,7 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
       if (!p.enabled || !Array.isArray(p.manifest.actions)) continue;
       for (const a of p.manifest.actions) {
         const key = `${p.id}:${a.id}`;
-        const accel = cfg.data.pluginHotkeys[key] ?? a.hotkey;
+        const accel = resolvePluginActionAccel(key, a.hotkey);
         if (!accel) continue;
         const h = actionOf(key);
         if (!h) continue;
@@ -202,32 +210,42 @@ module.exports = function createHotkeys({ cfg, manager, onSummon, onSummonAction
   }
 
   function setPluginHotkey(key, accel /* string | null to clear */) {
-    const prev = cfg.data.pluginHotkeys[key] ?? null;
-    if ((accel || null) === prev) return { ok: true, hotkey: accel || undefined };
-    if (accel) {
-      const owner = conflictOwner(key, accel);
+    const hasCustom = Object.prototype.hasOwnProperty.call(cfg.data.pluginHotkeys, key);
+    const prev = hasCustom ? cfg.data.pluginHotkeys[key] : null;
+    const cleanAccel = (accel && typeof accel === 'string' && accel.trim()) ? accel.trim() : null;
+
+    if (cleanAccel) {
+      if (prev === cleanAccel) return { ok: true, hotkey: cleanAccel };
+      const owner = conflictOwner(key, cleanAccel);
       if (owner) return { ok: false, conflictKey: owner, hotkey: prev || undefined };
       return applyWithRollback(
         key,
         () => {
           const next = { ...cfg.data.pluginHotkeys };
-          next[key] = accel;
+          next[key] = cleanAccel;
           cfg.set({ pluginHotkeys: next });
         },
         () => {
           const back = { ...cfg.data.pluginHotkeys };
-          if (prev) back[key] = prev; else delete back[key];
+          if (hasCustom) back[key] = prev; else delete back[key];
           cfg.set({ pluginHotkeys: back });
         },
       );
     } else {
-      // Clearing the override
-      const next = { ...cfg.data.pluginHotkeys };
-      delete next[key];
-      cfg.set({ pluginHotkeys: next });
-      registerAll({ allowFallback: false });
-      const row = status.find(r => r.key === key && r.ok);
-      return { ok: true, hotkey: row ? row.accel : undefined };
+      // 显式置为 null，禁止 fallback 到插件默认快捷键
+      return applyWithRollback(
+        key,
+        () => {
+          const next = { ...cfg.data.pluginHotkeys };
+          next[key] = null;
+          cfg.set({ pluginHotkeys: next });
+        },
+        () => {
+          const back = { ...cfg.data.pluginHotkeys };
+          if (hasCustom) back[key] = prev; else delete back[key];
+          cfg.set({ pluginHotkeys: back });
+        },
+      );
     }
   }
 

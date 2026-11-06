@@ -56,11 +56,22 @@
           input.value = candidate || '';
           return;
         }
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+          candidate = null;
+          input.value = '';
+          recording = false;
+          input.classList.remove('recording');
+          return;
+        }
         const accel = accelFromEvent(e);
         if (accel) { candidate = accel; input.value = accel; recording = false; input.classList.remove('recording'); }
       });
       apply.addEventListener('click', async () => {
-        if (!candidate) return;
+        if (!candidate && !allowClear) {
+          candidate = initial || null;
+          input.value = candidate || '';
+          return;
+        }
         apply.disabled = true;
         const res = await onApply(candidate);
         apply.disabled = false;
@@ -72,12 +83,24 @@
           status.classList.add('bad');
         } else {
           status.textContent = '✓';
-          input.value = res && res.hotkey ? res.hotkey : candidate;
+          input.value = res && res.hotkey ? res.hotkey : (candidate || '');
+          initial = candidate;
         }
       });
       clear.addEventListener('click', async () => {
         candidate = null; input.value = ''; status.textContent = '';
-        await onApply(null);
+        const res = await onApply(null);
+        status.classList.remove('bad');
+        if (res && res.ok === false) {
+          status.textContent = res.conflictKey
+            ? I18N.t('conflictWith', { name: ctx.labelForKey(res.conflictKey) })
+            : I18N.t('hotkeyBad');
+          status.classList.add('bad');
+        } else {
+          status.textContent = '✓';
+          input.value = '';
+          initial = null;
+        }
       });
       return wrap;
     }
@@ -208,12 +231,13 @@
       if (els.actionPaletteHotkeyCtrl) {
         els.actionPaletteHotkeyCtrl.innerHTML = '';
         els.actionPaletteHotkeyCtrl.appendChild(hotkeyEditor({
-          initial: state.config.actionPaletteHotkey || 'Ctrl+K',
+          initial: state.config.actionPaletteHotkey || '',
+          allowClear: true,
           onApply: async accel => {
             const res = await window.host.setPaletteHotkey(accel);
             if (res && res.ok) {
-              state.config.actionPaletteHotkey = res.hotkey || accel;
-              if (els.apHint) els.apHint.textContent = state.config.actionPaletteHotkey;
+              state.config.actionPaletteHotkey = res.hotkey || null;
+              if (els.apHint) els.apHint.textContent = state.config.actionPaletteHotkey || I18N.t('noHotkey');
               state.hotkeys = await window.host.hotkeys();
               renderSettings();
             }

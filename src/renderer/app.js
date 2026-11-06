@@ -392,7 +392,7 @@
     els.aboutVer.textContent = `${boot.name.en} · ${boot.name.zh}  v${boot.appVersion}`;
     els.hotHint.textContent = state.config.hotkey;
     if (els.apHint) {
-      els.apHint.textContent = state.config.actionPaletteHotkey || 'Ctrl+K';
+      els.apHint.textContent = state.config.actionPaletteHotkey || t('noHotkey');
       els.apHint.addEventListener('click', () => actionPaletteController && actionPaletteController.openActionPalette());
     }
 
@@ -603,14 +603,14 @@
       return;
     }
 
-    const apHotkey = state.config.actionPaletteHotkey || 'Ctrl+K';
-    // 只按用户配置的热键匹配（默认即 Ctrl+K）：硬编码 Ctrl+K 会绕过重绑/清空
+    const apHotkey = state.config.actionPaletteHotkey;
+    // 只按用户配置的热键匹配（若已清空则不拦截）：硬编码 Ctrl+K 会绕过重绑/清空
     // 配置。插件面板的输入区不拦截（否则其输入永远收不到该组合），但工作台
     // 自身的全局搜索框例外——launcher 语义上允许热键唤走焦点
     const active = document.activeElement;
     const typingInPlugin = active && active !== els.search &&
       (/^(INPUT|TEXTAREA|SELECT)$/.test(active.tagName) || active.isContentEditable);
-    if (actionPaletteController && actionPaletteController.matchHotkey(e, apHotkey) && !typingInPlugin) {
+    if (apHotkey && actionPaletteController && actionPaletteController.matchHotkey(e, apHotkey) && !typingInPlugin) {
       e.preventDefault();
       actionPaletteController.openActionPalette();
       return;

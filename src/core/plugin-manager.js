@@ -164,12 +164,16 @@ class PluginManager extends EventEmitter {
         }
       } catch { /* fall back to text */ }
       if (!iconSvg && !iconText) iconText = '🧩';
-      const actions = Array.isArray(m.actions) ? m.actions.map(a => ({
-        key: `${p.id}:${a.id}`,
-        label: i18n(a.label),
-        hotkey: this.config.data.pluginHotkeys[`${p.id}:${a.id}`] ?? a.hotkey ?? null,
-        defaultHotkey: a.hotkey ?? null,
-      })) : [];
+      const actions = Array.isArray(m.actions) ? m.actions.map(a => {
+        const key = `${p.id}:${a.id}`;
+        const hasCustom = Object.prototype.hasOwnProperty.call(this.config.data.pluginHotkeys, key);
+        return {
+          key,
+          label: i18n(a.label),
+          hotkey: hasCustom ? (this.config.data.pluginHotkeys[key] || null) : (a.hotkey ?? null),
+          defaultHotkey: a.hotkey ?? null,
+        };
+      }) : [];
       out.push({
         id: p.id,
         name: i18n(m.name),

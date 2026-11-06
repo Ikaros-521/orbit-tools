@@ -6,7 +6,7 @@
 |---|---|---|
 | **截图悬浮** `screenshot-pin` | 框选截图钉在屏幕置顶悬浮：滚轮缩放、透明度、复制、保存、OCR 文字提取；多显示器支持 | `Ctrl+Shift+A` |
 | **屏幕画板** `draw-board` | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG，贴图置顶 | `Ctrl+Shift+D` |
-| **AI 对话** `ai-chat` | 本地 Agent 助手：多轮工具循环、插话 Steering、工具卡审批、计划模式、MCP 市场与技能库、子代理、长期记忆 | `Ctrl+Shift+A`（与截图悬浮冲突时请改绑其一） |
+| **AI 对话** `ai-chat` | 本地 Agent 助手：多轮工具循环、插话 Steering、工具卡审批、计划模式、MCP 市场与技能库、子代理、长期记忆 | `Ctrl+Shift+I` |
 | **剪贴板历史** `clip-history` | 多条历史与置顶收藏、搜索、图片预览、一键回填、敏感内容过滤 | `Ctrl+Shift+V` |
 | **JSON 编辑器** `json-editor` | 语法校验 / 格式化 / 树状折叠 / Python 字典转 JSON / 压缩 / 转义 / 去注释（纯前端插件） | `Ctrl+Shift+J` |
 | **编码转换** `codec-lab` | Base64 / URL / Hex / Unicode / JWT / 时间戳互转，哈希与对称加密（crypto 后端） | `Ctrl+Shift+C` |
@@ -34,5 +34,5 @@
 - [orbit-plugin-dsh-pet](https://github.com/Ikaros-521/orbit-plugin-dsh-pet) — DSH 伴随类桌宠桥接
 
 ::: tip
-默认热键冲突（如两个插件都声明 `Ctrl+Shift+A`）会被注册表拒绝并提示冲突，在设置页改绑即可。
+所有内置插件默认快捷键均已互斥分配；若被系统其他软件占用或发生热键冲突，在设置页改绑或清空即可。
 :::
