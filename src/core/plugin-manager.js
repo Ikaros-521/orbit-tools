@@ -253,8 +253,7 @@ class PluginManager extends EventEmitter {
     }
     this.active.set(id, state);
     if (p.manifest.backend) {
-      const isUserPlugin = p.source === 'user';
-      const isIsolated = isUserPlugin || p.manifest.isolated === true;
+      const isIsolated = p.manifest.isolated === true;
 
       if (isIsolated) {
         const workerHost = new PluginWorkerHost({
