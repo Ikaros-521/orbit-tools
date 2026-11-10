@@ -9,6 +9,7 @@ const path = require('path');
 const EventEmitter = require('events');
 const { BrowserWindow } = require('electron');
 const { CapabilityRouter } = require('./capabilities');
+const { PluginWorkerHost } = require('./plugin-worker-host');
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -224,7 +225,16 @@ class PluginManager extends EventEmitter {
   activate(id) {
     const p = this.plugins.get(id);
     if (!p || this.active.has(id)) return false;
-    const state = { mod: null, handlers: new Map(), windows: new Set(), data: null, busSubs: [] };
+    const state = {
+      mod: null,
+      handlers: new Map(),
+      windows: new Set(),
+      data: null,
+      busSubs: [],
+      workerHost: null,
+      quarantined: false,
+      consecutiveFailures: 0,
+    };
     if (p.manifest.backend) {
       const file = path.join(p.root, p.manifest.backend);
       // statSync().isFile() 而非 existsSync：目录也算"存在"，require.resolve
@@ -240,23 +250,44 @@ class PluginManager extends EventEmitter {
     }
     this.active.set(id, state);
     if (p.manifest.backend) {
-      const file = path.join(p.root, p.manifest.backend);
-      // 清空整个插件目录的模块缓存（含 backend 内部 require 的子模块），
-      // 否则 rescan/重新启用后子模块仍是旧代码。
-      for (const key of Object.keys(require.cache)) {
-        if (key.startsWith(p.root + path.sep)) delete require.cache[key];
-      }
-      try { delete require.cache[require.resolve(file)]; } catch { /* 非常规扩展名：交给下方 require 统一报错 */ }
-      try {
-        state.mod = require(file);
-      } catch (err) {
-        this.loadErrors.set(id, String(err && err.message || err));
-        this.active.delete(id);
-        return false;
-      }
-      if (state.mod && typeof state.mod.activate === 'function') {
-        try { state.mod.activate(this.makeContext(p, state)); }
-        catch (err) { this.loadErrors.set(id, `activate(): ${err.message}`); }
+      const isUserPlugin = p.source === 'user';
+      const isIsolated = isUserPlugin || p.manifest.isolated === true;
+
+      if (isIsolated) {
+        const workerHost = new PluginWorkerHost({
+          plugin: p,
+          dataRoot: this.dataRoot,
+          broadcast: (pluginId, channel, payload) => this.broadcast(pluginId, channel, payload),
+          callPlugin: (targetId, method, args) => this.call(targetId, method, args),
+        });
+        state.workerHost = workerHost;
+        workerHost.startPromise = workerHost.start().catch(err => {
+          this.loadErrors.set(id, `Worker host startup failed: ${err.message}`);
+          console.error(`[PluginManager] Worker startup failed for ${id}:`, err);
+        });
+        workerHost.on('crash', err => {
+          console.error(`[PluginManager] Isolated plugin "${id}" crashed:`, err && err.message);
+          this.emit('plugin-crashed', { id, error: err && err.message });
+        });
+      } else {
+        const file = path.join(p.root, p.manifest.backend);
+        // 清空整个插件目录的模块缓存（含 backend 内部 require 的子模块），
+        // 否则 rescan/重新启用后子模块仍是旧代码。
+        for (const key of Object.keys(require.cache)) {
+          if (key.startsWith(p.root + path.sep)) delete require.cache[key];
+        }
+        try { delete require.cache[require.resolve(file)]; } catch { /* 非常规扩展名：交给下方 require 统一报错 */ }
+        try {
+          state.mod = require(file);
+        } catch (err) {
+          this.loadErrors.set(id, String(err && err.message || err));
+          this.active.delete(id);
+          return false;
+        }
+        if (state.mod && typeof state.mod.activate === 'function') {
+          try { state.mod.activate(this.makeContext(p, state)); }
+          catch (err) { this.loadErrors.set(id, `activate(): ${err.message}`); }
+        }
       }
     }
     return true;
@@ -265,6 +296,10 @@ class PluginManager extends EventEmitter {
   deactivate(id) {
     const state = this.active.get(id);
     if (!state) return;
+    if (state.workerHost) {
+      try { state.workerHost.terminate(); } catch {}
+      state.workerHost = null;
+    }
     if (state.mod && typeof state.mod.deactivate === 'function') {
       try { state.mod.deactivate(); } catch { /* plugin's own problem */ }
     }
@@ -306,10 +341,15 @@ class PluginManager extends EventEmitter {
     if (typeof targetWin.focus === 'function') targetWin.focus();
   }
 
-  async call(id, method, args, event) {
+  async call(id, method, args, event, opts = {}) {
     const state = this.active.get(id);
-    const handler = state && state.handlers.get(method);
-    if (!handler) {
+    if (!state) throw new Error(`plugin "${id}" is not active`);
+
+    if (state.quarantined) {
+      throw new Error(`plugin "${id}" is temporarily quarantined due to consecutive fatal errors`);
+    }
+
+    const triggerOpenPanel = () => {
       if (method === 'openPanel') {
         const host = this.getHostWindow && this.getHostWindow();
         if (host && !host.isDestroyed()) {
@@ -318,21 +358,68 @@ class PluginManager extends EventEmitter {
             host.webContents.send('open-plugin', id);
           }
         }
+      }
+    };
+
+    const recordSuccess = () => {
+      state.consecutiveFailures = 0;
+      triggerOpenPanel();
+    };
+
+    const recordFailure = err => {
+      state.consecutiveFailures = (state.consecutiveFailures || 0) + 1;
+      if (state.consecutiveFailures >= 5) {
+        state.quarantined = true;
+        console.error(`[PluginManager] Plugin "${id}" quarantined after 5 consecutive failures.`);
+        this.emit('plugin-quarantined', { id, reason: err && err.message });
+      }
+    };
+
+    if (state.workerHost) {
+      try {
+        const result = await state.workerHost.call(method, args === undefined ? {} : args, opts);
+        recordSuccess();
+        return result;
+      } catch (err) {
+        recordFailure(err);
+        if (method === 'openPanel') {
+          triggerOpenPanel();
+          return { ok: true };
+        }
+        throw err;
+      }
+    }
+
+    const handler = state.handlers.get(method);
+    if (!handler) {
+      if (method === 'openPanel') {
+        triggerOpenPanel();
         return { ok: true };
       }
       throw new Error(`plugin "${id}" has no handler "${method}"`);
     }
-    const result = await handler(args === undefined ? {} : args, event);
-    if (method === 'openPanel') {
-      const host = this.getHostWindow && this.getHostWindow();
-      if (host && !host.isDestroyed()) {
-        this.bringToForeground(host);
-        if (host.webContents && !host.webContents.isDestroyed()) {
-          host.webContents.send('open-plugin', id);
-        }
-      }
+
+    const timeoutMs = (opts && opts.timeoutMs) || 25000;
+    let timer = null;
+    const timeoutPromise = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        reject(new Error(`call "${id}:${method}" timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([
+        Promise.resolve().then(() => handler(args === undefined ? {} : args, event)),
+        timeoutPromise,
+      ]);
+      clearTimeout(timer);
+      recordSuccess();
+      return result;
+    } catch (err) {
+      clearTimeout(timer);
+      recordFailure(err);
+      throw err;
     }
-    return result;
   }
 
   // Backend -> every renderer that cares about this plugin (host + its own windows).
