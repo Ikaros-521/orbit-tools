@@ -10,6 +10,8 @@ const EventEmitter = require('events');
 const { BrowserWindow } = require('electron');
 const { CapabilityRouter } = require('./capabilities');
 const { PluginWorkerHost } = require('./plugin-worker-host');
+const { logger } = require('./logger');
+const log = logger.scope('plugin-manager');
 
 const ID_RE = /^[a-z][a-z0-9-]*$/;
 
@@ -22,6 +24,7 @@ const i18n = v => {
 class PluginManager extends EventEmitter {
   constructor({ userDataDir, config, getHostWindow }) {
     super();
+    if (userDataDir) logger.init(path.join(userDataDir, 'logs'));
     this.builtinRoot = path.join(__dirname, '..', 'plugins');
     this.defaultUserRoot = path.join(userDataDir, 'plugins');
     const customUserDir = config && config.data && config.data.userPluginsDir;

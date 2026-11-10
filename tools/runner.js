@@ -29,6 +29,7 @@ const c = {
 const UNIT_TESTS = [
   { file: 'tools/test-color-math.js', title: 'Color Math & Palette Parsing' },
   { file: 'tools/test-updater-flow.js', title: 'Update Manager & Hash Verification' },
+  { file: 'tools/test-logger.js', title: 'Structured Rolling Logger & Retention' },
   { file: 'tools/test-plugin-isolation.js', title: 'Plugin Worker Host & Fault Isolation' },
   { file: 'tools/test-port-parsers.js', title: 'Port & Process Output Parsers' },
   { file: 'tools/test-ai-protocols.js', title: 'AI Protocols (OpenAI & Claude)' },

@@ -4,6 +4,8 @@ const fs = require('fs');
 const https = require('https');
 const crypto = require('crypto');
 const { spawn } = require('child_process');
+const { logger } = require('./logger');
+const log = logger.scope('updater');
 
 const REPO_OWNER = 'Ikaros-521';
 const REPO_NAME = 'orbit-tools';
@@ -272,7 +274,7 @@ class UpdateManager {
       }
       return true;
     } catch (err) {
-      console.warn('[updater] cleanupUpdateCache failed:', err && err.message);
+      log.warn('cleanupUpdateCache failed:', err && err.message);
       return false;
     }
   }
@@ -395,7 +397,7 @@ class UpdateManager {
           hashAlgorithm = 'sha512';
         }
       } catch (err) {
-        console.warn('[updater] fetch manifest for hash verification failed, skipping:', err && err.message);
+        log.warn('fetch manifest for hash verification failed, skipping:', err && err.message);
       }
     }
 

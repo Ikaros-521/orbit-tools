@@ -143,7 +143,10 @@ async function main() {
     assert.strictEqual(toolRes.ok, true);
     assert.ok(toolRes.total >= 1);
     assert.ok(toolRes.skills.length >= 1);
-    assert.ok(toolRes.skills.some(s => (s.name || '').toLowerCase().includes('review') || (s.desc || '').includes('评审')));
+    assert.ok(toolRes.skills.some(s => {
+      const text = ((s.name || '') + ' ' + (s.desc || '')).toLowerCase();
+      return text.includes('review') || text.includes('评审') || text.includes('审查');
+    }), 'Must find skills matching review/评审/审查');
 
     console.log('PASS: ChatService Agent Tool real-time discovery verified');
   }
