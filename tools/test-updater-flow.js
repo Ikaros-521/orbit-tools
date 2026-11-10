@@ -1,5 +1,17 @@
 const assert = require('assert');
-const { UpdateManager, compareVersions, matchPlatformAsset } = require('../src/core/updater');
+const path = require('path');
+const fs = require('fs');
+const crypto = require('crypto');
+const {
+  UpdateManager,
+  compareVersions,
+  matchPlatformAsset,
+  findPlatformManifest,
+  extractShaFromManifest,
+  extractShaFromReleaseNotes,
+  computeFileHashes,
+  verifyFileHash,
+} = require('../src/core/updater');
 
 async function run() {
   console.log('--- 1. Testing version comparison edge cases ---');
@@ -82,8 +94,6 @@ async function run() {
   console.log('Mocked network error graceful fallback OK');
 
   console.log('--- 4. Testing cancelDownload & cache cleanup ---');
-  const path = require('path');
-  const fs = require('fs');
   const tempDir = um.getUpdateTempDir();
   
   // 模拟写入临时碎片文件
@@ -99,6 +109,93 @@ async function run() {
   assert(!fs.existsSync(testPart), 'Part file must be completely removed');
   assert(!fs.existsSync(testOldBin), 'Old installer must be completely removed');
   console.log('Cache cleanup & anti-residue OK');
+
+  console.log('--- 5. Testing binary hash computation & verification ---');
+  const testSampleFile = path.join(tempDir, 'sample-installer.bin');
+  const sampleContent = 'orbit-tools binary payload content for sha test 2026';
+  fs.writeFileSync(testSampleFile, sampleContent);
+
+  const realSha512Hex = crypto.createHash('sha512').update(sampleContent).digest('hex');
+  const realSha512Base64 = crypto.createHash('sha512').update(sampleContent).digest('base64');
+  const realSha256Hex = crypto.createHash('sha256').update(sampleContent).digest('hex');
+
+  const { hex, base64 } = await computeFileHashes(testSampleFile, 'sha512');
+  assert.strictEqual(hex, realSha512Hex);
+  assert.strictEqual(base64, realSha512Base64);
+
+  // 1) 匹配正确 hex sha512
+  const vHex = await verifyFileHash(testSampleFile, realSha512Hex, 'sha512');
+  assert.strictEqual(vHex.ok, true);
+
+  // 2) 匹配正确 base64 sha512 (electron-builder latest.yml 格式)
+  const vBase64 = await verifyFileHash(testSampleFile, realSha512Base64, 'sha512');
+  assert.strictEqual(vBase64.ok, true);
+
+  // 3) 匹配正确 sha256
+  const v256 = await verifyFileHash(testSampleFile, realSha256Hex, 'sha256');
+  assert.strictEqual(v256.ok, true);
+
+  // 4) 篡改哈希拦截
+  const fakeHash = '0000000000000000000000000000000000000000000000000000000000000000';
+  const vTampered = await verifyFileHash(testSampleFile, fakeHash, 'sha256');
+  assert.strictEqual(vTampered.ok, false);
+  assert(vTampered.error.includes('文件完整性校验失败'));
+
+  // 5) 空预期哈希（向前兼容放行）
+  const vEmpty = await verifyFileHash(testSampleFile, null);
+  assert.strictEqual(vEmpty.ok, true);
+
+  console.log('Binary hash computation & verification OK');
+
+  console.log('--- 6. Testing manifest & release notes hash parsers ---');
+  const mockYaml = `
+version: 0.3.9
+files:
+  - url: Orbit-Toolbox-Setup-0.3.9-win-x64.exe
+    sha512: dGVzdC1zaGE1MTItYmFzZTY0LWNvbnRlbnQ=
+    size: 89123456
+path: Orbit-Toolbox-Setup-0.3.9-win-x64.exe
+sha512: dGVzdC1zaGE1MTItYmFzZTY0LWNvbnRlbnQ=
+releaseDate: '2026-11-09T09:57:00.000Z'
+`;
+  const extractedYmlSha = extractShaFromManifest(mockYaml, 'Orbit-Toolbox-Setup-0.3.9-win-x64.exe');
+  assert.strictEqual(extractedYmlSha, 'dGVzdC1zaGE1MTItYmFzZTY0LWNvbnRlbnQ=');
+
+  const mockNotes = `
+## 更新日志
+- 修复若干问题
+
+### SHA256 校验和
+Orbit-Toolbox-Setup-0.3.9-win-x64.exe: 8f4e2b1a9c3d5e7f8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f
+`;
+  const extractedNotesSha = extractShaFromReleaseNotes(mockNotes, 'Orbit-Toolbox-Setup-0.3.9-win-x64.exe');
+  assert(extractedNotesSha !== null);
+  assert.strictEqual(extractedNotesSha.hash, '8f4e2b1a9c3d5e7f8a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f');
+  assert.strictEqual(extractedNotesSha.algorithm, 'sha256');
+
+  // 测试 manifest 平台匹配
+  const mockManifestAssets = [
+    { name: 'latest.yml', browser_download_url: 'https://latest.yml' },
+    { name: 'latest-mac.yml', browser_download_url: 'https://latest-mac.yml' },
+    { name: 'latest-linux.yml', browser_download_url: 'https://latest-linux.yml' },
+  ];
+  assert.strictEqual(findPlatformManifest(mockManifestAssets, 'win32').name, 'latest.yml');
+  assert.strictEqual(findPlatformManifest(mockManifestAssets, 'darwin').name, 'latest-mac.yml');
+  assert.strictEqual(findPlatformManifest(mockManifestAssets, 'linux').name, 'latest-linux.yml');
+  console.log('Manifest and Release notes hash extraction OK');
+
+  console.log('--- 7. Testing installUpdate integrity enforcement ---');
+  let installRejected = false;
+  try {
+    await um.installUpdate(testSampleFile, { expectedHash: fakeHash, hashAlgorithm: 'sha256' });
+  } catch (err) {
+    installRejected = true;
+    assert(err.message.includes('安装包校验失败'));
+  }
+  assert(installRejected, 'Untrusted / tampered installer must be rejected before execution');
+  console.log('Untrusted installer execution rejected OK');
+
+  fs.unlinkSync(testSampleFile);
 
   console.log('ALL UPDATER FLOW TESTS PASSED!');
 }

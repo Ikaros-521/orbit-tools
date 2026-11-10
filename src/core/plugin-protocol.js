@@ -6,19 +6,11 @@
    (Live2D models, imported pet packs) that must not enter the plugin folder. */
 const fs = require('fs');
 const path = require('path');
-const { protocol } = require('electron');
-
-const MIME = {
-  '.js': 'text/javascript', '.mjs': 'text/javascript', '.css': 'text/css',
-  '.html': 'text/html', '.htm': 'text/html', '.svg': 'image/svg+xml',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.gif': 'image/gif',
-  '.json': 'application/json', '.woff2': 'font/woff2', '.txt': 'text/plain',
-  '.webm': 'video/webm', '.mp4': 'video/mp4', '.mov': 'video/quicktime',
-  '.mp3': 'audio/mpeg', '.wav': 'audio/wav', '.ogg': 'audio/ogg', '.m4a': 'audio/mp4',
-};
+const { protocol, net } = require('electron');
+const { pathToFileURL } = require('url');
 
 function registerPluginProtocol(manager) {
-  protocol.handle('plugin', req => {
+  protocol.handle('plugin', async req => {
     let url;
     try { url = new URL(req.url); } catch { return new Response('bad url', { status: 400 }); }
     const id = url.hostname;
@@ -43,8 +35,9 @@ function registerPluginProtocol(manager) {
       return new Response('forbidden', { status: 403 });
     }
     try {
-      const body = fs.readFileSync(file);
-      return new Response(body, { headers: { 'content-type': MIME[path.extname(file).toLowerCase()] || 'application/octet-stream' } });
+      const st = await fs.promises.stat(file);
+      if (!st.isFile()) return new Response('not found', { status: 404 });
+      return await net.fetch(pathToFileURL(file).toString());
     } catch {
       return new Response('not found', { status: 404 });
     }

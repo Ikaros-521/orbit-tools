@@ -225,14 +225,15 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     return await updateManager.checkForUpdates(opts);
   });
 
-  ipcMain.handle('updater-download', async (e, { downloadUrl, fileName }) => {
+  ipcMain.handle('updater-download', async (e, payload = {}) => {
+    const { downloadUrl, fileName, expectedHash, hashAlgorithm, manifestUrl } = payload;
     const host = getHostWindow && getHostWindow();
     try {
       const res = await updateManager.downloadUpdate(downloadUrl, fileName, progress => {
         if (host && !host.isDestroyed()) {
           host.webContents.send('updater-progress', progress);
         }
-      });
+      }, { expectedHash, hashAlgorithm, manifestUrl });
       return res;
     } catch (err) {
       return { ok: false, error: String(err && err.message || err) };
@@ -243,9 +244,11 @@ module.exports = function registerIpc({ app, cfg, manager, hotkeys, getHostWindo
     return updateManager.cancelDownload();
   });
 
-  ipcMain.handle('updater-install', async (e, filePath) => {
+  ipcMain.handle('updater-install', async (e, arg) => {
     try {
-      return await updateManager.installUpdate(filePath);
+      const filePath = typeof arg === 'string' ? arg : (arg && arg.filePath);
+      const opts = typeof arg === 'object' && arg !== null ? arg : {};
+      return await updateManager.installUpdate(filePath, opts);
     } catch (err) {
       return { ok: false, error: String(err && err.message || err) };
     }

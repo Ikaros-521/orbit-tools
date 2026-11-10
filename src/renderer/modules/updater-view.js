@@ -119,9 +119,14 @@
 
     async function handleUpdateAction() {
       if (!state.updateInfo) return;
+      const asset = state.updateInfo.asset;
       if (state.downloadedFilePath) {
         try {
-          await window.host.installUpdate(state.downloadedFilePath);
+          await window.host.installUpdate({
+            filePath: state.downloadedFilePath,
+            expectedHash: asset && asset.expectedHash,
+            hashAlgorithm: asset && asset.hashAlgorithm,
+          });
         } catch (err) {
           if (els.updateErrorText) {
             els.updateErrorText.hidden = false;
@@ -131,7 +136,6 @@
         return;
       }
 
-      const asset = state.updateInfo.asset;
       if (!asset || !asset.downloadUrl) {
         window.host.openExternal(state.updateInfo.releaseUrl);
         return;
@@ -149,6 +153,9 @@
         const res = await window.host.downloadUpdate({
           downloadUrl: asset.downloadUrl,
           fileName: asset.name,
+          expectedHash: asset.expectedHash,
+          hashAlgorithm: asset.hashAlgorithm,
+          manifestUrl: asset.manifestUrl,
         });
         if (res && res.ok && res.filePath) {
           state.downloadedFilePath = res.filePath;

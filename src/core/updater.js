@@ -2,12 +2,123 @@ const { app, net, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const https = require('https');
+const crypto = require('crypto');
 const { spawn } = require('child_process');
 
 const REPO_OWNER = 'Ikaros-521';
 const REPO_NAME = 'orbit-tools';
 const GITHUB_API_URL = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 const RELEASES_PAGE_URL = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases`;
+
+/**
+ * 转义正则特殊字符
+ * @param {string} str
+ * @returns {string}
+ */
+function escapeRegex(str) {
+  return String(str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * 异步计算文件散列值（同时产出 hex 与 base64，支持 sha256 / sha512 等）
+ * @param {string} filePath 文件绝对路径
+ * @param {string} [algorithm='sha512'] 散列算法
+ * @returns {Promise<{ hex: string, base64: string }>}
+ */
+function computeFileHashes(filePath, algorithm = 'sha512') {
+  return new Promise((resolve, reject) => {
+    const hash = crypto.createHash(algorithm);
+    const stream = fs.createReadStream(filePath);
+    stream.on('data', chunk => hash.update(chunk));
+    stream.on('end', () => {
+      const hex = hash.digest('hex');
+      const base64 = Buffer.from(hex, 'hex').toString('base64');
+      resolve({ hex, base64 });
+    });
+    stream.on('error', reject);
+  });
+}
+
+/**
+ * 校验文件完整性，兼容 hex 与 base64 格式
+ * @param {string} filePath 文件绝对路径
+ * @param {string} expectedHash 预期的哈希字符串
+ * @param {string} [algorithm='sha512'] 散列算法
+ * @returns {Promise<{ ok: boolean, actualHash: string, actualBase64?: string, error?: string }>}
+ */
+async function verifyFileHash(filePath, expectedHash, algorithm = 'sha512') {
+  if (!expectedHash || !expectedHash.trim()) {
+    return { ok: true, actualHash: '' };
+  }
+  if (!fs.existsSync(filePath)) {
+    return { ok: false, actualHash: '', error: '文件不存在' };
+  }
+  try {
+    const { hex, base64 } = await computeFileHashes(filePath, algorithm);
+    const target = expectedHash.trim();
+    const matched = (target.toLowerCase() === hex.toLowerCase()) || (target === base64);
+    return {
+      ok: matched,
+      actualHash: hex,
+      actualBase64: base64,
+      error: matched ? null : `文件完整性校验失败: 预期 ${target}, 实际 ${hex}`,
+    };
+  } catch (err) {
+    return { ok: false, actualHash: '', error: `计算哈希失败: ${err.message}` };
+  }
+}
+
+/**
+ * 从 electron-builder 生成的 latest*.yml 内容中解析指定资产的 sha512
+ * @param {string} manifestContent yml 文本
+ * @param {string} assetName 资产文件名
+ * @returns {string|null} sha512 base64 字符串
+ */
+function extractShaFromManifest(manifestContent, assetName) {
+  if (!manifestContent || !assetName) return null;
+  const regex = new RegExp(`url:\\s*${escapeRegex(assetName)}[\\s\\S]*?sha512:\\s*([A-Za-z0-9+/=]+)`, 'i');
+  const m = manifestContent.match(regex);
+  if (m && m[1]) return m[1].trim();
+  const topMatch = manifestContent.match(/^sha512:\s*([A-Za-z0-9+/=]+)/m);
+  if (topMatch && topMatch[1]) return topMatch[1].trim();
+  return null;
+}
+
+/**
+ * 从 GitHub Release 正文或更新说明中提取指定资产文件的预期哈希 (sha256/sha512)
+ * @param {string} notes Release body 文本
+ * @param {string} assetName 资产文件名
+ * @returns {{ hash: string, algorithm: string }|null}
+ */
+function extractShaFromReleaseNotes(notes, assetName) {
+  if (!notes || !assetName) return null;
+  const baseName = escapeRegex(assetName);
+  const p1 = new RegExp(`${baseName}[:\\s]+([a-fA-F0-9]{64}|[a-fA-F0-9]{128})`, 'i');
+  const m1 = notes.match(p1);
+  if (m1 && m1[1]) {
+    return { hash: m1[1], algorithm: m1[1].length === 128 ? 'sha512' : 'sha256' };
+  }
+  const p2 = new RegExp(`([a-fA-F0-9]{64}|[a-fA-F0-9]{128})\\s+[*]?${baseName}`, 'i');
+  const m2 = notes.match(p2);
+  if (m2 && m2[1]) {
+    return { hash: m2[1], algorithm: m2[1].length === 128 ? 'sha512' : 'sha256' };
+  }
+  return null;
+}
+
+/**
+ * 寻找对应平台的 manifest yml 资产 (latest.yml, latest-mac.yml, latest-linux.yml)
+ * @param {Array} assets
+ * @param {string} [platform=process.platform]
+ * @returns {object|null}
+ */
+function findPlatformManifest(assets, platform = process.platform) {
+  if (!Array.isArray(assets) || assets.length === 0) return null;
+  const isWin = platform === 'win32';
+  const isMac = platform === 'darwin';
+  const target = isWin ? 'latest.yml' : isMac ? 'latest-mac.yml' : 'latest-linux.yml';
+  return assets.find(a => (a.name || '').toLowerCase() === target) || null;
+}
 
 /**
  * 比较两个语义化版本号
@@ -210,6 +321,8 @@ class UpdateManager {
       const hasUpdate = compareVersions(this.appVersion, latestVersion) < 0;
 
       const asset = matchPlatformAsset(release.assets || []);
+      const manifest = findPlatformManifest(release.assets || []);
+      const expectedHashInfo = asset ? extractShaFromReleaseNotes(release.body || '', asset.name) : null;
 
       const result = {
         ok: true,
@@ -225,6 +338,9 @@ class UpdateManager {
           name: asset.name,
           size: asset.size,
           downloadUrl: asset.browser_download_url,
+          expectedHash: expectedHashInfo ? expectedHashInfo.hash : null,
+          hashAlgorithm: expectedHashInfo ? expectedHashInfo.algorithm : null,
+          manifestUrl: manifest ? manifest.browser_download_url : null,
         } : null,
         manual,
       };
@@ -244,13 +360,17 @@ class UpdateManager {
   }
 
   /**
-   * 下载安装包资产并提供进度回调，支持停止与垃圾彻底清理
+   * 下载安装包资产并提供进度回调，支持停止、完整性校验与垃圾彻底清理
    * @param {string} downloadUrl 目标文件下载地址
    * @param {string} fileName 保存文件名
    * @param {function} [onProgress] 进度回调函数 ({ percent, transferred, total, speed })
-   * @returns {Promise<{ ok: boolean, filePath?: string, error?: string }>}
+   * @param {object} [options]
+   * @param {string} [options.expectedHash] 预期校验和
+   * @param {string} [options.hashAlgorithm='sha512'] 校验算法 (sha512/sha256)
+   * @param {string} [options.manifestUrl] 对应的 yml 清单下载地址
+   * @returns {Promise<{ ok: boolean, filePath?: string, total?: number, error?: string, verified?: boolean }>}
    */
-  async downloadUpdate(downloadUrl, fileName, onProgress) {
+  async downloadUpdate(downloadUrl, fileName, onProgress, options = {}) {
     if (!downloadUrl) {
       throw new Error('未提供下载地址');
     }
@@ -261,6 +381,23 @@ class UpdateManager {
 
     const safeFileName = String(fileName || `orbit-update-${Date.now()}.bin`).replace(/[\\/:*?"<>|]/g, '_');
     const tempDir = this.getUpdateTempDir();
+
+    let expectedHash = (options && options.expectedHash) || null;
+    let hashAlgorithm = (options && options.hashAlgorithm) || 'sha512';
+
+    // 若未显式传入预期哈希但存在 manifestUrl，尝试先静默拉取 yml 获取 sha512
+    if (!expectedHash && options && options.manifestUrl) {
+      try {
+        const manifestText = await this._fetchText(options.manifestUrl);
+        const sha = extractShaFromManifest(manifestText, safeFileName);
+        if (sha) {
+          expectedHash = sha;
+          hashAlgorithm = 'sha512';
+        }
+      } catch (err) {
+        console.warn('[updater] fetch manifest for hash verification failed, skipping:', err && err.message);
+      }
+    }
 
     // 在下载前，先清理之前可能残留的未完成 .part 碎片与历史旧安装包垃圾
     this.cleanupUpdateCache();
@@ -343,7 +480,7 @@ class UpdateManager {
           });
 
           res.on('end', () => {
-            fileStream.end(() => {
+            fileStream.end(async () => {
               try { req.setTimeout(0); } catch {} // 传输已完成，停用空闲超时
               this.activeDownloadRequest = null;
               this.downloadAbortController = null;
@@ -353,14 +490,30 @@ class UpdateManager {
                 return;
               }
 
-              // 下载完成，原子重命名为最终文件
+              // 完整性校验：若配置了预期哈希，核对文件哈希，杜绝中间人劫持或下载损坏
+              if (expectedHash) {
+                const verifyRes = await verifyFileHash(partFile, expectedHash, hashAlgorithm);
+                if (!verifyRes.ok) {
+                  this._safeDeleteFile(partFile);
+                  this.currentPartFile = null;
+                  return reject(new Error(`更新包完整性校验未通过，已自动清理损坏文件: ${verifyRes.error}`));
+                }
+              }
+
+              // 下载与校验完成，原子重命名为最终文件
               try {
                 if (fs.existsSync(finalFile)) {
                   fs.unlinkSync(finalFile);
                 }
                 fs.renameSync(partFile, finalFile);
                 this.currentPartFile = null;
-                resolve({ ok: true, filePath: finalFile, total });
+                resolve({
+                  ok: true,
+                  filePath: finalFile,
+                  total,
+                  expectedHash,
+                  verified: !!expectedHash,
+                });
               } catch (err) {
                 this._safeDeleteFile(partFile);
                 this.currentPartFile = null;
@@ -439,10 +592,20 @@ class UpdateManager {
   /**
    * 执行安装更新包并平稳退出主程序
    * @param {string} filePath 下载好的安装包路径
+   * @param {object} [options]
+   * @param {string} [options.expectedHash] 预期的哈希字符串
+   * @param {string} [options.hashAlgorithm='sha512'] 校验算法
    */
-  async installUpdate(filePath) {
+  async installUpdate(filePath, { expectedHash = null, hashAlgorithm = 'sha512' } = {}) {
     if (!filePath || !fs.existsSync(filePath)) {
       throw new Error(`安装包文件不存在: ${filePath}`);
+    }
+
+    if (expectedHash) {
+      const verifyRes = await verifyFileHash(filePath, expectedHash, hashAlgorithm);
+      if (!verifyRes.ok) {
+        throw new Error(`安装包校验失败，拒绝执行未受信任的文件: ${verifyRes.error}`);
+      }
     }
 
     const ext = path.extname(filePath).toLowerCase();
@@ -474,45 +637,35 @@ class UpdateManager {
   }
 
   /**
-   * 底层通过 HTTP 获取 GitHub 最新 Release 数据
+   * 底层通过 HTTP 获取远端文本数据（支持重定向与超时）
+   * @param {string} url
+   * @returns {Promise<string>}
    */
-  _fetchLatestRelease() {
+  _fetchText(url) {
     return new Promise((resolve, reject) => {
       const client = net ? net : https;
-      const req = client.request(GITHUB_API_URL, res => {
+      const req = client.request(url, res => {
+        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+          let redirectUrl = res.headers.location;
+          if (Array.isArray(redirectUrl)) redirectUrl = redirectUrl[0];
+          return this._fetchText(redirectUrl).then(resolve, reject);
+        }
+        if (res.statusCode !== 200) {
+          if (res.statusCode === 403) {
+            return reject(new Error('GitHub API 访问速率超限，请稍后重试或前往 GitHub 页面查看'));
+          }
+          return reject(new Error(`HTTP 请求返回 ${res.statusCode}`));
+        }
         let rawData = '';
         res.setEncoding ? res.setEncoding('utf8') : null;
-
-        res.on('data', chunk => {
-          rawData += chunk.toString();
-        });
-
-        res.on('end', () => {
-          if (res.statusCode === 200) {
-            try {
-              const parsed = JSON.parse(rawData);
-              resolve(parsed);
-            } catch (err) {
-              reject(new Error(`解析 Release 数据失败: ${err.message}`));
-            }
-          } else if (res.statusCode === 403 && rawData.includes('API rate limit')) {
-            reject(new Error('GitHub API 访问速率超限，请稍后重试或前往 GitHub 页面查看'));
-          } else {
-            reject(new Error(`GitHub 请求返回 HTTP ${res.statusCode}`));
-          }
-        });
-
+        res.on('data', chunk => { rawData += chunk.toString(); });
+        res.on('end', () => resolve(rawData));
         res.on('error', reject);
       });
 
       req.setHeader('User-Agent', `Orbit-Toolbox-Updater/${this.appVersion}`);
-      req.setHeader('Accept', 'application/vnd.github.v3+json');
+      req.setHeader('Accept', 'application/vnd.github.v3+json, text/plain, */*');
 
-      req.on('error', err => {
-        reject(new Error(`连接 GitHub 失败: ${err.message || '网络连接超时'}`));
-      });
-
-      // 设置 10 秒超时
       if (req.setTimeout) {
         req.setTimeout(10000, () => {
           req.abort();
@@ -520,8 +673,24 @@ class UpdateManager {
         });
       }
 
+      req.on('error', err => {
+        reject(new Error(`连接 GitHub 失败: ${err.message || '网络连接超时'}`));
+      });
+
       req.end();
     });
+  }
+
+  /**
+   * 底层通过 HTTP 获取 GitHub 最新 Release 数据
+   */
+  async _fetchLatestRelease() {
+    const rawData = await this._fetchText(GITHUB_API_URL);
+    try {
+      return JSON.parse(rawData);
+    } catch (err) {
+      throw new Error(`解析 Release 数据失败: ${err.message}`);
+    }
   }
 }
 
@@ -529,6 +698,11 @@ module.exports = {
   UpdateManager,
   compareVersions,
   matchPlatformAsset,
+  findPlatformManifest,
+  extractShaFromManifest,
+  extractShaFromReleaseNotes,
+  computeFileHashes,
+  verifyFileHash,
   REPO_OWNER,
   REPO_NAME,
   RELEASES_PAGE_URL,
