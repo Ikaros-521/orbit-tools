@@ -30,15 +30,12 @@ jobs:
         run: npm ci
 
       - name: Run Node unit tests
-        run: |
-          node tools/test-color-math.js
-          node tools/test-updater-flow.js
-          node tools/test-ai-protocols.js
+        run: npm run test:unit
 
       - name: Run Electron smoke tests (Linux)
         if: runner.os == 'Linux'
-        run: xvfb-run --auto-servernum npx electron tools/smoke-plugins.js
+        run: xvfb-run --auto-servernum npm run test:smoke
 
       - name: Run Electron smoke tests (Windows)
         if: runner.os == 'Windows'
-        run: npx electron tools/smoke-plugins.js
+        run: npm run test:smoke
