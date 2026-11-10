@@ -84,6 +84,10 @@
     if (res === null || res === undefined) return '(无执行结果)';
     if (typeof res === 'string') return res;
     if (typeof res === 'object') {
+      if (typeof res.diff === 'string' && res.diff) {
+        // edit_file：unified diff 是主要反馈，preview 行号片段作为补充
+        return `${res.diff}\n\n${res.preview || ''}`.trim();
+      }
       if (Array.isArray(res.content)) {
         const texts = res.content.map(c => (c && c.text) ? c.text : JSON.stringify(c)).filter(Boolean);
         if (texts.length > 0) return texts.join('\n');
@@ -138,7 +142,34 @@
     if (res.ok === false && res.error) {
       return `<span>⚠️ 执行失败:</span> <strong>${escapeHtml(toolName)}</strong> <span style="opacity:0.8">${escapeHtml(String(res.error).slice(0, 120))}</span>`;
     }
+    if (toolName === 'edit_file' && res.ok) {
+      const short = res.path ? String(res.path).split(/[\\/]/).pop() : '';
+      const stat = res.diffStat ? ` <span style="opacity:0.85">${escapeHtml(res.diffStat)}</span>` : '';
+      const times = (Number(res.replacements) || 1) > 1 ? ` <span style="opacity:0.85">×${res.replacements}</span>` : '';
+      return `<span>✓ 已编辑:</span> <strong>${escapeHtml(short || toolName)}</strong>${stat}${times}`;
+    }
     return `<span>✓ 工具已执行:</span> <strong>${escapeHtml(toolName)}</strong>`;
+  };
+
+  const renderDiffHtml = (diffText) => {
+    const html = [];
+    for (const line of String(diffText || '').split('\n')) {
+      if (!line) continue;
+      if (line.startsWith('--- ') || line.startsWith('+++ ')) {
+        html.push(`<span class="dl-file">${escapeHtml(line)}</span>`);
+      } else if (line.startsWith('@@')) {
+        html.push(`<span class="dl-hunk">${escapeHtml(line)}</span>`);
+      } else if (line.startsWith('[')) {
+        html.push(`<span class="dl-omit">${escapeHtml(line)}</span>`);
+      } else if (line.startsWith('-')) {
+        html.push(`<span class="dl-del">${escapeHtml(line)}</span>`);
+      } else if (line.startsWith('+')) {
+        html.push(`<span class="dl-add">${escapeHtml(line)}</span>`);
+      } else {
+        html.push(`<span class="dl-ctx">${escapeHtml(line)}</span>`);
+      }
+    }
+    return `<pre class="ai-tool-diff"><code>${html.join('')}</code></pre>`;
   };
 
   const buildArgsSection = (rawArgs) => {
@@ -155,6 +186,19 @@
   const buildResultSection = (result) => {
     if (result === undefined || result === null) return '';
     if (result && result.denied) return '';
+    // edit_file：结果区直接渲染着色 diff（默认展开级别与普通结果一致，可折叠）
+    if (typeof result.diff === 'string' && result.diff) {
+      const statLabel = result.diffStat ? ` · ${result.diffStat}` : '';
+      return `
+      <details class="ai-tool-result-details" open>
+        <summary class="ai-tool-result-summary">
+          <span>📝 变更 Diff${statLabel}</span>
+          <span class="ai-tool-detail-hint">▾</span>
+        </summary>
+        ${renderDiffHtml(result.diff)}
+      </details>
+    `;
+    }
     const formatted = formatToolResultForDisplay(result);
     const previewLen = formatted.length > 1024 ? `(${(formatted.length / 1024).toFixed(1)} KB)` : `(${formatted.length} 字符)`;
     return `
@@ -278,6 +322,7 @@
     prettyArgs,
     formatToolResultForDisplay,
     resultTitle,
+    renderDiffHtml,
     createToolCard,
     applyExecStart,
     applyToolResult

@@ -125,6 +125,11 @@ const ClaudeMessagesAdapter = {
         description: t.function ? t.function.description : t.description,
         input_schema: t.function ? t.function.parameters : (t.parameters || {})
       }));
+      // 缓存断点 2/2：工具表是仅次于 system 的大块稳定前缀（同一会话内逐字不变），
+      // 末项打 ephemeral 断点让 schema 全量命中读缓存（0.1x 计价）
+      if (opts.enablePromptCaching) {
+        body.tools[body.tools.length - 1].cache_control = { type: 'ephemeral' };
+      }
     }
 
     return { url, headers, body: JSON.stringify(body) };

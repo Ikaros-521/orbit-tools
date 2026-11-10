@@ -89,7 +89,8 @@
       'plugin://ai-chat/components/tool-cards.js',
       'plugin://ai-chat/components/message-renderer.js',
       'plugin://ai-chat/components/pills-popovers.js',
-      'plugin://ai-chat/components/context-ring.js'
+      'plugin://ai-chat/components/context-ring.js',
+      'plugin://ai-chat/components/slash-commands.js'
     ];
     return Promise.all(deps.map(loadScript));
   }
@@ -121,6 +122,7 @@
     const contextRingMeter = el.querySelector('#contextRingMeter');
     const contextRingText = el.querySelector('#contextRingText');
     const btnCompactContext = el.querySelector('#btnCompactContext');
+    const btnExportSession = el.querySelector('#btnExportSession');
     const btnClearSession = el.querySelector('#btnClearSession');
     const btnOpenSettings = el.querySelector('#btnOpenSettings');
     const messagesScroll = el.querySelector('#messagesScroll');
@@ -241,12 +243,14 @@
     let thinkLevel = 'auto';
 
     // 统一浮层收拢管理器：关闭全部输入区周边浮层，可选排除当前正在打开的浮层
+    let slashCtrl = null; // 斜杠命令控制器（后置创建，收拢管理器先行声明）
     function closeAllPopovers(except = null) {
       if (plusPopover && except !== plusPopover) plusPopover.classList.add('hidden');
       if (personaPopover && except !== personaPopover) personaPopover.classList.add('hidden');
       if (agentModePopover && except !== agentModePopover) agentModePopover.classList.add('hidden');
       if (thinkLevelPopover && except !== thinkLevelPopover) thinkLevelPopover.classList.add('hidden');
       if (modelPopover && except !== modelPopover) modelPopover.classList.add('hidden');
+      if (slashCtrl) slashCtrl.close();
     }
 
 
@@ -494,6 +498,82 @@
         } catch {
           pillPlan.classList.toggle('active', !next);
         }
+      });
+    }
+
+    // 导出当前会话为 Markdown（/export 与头部按钮共用）
+    function exportSessionMarkdown() {
+      if (!currentSession || !Array.isArray(currentSession.messages) || currentSession.messages.length === 0) {
+        alert('当前会话没有可导出的消息');
+        return;
+      }
+      const lines = [];
+      lines.push(`# ${currentSession.title || 'AI 对话'}`);
+      lines.push('');
+      const msgCount = currentSession.messages.filter(m => m.role === 'user' || m.role === 'assistant').length;
+      const totalTk = currentSession.totalTokens ? (currentSession.totalTokens.totalTokens || 0).toLocaleString() : '0';
+      lines.push(`> 导出自 Orbit Toolbox AI 对话 · ${new Date().toLocaleString()} · 模型: ${config.model || '-'} · 消息: ${msgCount} 条 · 累计: ${totalTk} tokens`);
+      lines.push('');
+      for (const m of currentSession.messages) {
+        if (m.role === 'system' || m.role === 'tool' || m.role === 'compaction_divider' || m.type === 'compaction_checkpoint') continue;
+        if (m.role === 'user') {
+          lines.push('## 👤 用户');
+          lines.push('');
+          const attNote = Array.isArray(m.attachments) && m.attachments.length
+            ? `\n\n> 📎 附件: ${m.attachments.map(a => a.name).filter(Boolean).join('、')}` : '';
+          const imgNote = Array.isArray(m.images) && m.images.length
+            ? `\n\n> 🖼️ 图片: ${m.images.length} 张` : '';
+          lines.push(`${m.content || '（无文本）'}${attNote}${imgNote}`);
+        } else if (m.role === 'assistant') {
+          lines.push(`## 🤖 助手${m.model ? ` (${m.model})` : ''}`);
+          lines.push('');
+          if (m.reasoning) {
+            lines.push('<details><summary>🧠 思考过程</summary>');
+            lines.push('');
+            lines.push(m.reasoning);
+            lines.push('');
+            lines.push('</details>');
+            lines.push('');
+          }
+          lines.push(m.content || '（无输出）');
+          if (Array.isArray(m.toolCalls) && m.toolCalls.length > 0) {
+            lines.push('');
+            lines.push(`> 🔧 本轮工具调用: ${m.toolCalls.map(tc => tc.function && tc.function.name).filter(Boolean).join('、')}`);
+          }
+        }
+        lines.push('');
+      }
+      const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      const safeTitle = String(currentSession.title || 'AI对话').replace(/[\\/:*?"<>|]/g, '_').slice(0, 40);
+      a.href = url;
+      a.download = `${safeTitle}-${new Date().toISOString().slice(0, 10)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    }
+
+    if (btnExportSession) {
+      btnExportSession.addEventListener('click', exportSessionMarkdown);
+    }
+
+    // 斜杠命令（dsh 风格）：输入 / 唤起 命令+技能 直达 popover
+    if (window.AiChatSlashCommands && window.AiChatSlashCommands.createSlashController) {
+      slashCtrl = window.AiChatSlashCommands.createSlashController({
+        chatInput,
+        aiInputBox,
+        getSkills: () => skills,
+        getIsGenerating: () => isGenerating,
+        actions: {
+          plan: () => { if (pillPlan) pillPlan.click(); },
+          compress: () => { if (btnCompactContext) btnCompactContext.click(); },
+          export: exportSessionMarkdown,
+          new: () => btnNewChat.click()
+        },
+        sendText: (text) => sendMessage(text),
+        escapeHtml
       });
     }
 
@@ -1872,6 +1952,10 @@
     }).catch(() => {});
 
     return function cleanup() {
+      if (slashCtrl) {
+        try { slashCtrl.dispose(); } catch {}
+        slashCtrl = null;
+      }
       if (contextPopoverEl && contextPopoverEl.parentElement) {
         contextPopoverEl.remove();
         contextPopoverEl = null;

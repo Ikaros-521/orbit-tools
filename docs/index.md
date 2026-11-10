@@ -13,6 +13,9 @@ hero:
       text: 快速开始
       link: /guide/getting-started
     - theme: alt
+      text: 下载安装
+      link: https://github.com/Ikaros-521/orbit-tools/releases/latest
+    - theme: alt
       text: 开发插件
       link: /plugin/overview
     - theme: alt
@@ -20,6 +23,11 @@ hero:
       link: https://github.com/Ikaros-521/orbit-tools
 
 features:
+  - icon: ✨
+    title: 内置 AI Agent
+    details: 本地 AI 对话助手：多轮工具循环、运行中插话、工具卡审批、MCP 市场与技能库、子代理派生、长期记忆；兼容 OpenAI / Claude 协议，多渠道多密钥。
+    link: /reference/builtin-plugins
+    linkText: 内置插件一览
   - icon: 🧩
     title: 插件即文件夹
     details: plugin.json 清单 + 面板脚本 + 可选后端。复制进用户插件目录即安装，同 id 用户插件可覆盖内置插件升级工具。

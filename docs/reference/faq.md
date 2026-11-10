@@ -1,5 +1,27 @@
 # 常见问题
 
+## 产品相关
+
+**Q：Orbit Toolbox 是什么？**
+
+Orbit Toolbox（轨道工具箱）是一款免费开源、uTools 风格的插件化开发者工具箱，基于 Electron 构建。截图悬浮、剪贴板历史、JSON 编辑器、AI Agent 对话等常用小工具全部以插件形态内置，全局热键一键呼出，即开即用。
+
+**Q：和 uTools 是什么关系？有什么区别？**
+
+没有隶属关系，Orbit Toolbox 是独立的开源实现，交互上致敬 uTools 的「热键呼出 + 搜索面板」范式。区别：完全开源（AGPLv3 双重许可），无会员制与功能付费墙；插件即文件夹，复制即安装，无需打包上架审核；无账号体系，配置与插件数据全部保存在本地；内置本地 AI Agent 助手；无前端框架、无打包器，生产文件只有 `src/`。
+
+**Q：免费吗？可以商用吗？**
+
+个人与组织均可免费使用、修改和分发，但须遵循 AGPLv3：基于本项目的衍生系统及相关代码必须同样以 AGPLv3 开源。闭源商业集成需向版权所有者 Ikaros-521 购买商业授权（邮箱 327209194@qq.com）。
+
+**Q：支持哪些操作系统？在哪里下载？**
+
+Windows（x64）、macOS（Intel / Apple Silicon）、Linux（x64 / arm64），安装包在 [GitHub Releases](https://github.com/Ikaros-521/orbit-tools/releases/latest) 下载，应用内更新器会自动检查新版本。
+
+**Q：内置 AI 对话支持哪些模型？**
+
+兼容 OpenAI（Chat Completions / Responses）与 Claude（Messages）协议，支持多渠道配置与单渠道多密钥：DeepSeek、Kimi、智谱等任意兼容端点均可接入，并支持 MCP 市场、技能库与子代理派生。
+
 ## 插件相关
 
 **Q：放了插件文件夹进去，插件中心没出现？**

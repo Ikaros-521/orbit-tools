@@ -8,6 +8,7 @@ const path = require('path');
 const os = require('os');
 const { spawn, spawnSync } = require('child_process');
 const { processManager } = require('./services/process-manager');
+const { buildUnifiedDiff } = require('./lib/line-diff');
 
 const MAX_READ_CHARS = 64 * 1024;
 const MAX_WRITE_CHARS = 1024 * 1024;
@@ -325,10 +326,16 @@ async function executeLocalTool(name, args, runtime) {
       const allLines = updated.split(/\r?\n/);
       const previewLines = allLines.slice(startLine, startLine + 7);
       const preview = previewLines.map((l, i) => `${startLine + i + 1}| ${l}`).join('\n');
+
+      // Unified diff: 模型可读的变更反馈，前端工具卡解析同一文本渲染着色 diff
+      const d = buildUnifiedDiff(text, updated, { maxDiffLines: 150 });
+      const baseName = path.basename(target);
       return {
         ok: true,
         path: target,
         replacements: args.replace_all ? occurrences.length : 1,
+        diffStat: `+${d.stat.added} -${d.stat.removed}`,
+        diff: d.text ? `--- ${baseName}\n+++ ${baseName}\n${d.text}` : '',
         preview
       };
     }

@@ -1,0 +1,37 @@
+# Orbit Toolbox（轨道工具箱）
+
+> 免费开源、uTools 风格的插件化开发者工具箱（Electron，Windows / macOS / Linux）。一切工具皆插件：安装 = 复制一个文件夹，全局热键一键呼出；内置 AI Agent 对话、截图悬浮、剪贴板历史、JSON 编辑器等 12 个插件，支持工作流编排与 MCP 生态。
+
+Orbit Toolbox is a free, open-source (AGPLv3, commercial license available) uTools-style pluggable developer toolbox built on Electron with no frontend framework and no bundler. Every tool is a plugin: enable/disable on demand, summon with global hotkeys, install by dropping a folder into the plugin directory. Ships with a local AI agent (OpenAI / Claude protocol compatible, MCP marketplace, subagents, long-term memory), screenshot pinning, clipboard history, JSON editor, and more.
+
+## 指南
+
+- [简介](https://ikaros-521.github.io/orbit-tools/guide/introduction.html): 产品定位、微核 + 插件架构、技术选型与内置能力一览
+- [快速开始](https://ikaros-521.github.io/orbit-tools/guide/getting-started.html): 安装运行、打包发布、CI/CD
+- [架构总览](https://ikaros-521.github.io/orbit-tools/guide/architecture.html): 主进程 / 渲染层 / 插件系统协作方式
+- [安全模型](https://ikaros-521.github.io/orbit-tools/guide/security.html): contextIsolation + sandbox、受控 IPC、plugin:// 协议防护
+
+## 插件开发
+
+- [插件系统概览](https://ikaros-521.github.io/orbit-tools/plugin/overview.html): 插件即文件夹、启停与覆盖机制
+- [清单规范 plugin.json](https://ikaros-521.github.io/orbit-tools/plugin/manifest.html): 插件清单字段参考
+- [前端面板](https://ikaros-521.github.io/orbit-tools/plugin/panel.html): 面板脚本与 Toolbox 上下文 API
+- [后端模块](https://ikaros-521.github.io/orbit-tools/plugin/backend.html): 主进程后端与 ctx API
+- [独立窗口](https://ikaros-521.github.io/orbit-tools/plugin/windows.html): 插件自有窗口与 plugin:// 资源加载
+- [工作流与能力](https://ikaros-521.github.io/orbit-tools/plugin/workflows.html): 触发器、步骤链、插件能力节点与数据管道
+- [设计系统与主题](https://ikaros-521.github.io/orbit-tools/plugin/theming.html): light-dark() CSS 设计令牌
+- [调试与测试](https://ikaros-521.github.io/orbit-tools/plugin/debugging.html): 插件调试与测试方法
+- [AI Skill 脚手架](https://ikaros-521.github.io/orbit-tools/plugin/ai-skill.html): 用 AI 编程助手一句话生成插件骨架
+- [单页完全指南](https://ikaros-521.github.io/orbit-tools/plugin-guide.html): 插件开发全部内容合并版
+
+## 参考
+
+- [宿主 API（window.host）](https://ikaros-521.github.io/orbit-tools/reference/host-api.html): IPC 通道清单与参数细节
+- [内置插件一览](https://ikaros-521.github.io/orbit-tools/reference/builtin-plugins.html): 12 个内置插件功能与默认热键、生态桌宠插件
+- [常见问题](https://ikaros-521.github.io/orbit-tools/reference/faq.html): 产品与 uTools 的区别、开源协议、平台支持、插件 / 热键 / 构建问题
+
+## 项目
+
+- [GitHub 仓库](https://github.com/Ikaros-521/orbit-tools): 源码、Issue 与讨论
+- [GitHub Releases](https://github.com/Ikaros-521/orbit-tools/releases/latest): Windows / macOS / Linux 安装包下载
+- [完整文档纯文本版](https://ikaros-521.github.io/orbit-tools/llms-full.txt): 全部文档页聚合，供 LLM 检索

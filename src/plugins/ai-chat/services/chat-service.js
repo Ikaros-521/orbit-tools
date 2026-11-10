@@ -502,7 +502,10 @@ class ChatService {
           maxTokens: config.maxTokens || 4096,
           enableReasoning: !!enableReasoning,
           thinkingBudget: config.thinkingBudget || 2048,
-          thinkingLevel: enableReasoning ? (thinkingLevel || 'auto') : 'auto'
+          thinkingLevel: enableReasoning ? (thinkingLevel || 'auto') : 'auto',
+          // Claude 渠道开启原生 prompt caching：system + tools 两个 ephemeral 断点，
+          // 稳定前缀（人设/Agent 准则/工具 schema）命中读缓存计价 0.1x
+          enablePromptCaching: (config.protocol || 'openai-chat') === 'claude-messages'
         };
 
         const maxRounds = Math.min(40, Math.max(1, Number(config.agentMaxRounds) || 8));

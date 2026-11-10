@@ -28,6 +28,7 @@
             </div>
             <div class="ai-header-right">
               <span class="ai-usage-badge" id="sessionUsageBadge" title="会话累计 Token 消耗">0 tokens</span>
+              <button class="ai-header-btn" id="btnExportSession" title="导出当前会话为 Markdown">📤</button>
               <button class="ai-header-btn" id="btnClearSession" title="清空当前会话消息">清空</button>
               <button class="ai-header-btn" id="btnOpenSettings" title="模型与协议设置">⚙️ 设置</button>
             </div>

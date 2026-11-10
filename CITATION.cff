@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+title: "Orbit Toolbox（轨道工具箱）"
+type: software
+authors:
+  - name: "Ikaros-521"
+    website: "https://github.com/Ikaros-521"
+repository-code: "https://github.com/Ikaros-521/orbit-tools"
+url: "https://ikaros-521.github.io/orbit-tools/"
+license: AGPL-3.0-or-later
+keywords:
+  - utools
+  - electron
+  - developer-tools
+  - toolbox
+  - plugin
+  - ai-agent
+  - mcp
+abstract: "A free, open-source uTools-style pluggable developer toolbox: every tool is a plugin, install by dropping a folder, summon with global hotkeys. Ships with a local AI agent, screenshot pinning, clipboard history, JSON editor and more. 免费开源的 uTools 风格插件化开发者工具箱。"

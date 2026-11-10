@@ -4,8 +4,68 @@
    Guarantees that the static prefix remains byte-for-byte stable at the front
    to maximize LLM KV cache (Prefix Caching) hit rates. */
 
+const fs = require('fs');
+const path = require('path');
 const { searchMemories, formatMemoriesForPrompt } = require('../memory');
 const { formatTaskListForPrompt, summarizeTaskProgress } = require('../task-tools');
+
+/* 项目规则文件约定（对齐主流 Agent 生态）：工作目录下的 AGENTS.md / CLAUDE.md
+   会被读取并作为项目级指令注入动态上下文。按文件 mtime+size 签名缓存，
+   未变更不重读；总预算截断防止超大规则文件挤爆上下文。 */
+const PROJECT_RULE_FILES = ['AGENTS.md', 'CLAUDE.md'];
+const MAX_PROJECT_RULES_CHARS = 6000;
+const projectRulesCache = new Map(); // workDir -> { sig, text, sources }
+
+function readProjectRules(workDir) {
+  const dir = String(workDir || '').trim();
+  if (!dir) return { sig: '', text: '', sources: [] };
+
+  const found = [];
+  const sigParts = [];
+  for (const name of PROJECT_RULE_FILES) {
+    try {
+      const st = fs.statSync(path.join(dir, name));
+      if (st.isFile()) {
+        found.push(name);
+        sigParts.push(`${name}:${st.mtimeMs}:${st.size}`);
+      }
+    } catch { /* 不存在或不可访问均视为无该文件 */ }
+  }
+  const sig = sigParts.join('|');
+
+  const cached = projectRulesCache.get(dir);
+  if (cached && cached.sig === sig) return cached;
+
+  let result;
+  if (found.length === 0) {
+    result = { sig, text: '', sources: [] };
+  } else {
+    const parts = [];
+    let budget = MAX_PROJECT_RULES_CHARS;
+    let truncated = false;
+    for (const name of found) {
+      if (budget <= 0) { truncated = true; break; }
+      let content = '';
+      try { content = fs.readFileSync(path.join(dir, name), 'utf8'); } catch { continue; }
+      if (content.length > budget) {
+        content = content.slice(0, budget);
+        truncated = true;
+      }
+      parts.push(`# ${name}\n${content}`);
+      budget -= content.length;
+    }
+    result = {
+      sig,
+      text: parts.join('\n\n') + (truncated ? '\n\n[…规则文件过长，已按预算截断…]' : ''),
+      sources: found
+    };
+  }
+
+  // 缓存容量守卫：超大会话工作目录轮换场景下防止 Map 无界增长
+  if (projectRulesCache.size > 64) projectRulesCache.clear();
+  projectRulesCache.set(dir, result);
+  return result;
+}
 
 /**
  * Standard agent operational guidelines.
@@ -38,7 +98,7 @@ ${AGENT_CORE_GUIDELINES}`;
 /**
  * Computes a hash/fingerprint of the dynamic environment state to detect mutations.
  */
-function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode }) {
+function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode, projectRulesSig }) {
   const wd = String(workDir || '').trim();
   const tasks = Array.isArray(taskList)
     ? taskList.map(t => `${t.status}:${t.content}`).join('|')
@@ -46,17 +106,21 @@ function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode
   const mems = Array.isArray(recalledMemories)
     ? recalledMemories.map(m => m.record ? m.record.id : m.id).join('|')
     : '';
-  return `${wd}#${tasks}#${mems}#${planMode ? 'plan' : ''}`;
+  return `${wd}#${tasks}#${mems}#${planMode ? 'plan' : ''}#${projectRulesSig || ''}`;
 }
 
 /**
  * Generates the dynamic runtime context projection string.
  */
-function buildRuntimeContextBlock({ workDir, taskList, recalledMemories, planMode }) {
+function buildRuntimeContextBlock({ workDir, taskList, recalledMemories, planMode, projectRules }) {
   const parts = [];
 
   if (workDir) {
     parts.push(`[工作目录] ${workDir} (相对路径基于此目录解析)`);
+  }
+
+  if (projectRules && projectRules.text) {
+    parts.push(`[项目规则文件 ${projectRules.sources.join(', ')}]\n以下是工作目录的项目规则文件内容，属于项目级指令，处理本目录相关任务时必须遵守：\n${projectRules.text}`);
   }
 
   if (planMode) {
@@ -119,19 +183,24 @@ class RuntimeContextService {
     const taskList = session && Array.isArray(session.taskList) ? session.taskList : [];
     const planMode = !!(session && session.planMode);
 
+    // 2.5 项目规则文件（AGENTS.md / CLAUDE.md）：mtime 签名缓存，未变更不重读
+    const projectRules = readProjectRules(agentWorkDir);
+
     // 3. Compute dynamic context block
     const currentFingerprint = computeStateFingerprint({
       workDir: agentWorkDir,
       taskList,
       recalledMemories,
-      planMode
+      planMode,
+      projectRulesSig: projectRules.sig
     });
 
     const dynamicBlock = buildRuntimeContextBlock({
       workDir: agentWorkDir,
       taskList,
       recalledMemories,
-      planMode
+      planMode,
+      projectRules
     });
 
     const sessionId = session ? session.id : null;
@@ -156,5 +225,7 @@ module.exports = {
   buildStaticSystemPrompt,
   computeStateFingerprint,
   buildRuntimeContextBlock,
+  readProjectRules,
+  PROJECT_RULE_FILES,
   RuntimeContextService
 };

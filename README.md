@@ -30,22 +30,41 @@
   <img width="2810" height="1653" alt="Orbit Toolbox 界面截图" src="https://github.com/user-attachments/assets/2eeb16a2-a9ed-4de0-815a-d08721a8f7af" />
 </p>
 
+## 下载安装
+
+前往 **[GitHub Releases](https://github.com/Ikaros-521/orbit-tools/releases/latest)** 下载最新版安装包（免费开源，无需账号）：
+
+- **Windows**：Setup 安装程序 / Portable 免安装便携版（x64）
+- **macOS**：dmg（Intel / Apple Silicon）
+- **Linux**：AppImage / deb（x64 / arm64）
+
+应用内置更新器会自动检查新版本并断点续传升级。文档站：<https://ikaros-521.github.io/orbit-tools/>
 
 ## 内置插件
 
 | 插件 | 功能 | 默认热键 |
 |---|---|---|
-| 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存 | `Ctrl+Shift+A` |
+| AI 对话 AI Chat | 本地 Agent 助手：多轮工具循环、运行中插话 Steering、工具卡审批、计划模式、MCP 市场与技能库、子代理派生、长期记忆；兼容 OpenAI / Claude 协议，多渠道多密钥 | `Ctrl+Shift+I` |
+| 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存、OCR 文字提取 | `Ctrl+Shift+A` |
 | 屏幕画板 Draw Board | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG | `Ctrl+Shift+D` |
-| 反重力代理启动器 Antigravity Launcher | Google Antigravity 进程级代理启动器：握手探测、网络诊断、终端代理与一键拉起 | `Ctrl+Shift+G` |
-| JSON 编辑器 JSON Editor | JSON 语法校验 / 格式化展开 / 树状折叠 / Python 字典转合法 JSON / 单行压缩 / 快速转义 / 一键去注释 | `Ctrl+Shift+J` |
 | 剪贴板历史 Clip History | 剪贴板多条历史记录与置顶收藏，一键回填、搜索与图片预览 | `Ctrl+Shift+V` |
-| 镜像源切换 Mirror Hub | npm / pip / docker / maven / rust 常见开发工具国内镜像源一键测速与切换 | — |
-| 端口与进程 Port Scope | 查 TCP/UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | — |
-| 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转 | — |
+| JSON 编辑器 JSON Editor | JSON 语法校验 / 格式化展开 / 树状折叠 / Python 字典转合法 JSON / 单行压缩 / 快速转义 / 一键去注释 | `Ctrl+Shift+J` |
+| 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转，哈希与对称加密 | `Ctrl+Shift+C` |
 | 色彩工坊 Color Lab | RGBA 调色板 + 屏幕吸管取色（像素放大镜 / 冻结与动态双模式），HEX / RGB / HSL / HSV / ARGB 多格式互转 | `Ctrl+Shift+E` |
+| 备忘录 Memo Notes | Markdown 分屏实时预览、笔记 / 待办 / 日历三视图、到期系统提醒、自动保存 | `Ctrl+Shift+N` |
+| 端口与进程 Port Scope | 查 TCP/UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | `Ctrl+Shift+P` |
+| 镜像源切换 Mirror Hub | npm / pip / docker / maven / rust 常见开发工具国内镜像源一键测速与切换（自动备份原配置） | `Ctrl+Shift+M` |
+| 计算器 Calculator | 科学算式安全求值（AST 解析非 eval）、实时预览、历史记录、剪贴板算式智能求值 | `Ctrl+Shift+L` |
+| 反重力代理启动器 Antigravity Launcher | Google Antigravity 进程级代理启动器：握手探测、网络诊断、终端代理与一键拉起 | `Ctrl+Shift+G` |
 
 工具箱本身的呼出热键默认 `Alt+Shift+Space`，可在设置里自定义。
+
+## 生态插件
+
+更多工具以独立开源仓库分发，安装方式同样是复制 / clone 到用户插件目录：
+
+- [orbit-plugin-pet](https://github.com/Ikaros-521/orbit-plugin-pet) — 桌面宠物：聊天审批卡片、工作流通知、AI 碎碎念
+- [orbit-plugin-dsh-pet](https://github.com/Ikaros-521/orbit-plugin-dsh-pet) — DSH 伴随类桌宠桥接
 
 **热键智能检测与防冲突**：
 - 应用内所有热键（呼出键 + 各插件动作键）共享注册表，应用内重复分配会被拒绝并提示「与『XX』冲突」。
@@ -91,6 +110,7 @@ src/
 │   └── ipc.js               # 宿主 IPC 面（boot / plugin-call / 设置 / 对话框）
 ├── renderer/                # 宿主 UI：搜索面板、插件面板容器、设置页、i18n、主题
 └── plugins/
+    ├── ai-chat/             # AI 对话（本地 Agent：工具循环 / MCP / 技能 / 子代理 / 记忆）
     ├── antigravity-launcher/# 反重力代理启动器（探测 / 诊断 / 终端 / 代理拉起）
     ├── calculator/          # 计算器（科学算式 + 实时预览 + 历史；剪贴板算式智能求值）
     ├── clip-history/        # 剪贴板历史（多条历史、置顶收藏与图片预览）
@@ -107,6 +127,34 @@ src/
 测试：`node tools/test-color-math.js`（颜色解析 / 转换单测）、`node tools/test-port-parsers.js`（解析器单测）、`electron tools/smoke-plugins.js`（插件系统冒烟）、`electron tools/uitest.js`（真实窗口 UI 回归，含热键冲突，截图输出到 dist/）。
 
 安全边界：插件面板脚本运行在宿主渲染进程（contextIsolation、无 Node），只能通过 `Toolbox` 上下文调用宿主能力；插件后端模块运行在主进程，通过 `ctx` 拿到受控的窗口创建 / IPC / 持久化 API。插件自有窗口通过 `plugin://<id>/...` 协议加载资源，路径越界直接 403。
+
+## 常见问题 (FAQ)
+
+**Orbit Toolbox 是什么？**
+
+Orbit Toolbox（轨道工具箱）是一款免费开源、uTools 风格的插件化开发者工具箱，基于 Electron 构建，支持 Windows / macOS / Linux。截图悬浮、剪贴板历史、JSON 编辑器、AI Agent 对话等常用小工具全部以插件形态内置，全局热键一键呼出，即开即用。
+
+**和 uTools 有什么区别？**
+
+- **完全开源**：AGPLv3 双重许可，源码可审计，无会员制、无功能付费墙；
+- **插件即文件夹**：一个 `plugin.json` 清单 + 面板脚本就是插件，复制进目录即安装，无需打包、上架与审核；同 id 用户插件可直接覆盖升级内置插件；
+- **无账号体系**：配置与插件数据全部保存在本地，不依赖云端；
+- **内置本地 AI Agent**：多轮工具循环、MCP 市场与技能库、子代理派生，兼容 OpenAI / Claude 协议，可接入 DeepSeek 等任意兼容端点；
+- **轻量技术栈**：无前端框架、无打包器，生产文件只有 `src/`，冷启动快。
+
+**免费吗？可以商用吗？**
+
+个人与组织均可免费使用、修改和分发，但须遵循 AGPLv3：基于本项目的衍生系统及相关代码必须同样以 AGPLv3 开源。闭源商业集成需购买商业授权，详见下方「开源协议与商业授权」。
+
+**支持哪些操作系统？在哪里下载？**
+
+Windows（x64）、macOS（Intel / Apple Silicon）、Linux（x64 / arm64）三平台，由 GitHub Actions 自动打包。安装包在 [GitHub Releases](https://github.com/Ikaros-521/orbit-tools/releases/latest) 下载。
+
+**如何开发自己的插件？**
+
+阅读[插件开发文档](https://ikaros-521.github.io/orbit-tools/plugin/overview.html)：一个文件夹 + `plugin.json` 清单即可起步；配套 `orbit-plugin-developer` AI Skill，对 AI 编程助手说一句话即可生成规范齐全的插件骨架。
+
+更多问题（热键占用、插件数据位置、macOS 安装放行等）见[文档站 FAQ](https://ikaros-521.github.io/orbit-tools/reference/faq.html)。
 
 ## 开源协议与商业授权 (License & Commercial Support)
 
