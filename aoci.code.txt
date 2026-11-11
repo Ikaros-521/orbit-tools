@@ -8,7 +8,7 @@ LICENSE[SG1L]: F:项目开源许可证，声明遵循GPL-3.0许可条款 | R:- |
 README.md[SU7S]: F:Orbit Toolbox项目说明：下载渠道、13个内置插件功能热键表、生态插件、目录结构与测试打包命令，含录屏聚焦默认实时/可选冻结及透镜指示开关 | R:code:package.json,code:docs/index.md | A:- | S:-
 TASK_BRIEF.md[SW3T]: F:AI任务调度交接简报，记录AI对话插件渲染修复与增强任务背景与要求 | R:- | A:- | S:-
 package-lock.json[FV1L]: F:npm依赖版本锁定清单，锁定mermaid图表库运行时依赖与electron/electron-builder构建树完整哈希 | R:code:package.json | A:- | S:-
-package.json[FB8S]: F:Node.js项目元数据与npm脚本，声明Electron主入口、多平台打包配置、mermaid运行时依赖及分域测试脚本链（含screen-cue单测） | R:code:src/main.js | A:main | S:test:ai串起ai-chat专项测试脚本，新增ai-chat测试须同步挂入该链与test:all；test:smoke等Electron用例须经electron二进制运行，plain node会因require electron失败
+package.json[FB8S]: F:Node.js项目元数据与npm脚本，声明Electron主入口、多平台打包配置、mermaid运行时依赖及分域测试脚本链（含screen-cue单测），当前版本0.4.0 | R:code:src/main.js | A:main | S:test:ai串起ai-chat专项测试脚本，新增ai-chat测试须同步挂入该链与test:all；test:smoke等Electron用例须经electron二进制运行，plain node会因require electron失败
 CITATION.cff[FC1T]: F:GitHub引文元数据文件：声明软件标题、作者、仓库、AGPL许可、文档站URL与双语摘要，供学术引用与GitHub侧栏识别 | R:code:README.md | A:- | S:-
 jsconfig.json[XC5T]: F:JS项目IntelliSense配置：ES2022/CommonJS、strictNullChecks、checkJs关闭与@core/@plugins/@renderer路径别名，含types类型契约目录 | R:code:types/orbit.d.ts | A:- | S:别名仅供编辑器跳转，仓库无打包器与运行时别名解析，代码里写@core/*作require路径会MODULE_NOT_FOUND
 
