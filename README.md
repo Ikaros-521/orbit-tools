@@ -47,6 +47,7 @@
 | AI 对话 AI Chat | 本地 Agent 助手：多轮工具循环、运行中插话 Steering、工具卡审批、计划模式、MCP 市场与技能库、子代理派生、长期记忆；兼容 OpenAI / Claude 协议，多渠道多密钥 | `Ctrl+Shift+I` |
 | 截图悬浮 Screenshot Pin | 框选截图 → 钉在屏幕上置顶悬浮；滚轮缩放、透明度、复制、保存、OCR 文字提取 | `Ctrl+Shift+A` |
 | 屏幕画板 Draw Board | 全屏透明画板：画笔 / 荧光笔 / 直线 / 箭头 / 矩形 / 椭圆 / 橡皮，撤销重做，导出 PNG | `Ctrl+Shift+D` |
+| 录屏聚焦 Screen Cue | 默认实时标注，可选冻结当前画面；画笔 / 荧光笔 / 矩形 / 圆形 / 箭头，笔迹保留 / 淡出 / 退出清除；圆形 / 矩形 / 大范围放大镜，中心十字和倍率标签可分别开关，退出后点击穿透 | `Ctrl+Shift+S` / `Ctrl+Shift+X` / `Ctrl+Shift+F` |
 | 剪贴板历史 Clip History | 剪贴板多条历史记录与置顶收藏，一键回填、搜索与图片预览 | `Ctrl+Shift+V` |
 | JSON 编辑器 JSON Editor | JSON 语法校验 / 格式化展开 / 树状折叠 / Python 字典转合法 JSON / 单行压缩 / 快速转义 / 一键去注释 | `Ctrl+Shift+J` |
 | 编码转换 Codec Lab | Base64 / URL / Hex / Unicode / JWT / 时间戳双向互转，哈希与对称加密 | `Ctrl+Shift+C` |

@@ -1,0 +1,19 @@
+{
+  "id": "screen-cue",
+  "name": { "zh": "录屏聚焦", "en": "Screen Cue" },
+  "desc": { "zh": "录屏演示标注与放大镜：默认实时画面，可选冻结屏幕；画笔/荧光笔/矩形/圆形/箭头标注，笔迹保留/淡出/退出清除；圆形/矩形/大范围透镜，中心十字与倍率标签独立开关，退出后点击穿透", "en": "Recording annotation & magnifier: live screen by default with optional freeze; pen/highlighter/rectangle/ellipse/arrow ink with keep/fade/clear-on-exit; circle/rectangle/large lens with independent crosshair and zoom-label switches, click-through after exit" },
+  "version": "1.1.0",
+  "category": "media",
+  "author": "Ikaros-521",
+  "keywords": ["screen", "record", "annotate", "magnifier", "lens", "zoom", "focus", "录屏", "标注", "画笔", "放大镜", "透镜", "聚焦", "指引"],
+  "icon": "icon.svg",
+  "defaultEnabled": true,
+  "backend": "backend.js",
+  "panel": { "script": "panel.js", "style": "panel.css" },
+  "actions": [
+    { "id": "open", "label": { "zh": "打开录屏聚焦", "en": "Open Screen Cue" }, "method": "openPanel" },
+    { "id": "annotate", "label": { "zh": "标注模式开关", "en": "Toggle annotation" }, "method": "toggleAnnotate", "hotkey": "Ctrl+Shift+S" },
+    { "id": "clearInk", "label": { "zh": "清除标注", "en": "Clear ink" }, "method": "clearInk", "hotkey": "Ctrl+Shift+X" },
+    { "id": "magnifier", "label": { "zh": "放大镜开关", "en": "Toggle magnifier" }, "method": "toggleMagnifier", "hotkey": "Ctrl+Shift+F" }
+  ]
+}

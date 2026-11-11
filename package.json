@@ -47,6 +47,7 @@
     "test:deck-sort": "electron tools/test-deck-sort.js",
     "test:responsive": "electron tools/test-card-responsive.js",
     "test:hotkeys": "electron tools/test-hotkey-clear.js",
+    "test:screen-cue": "node tools/test-screen-cue.js",
     "icon": "node tools/make-icon.js",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win --x64",

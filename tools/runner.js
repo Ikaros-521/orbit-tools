@@ -50,9 +50,12 @@ const UNIT_TESTS = [
   { file: 'tools/test-ai-multi-channels.js', title: 'AI Multi-Channel & Multi-Key Routing' },
   { file: 'tools/test-ai-quickwins.js', title: 'AI Model Fallback & Quickwins' },
   { file: 'tools/test-mirror-commands.js', title: 'Mirror Hub Command Formatter' },
+  { file: 'tools/test-screen-cue.js', title: 'Screen Cue Settings & Capture Geometry' },
+  { file: 'tools/test-screen-cue-backend.js', title: 'Screen Cue Freeze & Cleanup Lifecycle' },
 ];
 
 const INTEGRATION_TESTS = [
+  { file: 'tools/test-screen-cue-ui.js', title: 'Screen Cue Panel Buttons & Display Switches' },
   { file: 'tools/smoke-plugins.js', title: 'Plugin System Smoke & Protocol Lifecycle' },
   { file: 'tools/test-renderer-boot.js', title: 'Renderer Shell Boot & Palette Mount' },
   { file: 'tools/test-deck-sort.js', title: 'Workbench Deck Card Sorting & Persistence' },

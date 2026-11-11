@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; script-src 'self'">
+<title>screen-cue draw</title>
+<link rel="stylesheet" href="draw.css">
+</head>
+<body>
+<img id="scBackdrop" alt="" draggable="false" hidden>
+<canvas id="draw"></canvas>
+
+<div id="scBar">
+  <span class="sc-drag" id="scDrag" title="按住拖动工具栏">⋮⋮</span>
+  <div class="sc-grp" id="scTools"></div>
+  <div class="sc-sep"></div>
+  <div class="sc-grp" id="scColors"></div>
+  <div class="sc-sep"></div>
+  <div class="sc-grp" id="scSizes"></div>
+  <div class="sc-sep"></div>
+  <button type="button" data-act="undo" title="撤销 (Ctrl+Z)">↶</button>
+  <button type="button" data-act="clear" title="清除全部标注">⌫</button>
+  <button type="button" data-act="exit" title="退出标注 (Esc)">✕</button>
+</div>
+
+<div id="scHint">Esc 退出 · 1-5 切换工具 · Ctrl+Z 撤销</div>
+
+<script src="strokes.js"></script>
+<script src="draw-tools.js"></script>
+<script src="draw.js"></script>
+</body>
+</html>
