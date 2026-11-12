@@ -517,6 +517,82 @@ async function main() {
     console.log('PASS: Subagent Fan-Out, Timeout, Nesting & Background Registry verified');
   }
 
+  console.log('--- 6. Testing Subagent Report Completion & Failure Delivery ---');
+  {
+    const manager = new SubagentManager({ minChildTimeoutMs: 20 });
+    const original = protocols.streamCompletion;
+    const tool = { type: 'function', function: { name: 'read_file', parameters: { type: 'object', properties: {} } } };
+    try {
+      // A tool-only last round must be followed by synthesis, for background tasks too.
+      let calls = 0;
+      protocols.streamCompletion = async (opts, emit) => {
+        calls++;
+        if (calls === 1) {
+          emit({ type: 'tool_calls', delta: [{ index: 0, id: 'last_evidence', function: { name: 'read_file', arguments: '{}' } }] });
+        } else {
+          assert.strictEqual(opts.tools, null);
+          assert.ok(opts.messages.some(m => m.role === 'tool' && m.content.includes('SOURCE_PAYLOAD')));
+          emit({ type: 'content', delta: 'FINAL_REPORT_WITH_SOURCE_PAYLOAD' });
+        }
+      };
+      await manager.runSubagent({
+        parentSession: { id: 'report_bg' }, taskPrompt: '调研', maxRounds: 1,
+        wait: false, availableTools: [tool], toolDispatcher: async () => ({ evidence: 'SOURCE_PAYLOAD' })
+      });
+      const checked = await manager.checkSubagents({ sessionId: 'report_bg', wait: true });
+      assert.strictEqual(checked.tasks[0].status, 'completed');
+      assert.strictEqual(checked.tasks[0].summary, 'FINAL_REPORT_WITH_SOURCE_PAYLOAD');
+      assert.strictEqual(calls, 2, 'one tool round plus one final report round');
+
+      // Empty output must not claim success or invent a generic completion report.
+      const chunks = [];
+      protocols.streamCompletion = async () => {};
+      const empty = await manager.runSubagent({ taskPrompt: '空响应', emitChunk: c => chunks.push(c) });
+      assert.strictEqual(empty.ok, false, 'empty report is a failure');
+      assert.ok(empty.error.includes('最终报告'));
+      assert.strictEqual(chunks.at(-1).ok, false, 'UI does not claim a completed report');
+
+      // If synthesis fails, keep useful partial text but mark it incomplete.
+      let round = 0;
+      protocols.streamCompletion = async (opts, emit) => {
+        if (++round === 1) {
+          emit({ type: 'content', delta: 'PARTIAL_FINDING' });
+          emit({ type: 'tool_calls', delta: [{ index: 0, id: 'partial', function: { name: 'read_file', arguments: '{}' } }] });
+        } else {
+          throw new Error('report endpoint unavailable');
+        }
+      };
+      const partial = await manager.runSubagent({
+        taskPrompt: '总结失败', maxRounds: 1, availableTools: [tool], toolDispatcher: async () => ({ ok: true })
+      });
+      assert.strictEqual(partial.ok, false);
+      assert.strictEqual(partial.incomplete, true);
+      assert.strictEqual(partial.summary, 'PARTIAL_FINDING');
+      assert.ok(partial.error.includes('report endpoint unavailable'));
+
+      // Timeout during synthesis must stay within the original child deadline.
+      round = 0;
+      protocols.streamCompletion = async (opts, emit, signal) => {
+        if (++round === 1) {
+          emit({ type: 'tool_calls', delta: [{ index: 0, id: 'deadline', function: { name: 'read_file', arguments: '{}' } }] });
+          return;
+        }
+        emit({ type: 'content', delta: 'PARTIAL_REPORT_BEFORE_TIMEOUT' });
+        await new Promise((resolve, reject) => signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true }));
+      };
+      const timeout = await manager.runSubagent({
+        taskPrompt: '总结超时', maxRounds: 1, timeoutMs: 40, availableTools: [tool], toolDispatcher: async () => ({ ok: true })
+      });
+      assert.strictEqual(timeout.ok, false);
+      assert.strictEqual(timeout.timed_out, true);
+      assert.strictEqual(timeout.summary, 'PARTIAL_REPORT_BEFORE_TIMEOUT');
+    } finally {
+      manager.disposeAll();
+      protocols.streamCompletion = original;
+    }
+    console.log('PASS: final reports synthesized; empty, failed and timed-out reports never claim success');
+  }
+
   console.log('\n========================================');
   console.log('ALL DEEPSEEK-HARNESS RUNTIME TESTS PASSED!');
   console.log('========================================');

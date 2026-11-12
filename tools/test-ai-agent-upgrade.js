@@ -461,6 +461,58 @@ async function main() {
     console.log('PASS: background tasks surface as next-turn system-reminder');
   }
 
+  // Scenario I: exhausting the child's tool budget must still consume the last
+  // tool results and deliver a real report to the parent's inference context.
+  {
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+    const report = '八轮调研结论：最后一条官方证据已收集，来源 https://example.test/official。';
+    let deliveredReport = null;
+    scripts.push(async (opts, onChunk) => {
+      emitTool(onChunk, 0, 'tc_budget_child', 'dispatch_subagent', {
+        task_prompt: '调查官方资料并返回结论及来源', max_rounds: 8
+      });
+    });
+    for (let round = 0; round < 8; round++) {
+      scripts.push(async (opts, onChunk) => {
+        if (round === 0) onChunk({ type: 'content', delta: '开始收集资料。' });
+        for (let i = 0; i < (round < 2 ? 2 : 1); i++) {
+          emitTool(onChunk, i, `budget_${round}_${i}`, 'read_file', { path: 'note.md' });
+        }
+      });
+    }
+    scripts.push(async (opts, onChunk) => {
+      assert.strictEqual(opts.tools, null, 'budget exhaustion reserves one tool-free report round');
+      assert.strictEqual(opts.messages.filter(m => m.role === 'tool').length, 10, 'report sees all ten tool results');
+      assert.ok(opts.messages.some(m => m.tool_call_id === 'budget_7_0' && m.content.includes('hello-local')), 'last tool evidence reaches report');
+      onChunk({ type: 'content', delta: report });
+    });
+    scripts.push(async (opts, onChunk) => {
+      const result = opts.messages.find(m => m.role === 'tool' && m.tool_call_id === 'tc_budget_child');
+      assert.ok(result, 'parent receives dispatch_subagent tool result');
+      deliveredReport = JSON.parse(result.content);
+      assert.strictEqual(deliveredReport.summary, report, 'report body is present in parent inference input');
+      emitTool(onChunk, 0, 'tc_sync_check', 'check_subagents', {});
+    });
+    scripts.push(async (opts, onChunk) => {
+      const result = opts.messages.find(m => m.role === 'tool' && m.tool_call_id === 'tc_sync_check');
+      const query = JSON.parse(result.content);
+      assert.deepStrictEqual(query.tasks, [], 'synchronous child is not a background task');
+      assert.ok(query.note.includes('dispatch_subagent'), 'empty query explains where synchronous reports are delivered');
+      onChunk({ type: 'content', delta: `依据子代理报告回答：${deliveredReport.summary}` });
+    });
+    await ctx.call('sendMessage', { sessionId: sid, content: '验证轮次耗尽后报告回传', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+    const result = ctx.chunks.find(c => c.type === 'tool_result' && c.toolId === 'tc_budget_child');
+    assert.ok(result && result.result.ok, 'budget child produces a usable report');
+    assert.strictEqual(result.result.summary, report);
+    assert.strictEqual(result.result.total_tool_calls, 10);
+    const finish = ctx.chunks.find(c => c.type === 'subagent_finish' && c.toolCallId === 'tc_budget_child');
+    assert.strictEqual(finish.summary, report, 'UI finish and parent result carry the same report');
+    assert.ok(deliveredReport, 'parent follow-up actually ran with the report');
+    assert.strictEqual(scripts.length, 0, 'all child and parent inference steps executed');
+    console.log('PASS: eight-round child report reaches parent inference (10 tool calls + final synthesis)');
+  }
+
   // Turn metadata footer fields
   {
     const done = ctx.chunks.filter(c => c.type === 'complete').pop();

@@ -423,6 +423,7 @@ class SubagentManager {
     const conversation = [...initialMessages];
     let executedRounds = 0;
     let finalSummary = '';
+    let partialSummary = '';
     let totalToolCalls = 0;
 
     // 受控嵌套：深度未满时子工具表保留 dispatch_subagent（孙代单任务由
@@ -451,8 +452,17 @@ class SubagentManager {
     };
 
     try {
-      while (executedRounds < boundedRounds) {
+      // 工具轮预算耗尽后仍留一次无工具总结：最后一批工具结果必须被模型消费，
+      // 不能以空的工具轮正文冒充最终报告。总结沿用同一个墙钟超时与中止信号。
+      while (executedRounds <= boundedRounds) {
         if (controller.signal.aborted) throw new Error(timedOut ? '子智能体执行超时' : '子智能体任务已中断');
+        const summaryOnly = executedRounds === boundedRounds;
+        if (summaryOnly) {
+          conversation.push({
+            role: 'user',
+            content: '子任务工具调用轮次已用完。请根据以上全部工具结果（包括最后一轮）立即向主智能体交付最终报告，写明具体发现、证据或来源、结论和未解决事项。不要再调用工具，不要仅回复已完成。'
+          });
+        }
 
         let roundContent = '';
         const roundToolCalls = [];
@@ -460,10 +470,11 @@ class SubagentManager {
         await protocols.streamCompletion({
           ...baseOpts,
           messages: conversation,
-          tools: subagentToolDefs.length > 0 ? subagentToolDefs : null
+          tools: !summaryOnly && subagentToolDefs.length > 0 ? subagentToolDefs : null
         }, event => {
           if (event.type === 'content') {
             roundContent += event.delta;
+            if (roundContent.trim()) partialSummary = roundContent;
           } else if (event.type === 'tool_calls') {
             for (const tc of event.delta) {
               const idx = tc.index ?? 0;
@@ -476,11 +487,11 @@ class SubagentManager {
           }
         }, controller.signal);
 
-        finalSummary = roundContent;
         const validCalls = roundToolCalls.filter(tc => tc?.function?.name);
 
         if (validCalls.length === 0) {
-          // Subagent decided to conclude without tools
+          // 收束轮（本轮无工具调用）：本轮正文即最终报告
+          finalSummary = roundContent;
           break;
         }
 
@@ -531,6 +542,34 @@ class SubagentManager {
         executedRounds++;
       }
 
+      // 报告守门：没有收束正文绝不伪称完成——工具轮正文只作部分结论兜底
+      if (!(finalSummary || '').trim()) {
+        const error = '子智能体未能产出最终报告（轮次耗尽且无收束正文），summary 为最近一次部分结论；如需完整结论请重新派生或调大 max_rounds';
+        if (emitChunk) {
+          emitChunk({
+            type: 'subagent_finish',
+            ...chunkMeta,
+            ok: false,
+            totalToolCalls,
+            executedRounds,
+            summary: partialSummary,
+            error
+          });
+        }
+        return {
+          ok: false,
+          incomplete: true,
+          child_id: childId,
+          mode,
+          role,
+          depth: nextDepth,
+          rounds_executed: executedRounds,
+          total_tool_calls: totalToolCalls,
+          summary: partialSummary,
+          error
+        };
+      }
+
       if (emitChunk) {
         emitChunk({
           type: 'subagent_finish',
@@ -550,7 +589,7 @@ class SubagentManager {
         depth: nextDepth,
         rounds_executed: executedRounds,
         total_tool_calls: totalToolCalls,
-        summary: finalSummary || '子智能体已完成调研与执行。'
+        summary: finalSummary
       };
     } catch (err) {
       if (emitChunk) {
@@ -559,6 +598,7 @@ class SubagentManager {
           ...chunkMeta,
           ok: false,
           timed_out: timedOut,
+          summary: partialSummary,
           error: err.message
         });
       }
@@ -568,13 +608,15 @@ class SubagentManager {
           ok: false,
           timed_out: true,
           ...base,
-          summary: finalSummary || '',
+          summary: partialSummary,
           error: `子智能体执行超时 (${Math.round(timeoutMs / 1000)}s)，已返回截至超时的结论`
         };
       }
       return {
         ok: false,
+        incomplete: true,
         ...base,
+        summary: partialSummary,
         error: `子智能体执行异常: ${err.message}`
       };
     } finally {
@@ -596,8 +638,18 @@ class SubagentManager {
       return list;
     };
 
+    // 空列表时说明查询范围：同步子代理不在本表，其报告已随 dispatch_subagent
+    // 工具结果直接交付——否则主模型会把空列表误读为"子代理没跑/结果丢失"
+    const pack = (list, extra) => {
+      const payload = { ok: true, tasks: list.map(a => this._activationView(a)), ...(extra || {}) };
+      if (payload.tasks.length === 0) {
+        payload.note = '当前没有 wait:false 的后台子智能体任务。check_subagents 仅查询后台任务；同步（默认 wait 省略或 true）子智能体的最终报告已随对应 dispatch_subagent 工具结果直接返回，请回读该工具结果。';
+      }
+      return payload;
+    };
+
     if (!wait) {
-      return { ok: true, tasks: select().map(a => this._activationView(a)) };
+      return pack(select());
     }
 
     const deadline = Date.now() + clampNumber(timeoutMs, 1000, 300000, 60000);
@@ -605,18 +657,14 @@ class SubagentManager {
     while (Date.now() < deadline) {
       latest = select();
       if (!latest.some(a => a.status === 'running')) {
-        return { ok: true, tasks: latest.map(a => this._activationView(a)) };
+        return pack(latest);
       }
       if (signal && signal.aborted) {
-        return { ok: true, tasks: latest.map(a => this._activationView(a)), note: '等待已被中断，返回当前快照' };
+        return pack(latest, { note: '等待已被中断，返回当前快照' });
       }
       await new Promise(r => setTimeout(r, 400));
     }
-    return {
-      ok: true,
-      tasks: latest.map(a => this._activationView(a)),
-      note: '等待超时，部分后台任务仍在运行，可稍后再次查询或带 wait 继续等待'
-    };
+    return pack(latest, { note: '等待超时，部分后台任务仍在运行，可稍后再次查询或带 wait 继续等待' });
   }
 
   _activationView(a) {
