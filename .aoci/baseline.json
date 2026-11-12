@@ -1,7 +1,7 @@
 {
   "version": 1,
   "created_at": "2026-11-03T01:46:23Z",
-  "updated_at": "2026-11-11T03:44:35Z",
+  "updated_at": "2026-11-12T03:46:30Z",
   "files": {
     ".gitattributes": {
       "role": "index",
@@ -65,9 +65,9 @@
     },
     "aoci.code.txt": {
       "role": "index",
-      "sha256": "d8c4d64f5fc614cfa4f18d659dbb45b3aa237ff3701a3f41149834c68a19c92f",
-      "size": 96022,
-      "normalized_sha256": "d8c4d64f5fc614cfa4f18d659dbb45b3aa237ff3701a3f41149834c68a19c92f"
+      "sha256": "6bd932ea9bf18ed46fbafebbbc712f019536a85a82c2f28dd77d5bdb0423e09b",
+      "size": 97705,
+      "normalized_sha256": "6bd932ea9bf18ed46fbafebbbc712f019536a85a82c2f28dd77d5bdb0423e09b"
     },
     "aoci.meta.txt": {
       "role": "index",
@@ -485,15 +485,15 @@
     },
     "src/plugins/ai-chat/agent-tools.js": {
       "role": "index",
-      "sha256": "1c4090a7a369cf74f0fc961ec2a555b2c88fb52f235238dc470a77ade38ee56c",
-      "size": 17117,
-      "normalized_sha256": "1c4090a7a369cf74f0fc961ec2a555b2c88fb52f235238dc470a77ade38ee56c"
+      "sha256": "e12a51189c83d4475e0a900945251ca6f8cdb9319bd40e878968fb1634f405de",
+      "size": 17262,
+      "normalized_sha256": "e12a51189c83d4475e0a900945251ca6f8cdb9319bd40e878968fb1634f405de"
     },
     "src/plugins/ai-chat/backend.js": {
       "role": "index",
-      "sha256": "4ca4ad11c5f115c242531cc052e140aae844126fed04e75f6192607db8d487e1",
-      "size": 40733,
-      "normalized_sha256": "4ca4ad11c5f115c242531cc052e140aae844126fed04e75f6192607db8d487e1"
+      "sha256": "313b5ee88d4bdfed1521090147c7dbb2b5d624f5aa2f541884ba48c898109bdf",
+      "size": 40771,
+      "normalized_sha256": "313b5ee88d4bdfed1521090147c7dbb2b5d624f5aa2f541884ba48c898109bdf"
     },
     "src/plugins/ai-chat/components/context-ring.js": {
       "role": "index",
@@ -575,9 +575,9 @@
     },
     "src/plugins/ai-chat/components/tool-cards.js": {
       "role": "index",
-      "sha256": "d068591371ceb26da5b2cc47c018cefed69491a674a137064034d2065100bc6b",
-      "size": 16316,
-      "normalized_sha256": "d068591371ceb26da5b2cc47c018cefed69491a674a137064034d2065100bc6b"
+      "sha256": "96d4da207039096b47b17228afde1cb30999adcff80d887faa91b136735aec3f",
+      "size": 18126,
+      "normalized_sha256": "96d4da207039096b47b17228afde1cb30999adcff80d887faa91b136735aec3f"
     },
     "src/plugins/ai-chat/icon.svg": {
       "role": "index",
@@ -653,21 +653,21 @@
     },
     "src/plugins/ai-chat/panel.css": {
       "role": "index",
-      "sha256": "ab190ab4ae4337b598e5c52db04e3891f66ff0431670c08e98fefb96e6728ae1",
-      "size": 104915,
-      "normalized_sha256": "ab190ab4ae4337b598e5c52db04e3891f66ff0431670c08e98fefb96e6728ae1"
+      "sha256": "4dd002e91a9744811a9df598cc9be4b783b1f1f75dfb5cec6acc0f1e3bacb2e6",
+      "size": 106658,
+      "normalized_sha256": "4dd002e91a9744811a9df598cc9be4b783b1f1f75dfb5cec6acc0f1e3bacb2e6"
     },
     "src/plugins/ai-chat/panel.js": {
       "role": "index",
-      "sha256": "42ed0101999dc5ff342d67d5ee35f9b63138cd763bde81237777146252cd203f",
-      "size": 86118,
-      "normalized_sha256": "42ed0101999dc5ff342d67d5ee35f9b63138cd763bde81237777146252cd203f"
+      "sha256": "6da453651aa8dc03e6657e8e073cfff62cd4f92f2e7f28412218ca16de9cc41e",
+      "size": 89640,
+      "normalized_sha256": "6da453651aa8dc03e6657e8e073cfff62cd4f92f2e7f28412218ca16de9cc41e"
     },
     "src/plugins/ai-chat/plugin.json": {
       "role": "index",
-      "sha256": "e71557526e9111e2afb8b12105e4fb8bcdab03a31cf453cad231731eac5fc43a",
-      "size": 2054,
-      "normalized_sha256": "e71557526e9111e2afb8b12105e4fb8bcdab03a31cf453cad231731eac5fc43a"
+      "sha256": "3625063b02b6db216625b85e9c83595716f154d3aa0dccf0a14fa4ff24dc03e6",
+      "size": 2230,
+      "normalized_sha256": "3625063b02b6db216625b85e9c83595716f154d3aa0dccf0a14fa4ff24dc03e6"
     },
     "src/plugins/ai-chat/protocols.js": {
       "role": "index",
@@ -719,9 +719,9 @@
     },
     "src/plugins/ai-chat/services/chat-service.js": {
       "role": "index",
-      "sha256": "5d23f08af90b069c3ad697b9445483a2018126a517b354444520af06ebe0378b",
-      "size": 39004,
-      "normalized_sha256": "5d23f08af90b069c3ad697b9445483a2018126a517b354444520af06ebe0378b"
+      "sha256": "8a5059136ad9c252e6c82f45c577030010ba6a1057f2e764b7d13e4a0a1a8295",
+      "size": 42293,
+      "normalized_sha256": "8a5059136ad9c252e6c82f45c577030010ba6a1057f2e764b7d13e4a0a1a8295"
     },
     "src/plugins/ai-chat/services/compaction-service.js": {
       "role": "index",
@@ -761,9 +761,9 @@
     },
     "src/plugins/ai-chat/services/runtime-context-service.js": {
       "role": "index",
-      "sha256": "3460fb9fbe73e9ce72128635fb282fbb8db868c834c2b409c78b49de7b9b6a83",
-      "size": 8763,
-      "normalized_sha256": "3460fb9fbe73e9ce72128635fb282fbb8db868c834c2b409c78b49de7b9b6a83"
+      "sha256": "05591e9e7b10a442526bbe45698279e664a82225df5f1f9994c5aa4fa472e5d5",
+      "size": 9935,
+      "normalized_sha256": "05591e9e7b10a442526bbe45698279e664a82225df5f1f9994c5aa4fa472e5d5"
     },
     "src/plugins/ai-chat/services/skills-service.js": {
       "role": "index",
@@ -773,15 +773,15 @@
     },
     "src/plugins/ai-chat/services/subagent-service.js": {
       "role": "index",
-      "sha256": "b782af6eb2c236727ea62b05a7d5ee95381e9a76f72ac2247ba1dd6f21e6895e",
-      "size": 9152,
-      "normalized_sha256": "b782af6eb2c236727ea62b05a7d5ee95381e9a76f72ac2247ba1dd6f21e6895e"
+      "sha256": "5f6689281e6a3a5a41ad3c9de339fb386240df774a82d0f54b9512f7c83567f6",
+      "size": 25952,
+      "normalized_sha256": "5f6689281e6a3a5a41ad3c9de339fb386240df774a82d0f54b9512f7c83567f6"
     },
     "src/plugins/ai-chat/services/tool-pipeline.js": {
       "role": "index",
-      "sha256": "6f23eaa32495428da859bffcb1ebf7e6561da38a08c850b335516c2a4f91770a",
-      "size": 9243,
-      "normalized_sha256": "6f23eaa32495428da859bffcb1ebf7e6561da38a08c850b335516c2a4f91770a"
+      "sha256": "09d297c74107b80fdcabb562a8ca8fdbe0b735667a2fb0a5dbeee44d59855a2d",
+      "size": 9350,
+      "normalized_sha256": "09d297c74107b80fdcabb562a8ca8fdbe0b735667a2fb0a5dbeee44d59855a2d"
     },
     "src/plugins/ai-chat/skills-market.js": {
       "role": "index",
@@ -1642,9 +1642,9 @@
     },
     "tools/test-ai-agent-upgrade.js": {
       "role": "index",
-      "sha256": "fc3b079d0e12360b17d91f6cd48772fa83d3e10c3c2baa0e1917505d0d894890",
-      "size": 27465,
-      "normalized_sha256": "fc3b079d0e12360b17d91f6cd48772fa83d3e10c3c2baa0e1917505d0d894890"
+      "sha256": "630f6fb6e0cb2b36c42fcd126b2c5c866178792c4a55884a6bc81b157fc14bd5",
+      "size": 33238,
+      "normalized_sha256": "630f6fb6e0cb2b36c42fcd126b2c5c866178792c4a55884a6bc81b157fc14bd5"
     },
     "tools/test-ai-compaction.js": {
       "role": "index",
@@ -1762,9 +1762,9 @@
     },
     "tools/test-ai-runtime-harness.js": {
       "role": "index",
-      "sha256": "73b05f1f4ad03973e145c07c46220d868551e2d3c3afdad69a0be53ac642425c",
-      "size": 13685,
-      "normalized_sha256": "73b05f1f4ad03973e145c07c46220d868551e2d3c3afdad69a0be53ac642425c"
+      "sha256": "8f82c5d9d4aa870dbc6ad33dd20f4286448a1bc250d3674d56f54fcc5725f14e",
+      "size": 23919,
+      "normalized_sha256": "8f82c5d9d4aa870dbc6ad33dd20f4286448a1bc250d3674d56f54fcc5725f14e"
     },
     "tools/test-ai-skills-live.js": {
       "role": "index",
