@@ -146,7 +146,8 @@ class ToolExecutionPipeline {
     }
 
     try {
-      return await dispatchFn(tc.function.name, parsedArgs);
+      // 第三参透传原始 tool call：子代理进度 chunk 需要父级 toolCallId 做 UI 路由
+      return await dispatchFn(tc.function.name, parsedArgs, tc);
     } catch (err) {
       return { ok: false, error: `工具执行异常: ${err.message}` };
     }

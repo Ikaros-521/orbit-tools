@@ -1510,6 +1510,77 @@
       if (buf.approvals.length || buf.plans.length) scrollToBottom();
     }
 
+    // 子代理进度（dsh subagent fan-out）：进度行挂在 dispatch_subagent 工具卡的
+    // .ai-subagent-slot 内，按 data-child 幂等更新；找不到宿主卡/行时静默忽略
+    // （后台任务迟到 chunk 与历史重渲染后安全）。
+    function updateSubagentProgress(bubble, chunk) {
+      if (!bubble || !chunk || !chunk.childId) return;
+      const host = (chunk.toolCallId && bubble.querySelector(`.ai-tool-card[data-tool="${chunk.toolCallId}"]`))
+        || bubble.querySelector('.ai-tool-card[data-name="dispatch_subagent"]');
+      if (!host) return;
+      const slot = host.querySelector('.ai-subagent-slot');
+      if (!slot) return;
+      slot.setAttribute('aria-hidden', 'false');
+      let row = slot.querySelector(`.ai-subagent-row[data-child="${chunk.childId}"]`);
+
+      if (chunk.type === 'subagent_start') {
+        if (!row) {
+          row = document.createElement('div');
+          row.className = 'ai-subagent-row';
+          row.dataset.child = chunk.childId;
+          const modeLabel = chunk.mode === 'fork' ? '分叉' : '独立';
+          const depthTag = Number(chunk.depth) > 1 ? ` · L${chunk.depth}` : '';
+          row.innerHTML = `
+            <div class="ai-subagent-row-head">
+              <span class="ai-subagent-role">🤖 ${escapeHtml(chunk.role || '子智能体')}</span>
+              <span class="ai-subagent-badge">${modeLabel}${depthTag}</span>
+            </div>
+            <div class="ai-subagent-status running">⏳ 启动中…</div>
+            <div class="ai-subagent-detail"></div>
+          `;
+          slot.appendChild(row);
+        }
+        return;
+      }
+
+      if (!row) return; // step/finish 未见过 start（迟到/重渲）→ 忽略
+
+      if (chunk.type === 'subagent_step') {
+        const st = row.querySelector('.ai-subagent-status');
+        if (st) {
+          st.className = 'ai-subagent-status running';
+          st.textContent = `⏳ 第 ${(Number(chunk.round) || 0) + 1} 轮 · 🛠 ${chunk.toolName || ''}`;
+        }
+        return;
+      }
+
+      if (chunk.type === 'subagent_finish') {
+        const st = row.querySelector('.ai-subagent-status');
+        if (chunk.ok) {
+          if (st) {
+            st.className = 'ai-subagent-status ok';
+            st.textContent = `✅ 完成 (${chunk.executedRounds || 0} 轮 · ${chunk.totalToolCalls || 0} 次工具)`;
+          }
+        } else if (chunk.timed_out) {
+          if (st) {
+            st.className = 'ai-subagent-status warn';
+            st.textContent = `⚠️ 超时中止：${chunk.error || ''}`;
+          }
+        } else if (st) {
+          st.className = 'ai-subagent-status err';
+          st.textContent = `❌ 失败：${chunk.error || '未知错误'}`;
+        }
+        const summary = String(chunk.summary || '').trim();
+        if (summary) {
+          const detail = row.querySelector('.ai-subagent-detail');
+          if (detail && !detail.innerHTML) {
+            detail.innerHTML = '<details class="ai-subagent-summary"><summary>查看总结</summary><div class="ai-subagent-summary-body"></div></details>';
+            detail.querySelector('.ai-subagent-summary-body').textContent = summary;
+          }
+        }
+      }
+    }
+
     // Stream Chunk Listener via IPC
     ctx.onEvent('stream-chunk', payload => {
       if (!payload || !payload.chunk) return;
@@ -1812,6 +1883,10 @@
           }
           if (HljsRenderer) HljsRenderer.highlightContainer(b);
         }
+        scrollToBottom();
+      } else if (chunk.type === 'subagent_start' || chunk.type === 'subagent_step' || chunk.type === 'subagent_finish') {
+        // dsh 子代理进度：入口卡片内嵌进度行（幂等，见 updateSubagentProgress）
+        updateSubagentProgress(bubble, chunk);
         scrollToBottom();
       } else if (chunk.type === 'usage') {
         let usageSpan = msgEl.querySelector('.ai-msg-usage');

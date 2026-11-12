@@ -98,7 +98,7 @@ ${AGENT_CORE_GUIDELINES}`;
 /**
  * Computes a hash/fingerprint of the dynamic environment state to detect mutations.
  */
-function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode, projectRulesSig }) {
+function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode, projectRulesSig, backgroundTasks }) {
   const wd = String(workDir || '').trim();
   const tasks = Array.isArray(taskList)
     ? taskList.map(t => `${t.status}:${t.content}`).join('|')
@@ -106,13 +106,16 @@ function computeStateFingerprint({ workDir, taskList, recalledMemories, planMode
   const mems = Array.isArray(recalledMemories)
     ? recalledMemories.map(m => m.record ? m.record.id : m.id).join('|')
     : '';
-  return `${wd}#${tasks}#${mems}#${planMode ? 'plan' : ''}#${projectRulesSig || ''}`;
+  const bg = Array.isArray(backgroundTasks)
+    ? backgroundTasks.map(t => `${t.task_id}:${t.status}`).join('|')
+    : '';
+  return `${wd}#${tasks}#${mems}#${planMode ? 'plan' : ''}#${projectRulesSig || ''}#${bg}`;
 }
 
 /**
  * Generates the dynamic runtime context projection string.
  */
-function buildRuntimeContextBlock({ workDir, taskList, recalledMemories, planMode, projectRules }) {
+function buildRuntimeContextBlock({ workDir, taskList, recalledMemories, planMode, projectRules, backgroundTasks }) {
   const parts = [];
 
   if (workDir) {
@@ -134,6 +137,19 @@ function buildRuntimeContextBlock({ workDir, taskList, recalledMemories, planMod
 
   if (Array.isArray(taskList) && taskList.length > 0 && taskList.some(t => t.status !== 'completed')) {
     parts.push(formatTaskListForPrompt(taskList));
+  }
+
+  // 后台子代理任务（wait:false 派生）：跨轮结果回收的注入面。
+  // 只走动态 system-reminder，绝不写入 system prompt（前缀缓存锚点不变量）。
+  if (Array.isArray(backgroundTasks) && backgroundTasks.length > 0) {
+    const bgLines = backgroundTasks.map(t => {
+      const head = `- ${t.task_id} (${t.role || '子智能体'})`;
+      if (t.status === 'running') return `${head} ⏳ 运行中`;
+      if (t.status === 'completed') return `${head} ✅ ${t.summary || '(无总结)'}`;
+      if (t.status === 'timed_out') return `${head} ⚠️ 超时中止${t.summary ? `，已得结论: ${t.summary}` : ''}`;
+      return `${head} ❌ 失败: ${t.error || '未知错误'}`;
+    });
+    parts.push(`[后台子代理任务]\n此前派生的后台子智能体任务状态如下，已完成任务的总结是重要输入；仍在运行的可用 check_subagents 查询或等待：\n${bgLines.join('\n')}`);
   }
 
   if (parts.length === 0) return null;
@@ -162,7 +178,7 @@ class RuntimeContextService {
    * - System prompt: 100% constant prefix cache anchor.
    * - Runtime context: Injected as dynamic facts node only when changed or needed.
    */
-  assembleContext({ session, persona, enableAgent, agentWorkDir, userQuery, memories }) {
+  assembleContext({ session, persona, enableAgent, agentWorkDir, userQuery, memories, backgroundTasks }) {
     const staticSystemPrompt = buildStaticSystemPrompt(persona, { enableAgent });
 
     if (!enableAgent) {
@@ -192,7 +208,8 @@ class RuntimeContextService {
       taskList,
       recalledMemories,
       planMode,
-      projectRulesSig: projectRules.sig
+      projectRulesSig: projectRules.sig,
+      backgroundTasks
     });
 
     const dynamicBlock = buildRuntimeContextBlock({
@@ -200,7 +217,8 @@ class RuntimeContextService {
       taskList,
       recalledMemories,
       planMode,
-      projectRules
+      projectRules,
+      backgroundTasks
     });
 
     const sessionId = session ? session.id : null;

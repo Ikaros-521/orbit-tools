@@ -5178,6 +5178,89 @@ input.hidden {
   font-size: 11.5px;
 }
 
+/* --- 子代理进度（dsh subagent fan-out）：挂在 dispatch_subagent 工具卡内的进度行 --- */
+.ai-subagent-slot {
+  display: none;
+}
+
+.ai-subagent-slot:not(:empty) {
+  display: block;
+  margin-top: 6px;
+  border: 1px solid light-dark(rgba(15, 23, 42, .12), rgba(255, 255, 255, .12));
+  background: light-dark(rgba(15, 23, 42, .02), rgba(255, 255, 255, .03));
+  border-radius: var(--r-sm);
+  padding: 4px 6px;
+}
+
+.ai-subagent-row {
+  padding: 4px 4px 5px;
+  border-bottom: 1px dashed var(--line);
+}
+
+.ai-subagent-row:last-child {
+  border-bottom: none;
+}
+
+.ai-subagent-row-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.ai-subagent-role {
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ai-subagent-badge {
+  font-size: 10px;
+  color: var(--ink-dim);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+
+.ai-subagent-status {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--ink-dim);
+}
+
+.ai-subagent-status.running { color: var(--amber); }
+.ai-subagent-status.ok { color: var(--green); }
+.ai-subagent-status.warn { color: var(--amber); }
+.ai-subagent-status.err { color: var(--red); }
+
+.ai-subagent-summary {
+  margin-top: 3px;
+  font-size: 11px;
+}
+
+.ai-subagent-summary summary {
+  cursor: pointer;
+  color: var(--ink-faint, var(--ink-dim));
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.ai-subagent-summary summary:hover {
+  color: var(--ink);
+}
+
+.ai-subagent-summary-body {
+  margin-top: 4px;
+  padding: 6px 8px;
+  border-left: 2px solid var(--line-strong, var(--line));
+  color: var(--ink);
+  white-space: pre-wrap;
+  word-break: break-word;
+  user-select: text;
+  -webkit-user-select: text;
+}
+
 /* --- Turn 折叠分组：已完成轮收拢为摘要行 --- */
 .ai-round-group {
   border: 1px dashed var(--line);

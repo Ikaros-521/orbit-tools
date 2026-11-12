@@ -5,10 +5,10 @@
     "en": "AI Chat"
   },
   "desc": {
-    "zh": "本地 Agent 助手：对齐 DeepSeek Harness 交互设计——运行中插话 (Steering)、工具卡参数/结果全程可查与审批内联、Turn 折叠与页脚元数据、轻量计划模式 (呈交→批准转任务清单)、增量流式渲染与代码语法高亮；保留三段式工具并发管道、子智能体派生、Prefix Caching、工具配对切分、Playwright 自动化、MCP 市场与长期记忆",
-    "en": "Local agent assistant aligned with DeepSeek Harness interaction design: mid-run steering, inspectable tool cards with inline approval, turn collapsing & footer metadata, lightweight plan mode, incremental streaming render and syntax highlighting; plus concurrent tool pipeline, subagents, prefix caching, Playwright, MCP ecosystem and memory."
+    "zh": "本地 Agent 助手：对齐 DeepSeek Harness 交互设计——运行中插话 (Steering)、工具卡参数/结果全程可查与审批内联、Turn 折叠与页脚元数据、轻量计划模式 (呈交→批准转任务清单)、增量流式渲染与代码语法高亮；子智能体并行扇出与受控嵌套派生、后台任务 (check_subagents) 与卡片内实时进度、三段式工具并发管道、Prefix Caching、工具配对切分、Playwright 自动化、MCP 市场与长期记忆",
+    "en": "Local agent assistant aligned with DeepSeek Harness interaction design: mid-run steering, inspectable tool cards with inline approval, turn collapsing & footer metadata, lightweight plan mode, incremental streaming render and syntax highlighting; parallel subagent fan-out with nested delegation, background tasks (check_subagents) with live in-card progress, concurrent tool pipeline, prefix caching, Playwright, MCP ecosystem and memory."
   },
-  "version": "1.8.0",
+  "version": "1.9.0",
   "category": "dev",
   "author": "Ikaros-521",
   "keywords": [

@@ -1090,6 +1090,7 @@ module.exports = {
       approvalService.denyAll();
       mcpService.disposeAll(sync);
       processManager.killAll(sync);
+      chatService.disposeSubagents();
     };
   },
 

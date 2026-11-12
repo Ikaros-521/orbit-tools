@@ -361,6 +361,106 @@ async function main() {
     console.log('PASS: lightweight plan mode review → task list conversion');
   }
 
+  // Scenario G: subagent parallel fan-out — dispatch_subagent with tasks[] runs
+  // children concurrently, streams subagent_* progress chunks and aggregates results.
+  {
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+
+    scripts.push(async (opts, onChunk) => {
+      emitTool(onChunk, 0, 'tc_sub', 'dispatch_subagent', { tasks: [
+        { task_prompt: '调研依赖链', role: '依赖分析员' },
+        { task_prompt: '排查失败用例', role: '测试排查员' }
+      ] });
+    });
+    // 两个子代理的流（并行，脚本形状一致故移位顺序无关）
+    scripts.push(async (opts, onChunk) => {
+      onChunk({ type: 'content', delta: '结论A：依赖链完整。' });
+      onChunk({ type: 'done' });
+    });
+    scripts.push(async (opts, onChunk) => {
+      onChunk({ type: 'content', delta: '结论B：无用例失败。' });
+      onChunk({ type: 'done' });
+    });
+    scripts.push(async (opts, onChunk) => {
+      onChunk({ type: 'content', delta: '两路调研汇总完成。' });
+    });
+
+    await ctx.call('sendMessage', { sessionId: sid, content: '并行调研两件事', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+
+    const starts = ctx.chunks.filter(c => c.type === 'subagent_start');
+    const finishes = ctx.chunks.filter(c => c.type === 'subagent_finish');
+    assert.strictEqual(starts.length, 2, 'both children emit subagent_start');
+    assert.strictEqual(finishes.length, 2, 'both children emit subagent_finish');
+    assert.ok(starts.every(c => c.toolCallId === 'tc_sub'), 'progress chunks route to the parent tool card id');
+    assert.deepStrictEqual(starts.map(c => c.taskIndex).sort(), [0, 1], 'sibling tasks indexed');
+    assert.ok(finishes.every(c => c.ok), 'both children succeed');
+
+    const sub = ctx.chunks.find(c => c.type === 'tool_result' && c.toolId === 'tc_sub');
+    assert.ok(sub, 'dispatch tool_result emitted');
+    assert.strictEqual(sub.result.mode, 'multi');
+    assert.strictEqual(sub.result.total, 2);
+    assert.strictEqual(sub.result.succeeded, 2);
+    assert.ok(sub.result.tasks.some(t => String(t.summary).includes('依赖链')), 'per-task summaries aggregated');
+    console.log('PASS: subagent parallel fan-out (tasks[] → concurrent children + progress chunks)');
+  }
+
+  // Scenario H: background dispatch — wait:false returns immediately with task
+  // ids; check_subagents (wait) blocks until the background child completes.
+  {
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+
+    scripts.push(async (opts, onChunk) => {
+      emitTool(onChunk, 0, 'tc_bg', 'dispatch_subagent', { task_prompt: '后台长任务', role: '后台调研员', wait: false });
+    });
+    // 后台子代理流：延迟完成，制造 check_subagents 需要等待的窗口
+    scripts.push(async (opts, onChunk) => {
+      await sleep(150);
+      onChunk({ type: 'content', delta: '后台结论：任务完成。' });
+      onChunk({ type: 'done' });
+    });
+    scripts.push(async (opts, onChunk) => {
+      emitTool(onChunk, 0, 'tc_chk', 'check_subagents', { wait: true, timeout_ms: 8000 });
+    });
+    scripts.push(async (opts, onChunk) => {
+      onChunk({ type: 'content', delta: '后台结果已回收。' });
+    });
+
+    await ctx.call('sendMessage', { sessionId: sid, content: '转后台调研并稍后取回', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+
+    const bg = ctx.chunks.find(c => c.type === 'tool_result' && c.toolId === 'tc_bg');
+    assert.ok(bg && bg.result.background === true, 'wait:false returns immediately in background mode');
+    assert.ok(bg.result.tasks[0].task_id, 'task id handed back to the model');
+
+    const chk = ctx.chunks.find(c => c.type === 'tool_result' && c.toolId === 'tc_chk');
+    assert.ok(chk && chk.result.ok, 'check_subagents resolved');
+    assert.strictEqual(chk.result.tasks.length, 1);
+    assert.strictEqual(chk.result.tasks[0].status, 'completed', 'background child completed before check returned');
+    assert.ok(String(chk.result.tasks[0].summary).includes('后台结论'), 'background summary delivered');
+    console.log('PASS: background dispatch + check_subagents blocking retrieval');
+  }
+
+  // Scenario H2: next-turn reminder — completed background tasks are injected as a
+  // dynamic system-reminder on the fresh request (never into the system prompt).
+  {
+    let capturedMessages = null;
+    const completeBefore = ctx.chunks.filter(c => c.type === 'complete').length;
+    scripts.push(async (opts, onChunk) => {
+      capturedMessages = opts.messages;
+      onChunk({ type: 'content', delta: '收到提醒。' });
+    });
+    await ctx.call('sendMessage', { sessionId: sid, content: '下一轮', enableAgent: true, enableReasoning: false, agentApprovalMode: 'full' });
+    await waitFor(() => ctx.chunks.filter(c => c.type === 'complete').length >= completeBefore + 1);
+
+    const sysMsg = capturedMessages && capturedMessages.find(m => m.role === 'system');
+    assert.ok(sysMsg && !String(sysMsg.content).includes('[后台子代理任务]'), 'system prompt stays an immutable cache anchor');
+    const reminderMsg = capturedMessages && capturedMessages.find(m => String(m.content || '').includes('[后台子代理任务]'));
+    assert.ok(reminderMsg, 'background task status injected via system-reminder');
+    assert.ok(String(reminderMsg.content).includes('后台调研员'), 'reminder carries role and summary');
+    console.log('PASS: background tasks surface as next-turn system-reminder');
+  }
+
   // Turn metadata footer fields
   {
     const done = ctx.chunks.filter(c => c.type === 'complete').pop();

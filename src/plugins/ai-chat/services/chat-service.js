@@ -237,42 +237,28 @@ class ChatService {
       return await this.subagentManager.runSubagent({
         parentSession: rt.session,
         taskPrompt: pArgs.task_prompt,
+        tasks: pArgs.tasks,
         mode: pArgs.mode || 'spawn',
         role: pArgs.role,
         maxRounds: pArgs.max_rounds,
+        timeoutMs: pArgs.timeout_ms,
+        wait: pArgs.wait !== false,
         config: rt.config || config,
         availableTools: rt.availableTools || [],
-        toolDispatcher: async (subToolName, subArgs) => {
-          // 硬阻断递归派生：子代理工具表虽已过滤 dispatch_subagent，模型仍
-          // 可能幻觉调用未声明工具名，不能只依赖软过滤。
-          if (subToolName === 'dispatch_subagent') {
-            return { ok: false, error: '子智能体内禁止再次派生子智能体（已达到派生深度限制）' };
-          }
-          // 子代理工具必须走与主循环相同的三段管线：直连 dispatchAgentTool
-          // 会绕过 preExecute 审批，形成 fail-open。
-          if (rt.approvalService) {
-            const subTc = {
-              id: `subtc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
-              type: 'function',
-              function: { name: subToolName, arguments: JSON.stringify(subArgs || {}) }
-            };
-            const [res] = await this.toolPipeline.dispatchBatch(
-              [subTc],
-              (n, parsedArgs) => this.dispatchAgentTool(n, parsedArgs, rt, { skills, skillsService, memories, save, ctx, config, genId }),
-              {
-                approvalService: rt.approvalService,
-                agentApprovalMode: rt.agentApprovalMode || 'ask',
-                session: rt.session,
-                streamId: rt.streamId,
-                emitChunk: rt.emit,
-                signal: rt.signal
-              }
-            );
-            return res ? res.postResult.rawResult : { ok: false, error: '子代理工具调度失败' };
-          }
-          return await this.dispatchAgentTool(subToolName, subArgs, rt, { skills, skillsService, memories, save, ctx, config, genId });
-        },
+        toolCallId: rt.toolCallId,
+        sessionId: rt.session ? rt.session.id : undefined,
+        toolDispatcher: this.makeSubagentDispatcher(rt, { skills, skillsService, memories, save, ctx, config, genId }),
         emitChunk: rt.emit,
+        signal: rt.signal
+      });
+    }
+    if (name === 'check_subagents') {
+      const pArgs = parseArgs();
+      return await this.subagentManager.checkSubagents({
+        sessionId: rt.session ? rt.session.id : null,
+        taskIds: pArgs.task_ids,
+        wait: pArgs.wait === true,
+        timeoutMs: pArgs.timeout_ms,
         signal: rt.signal
       });
     }
@@ -293,6 +279,86 @@ class ChatService {
       });
     }
     return executeAgentTool(name, rawArgs, { ...ctx, workDir: rt.workDir || os.homedir() });
+  }
+
+  /**
+   * 子代理工具调度闭包：与主循环共用三段管线（审批 fail-closed）。
+   * dispatch_subagent 在深度预算内放行受控嵌套（孙代由服务端强制单任务，
+   * 派生动作本身仍经审批管线），超限或无深度上下文的幻觉直调硬阻断。
+   */
+  makeSubagentDispatcher(rt, { skills, skillsService, memories, save, ctx, config, genId }) {
+    return async (subToolName, subArgs, childInfo) => {
+      if (subToolName === 'dispatch_subagent') {
+        const allowed = childInfo
+          && typeof childInfo.depth === 'number'
+          && childInfo.depth < this.subagentManager.maxDepth;
+        if (!allowed) {
+          return { ok: false, error: '子智能体内禁止再次派生子智能体（已达到派生深度限制）' };
+        }
+        const nestedRun = () => this.subagentManager.runSubagent({
+          // 深度上下文来自闭包捕获的 childInfo：孙代继承子会话快照继续传播 delegationDepth
+          parentSession: { delegationDepth: childInfo.depth, messages: childInfo.conversation || [] },
+          taskPrompt: subArgs.task_prompt,
+          tasks: subArgs.tasks,
+          mode: subArgs.mode || 'spawn',
+          role: subArgs.role,
+          maxRounds: subArgs.max_rounds,
+          timeoutMs: subArgs.timeout_ms,
+          wait: subArgs.wait !== false,
+          config: rt.config || config,
+          availableTools: rt.availableTools || [],
+          toolCallId: rt.toolCallId,
+          sessionId: rt.session ? rt.session.id : undefined,
+          toolDispatcher: this.makeSubagentDispatcher(rt, { skills, skillsService, memories, save, ctx, config, genId }),
+          emitChunk: rt.emit,
+          signal: rt.signal
+        });
+        if (rt.approvalService) {
+          const subTc = {
+            id: `subtc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+            type: 'function',
+            function: { name: subToolName, arguments: JSON.stringify(subArgs || {}) }
+          };
+          const [res] = await this.toolPipeline.dispatchBatch([subTc], () => nestedRun(), {
+            approvalService: rt.approvalService,
+            agentApprovalMode: rt.agentApprovalMode || 'ask',
+            session: rt.session,
+            streamId: rt.streamId,
+            emitChunk: rt.emit,
+            signal: rt.signal
+          });
+          return res ? res.postResult.rawResult : { ok: false, error: '子代理工具调度失败' };
+        }
+        return await nestedRun();
+      }
+      if (subToolName === 'check_subagents') {
+        // 注册表查询不下放给子代理：后台任务归属父会话，避免越权窥探
+        return { ok: false, error: '子智能体内不可查询后台任务' };
+      }
+      // 子代理工具必须走与主循环相同的三段管线：直连 dispatchAgentTool
+      // 会绕过 preExecute 审批，形成 fail-open。
+      if (rt.approvalService) {
+        const subTc = {
+          id: `subtc_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`,
+          type: 'function',
+          function: { name: subToolName, arguments: JSON.stringify(subArgs || {}) }
+        };
+        const [res] = await this.toolPipeline.dispatchBatch(
+          [subTc],
+          (n, parsedArgs) => this.dispatchAgentTool(n, parsedArgs, rt, { skills, skillsService, memories, save, ctx, config, genId }),
+          {
+            approvalService: rt.approvalService,
+            agentApprovalMode: rt.agentApprovalMode || 'ask',
+            session: rt.session,
+            streamId: rt.streamId,
+            emitChunk: rt.emit,
+            signal: rt.signal
+          }
+        );
+        return res ? res.postResult.rawResult : { ok: false, error: '子代理工具调度失败' };
+      }
+      return await this.dispatchAgentTool(subToolName, subArgs, rt, { skills, skillsService, memories, save, ctx, config, genId });
+    };
   }
 
   async sendMessage(args, { ctx, config, findSession, getPersona, memories, skills, skillsService, mcpServers, mcpService, approvalService, save, genId }) {
@@ -373,7 +439,8 @@ class ChatService {
         enableAgent,
         agentWorkDir,
         userQuery: userMsg.content,
-        memories
+        memories,
+        backgroundTasks: this.subagentManager.getReminderSnapshot(session.id)
       });
 
       const maxContext = Math.max(2, Number(config.maxContextMessages) || 16);
@@ -673,7 +740,7 @@ class ChatService {
           // Dispatch tools through the Three-Stage Tool Pipeline with concurrency support!
           const toolResults = executableCalls.length > 0 ? await this.toolPipeline.dispatchBatch(
             executableCalls,
-            async (name, parsedArgs) => {
+            async (name, parsedArgs, tc) => {
               return await this.dispatchAgentTool(name, parsedArgs, {
                 mcpRoutes,
                 workDir: agentWorkDir,
@@ -683,9 +750,11 @@ class ChatService {
                 signal: controller.signal,
                 config,
                 availableTools: agentToolDefs,
-                // 子代理 toolDispatcher 复用同一 rt，审批服务/档位须随行
+                // 子代理 toolDispatcher 复用同一 rt，审批服务/档位须随行；
+                // toolCallId 供子代理进度 chunk 路由到前端对应工具卡
                 approvalService,
-                agentApprovalMode
+                agentApprovalMode,
+                toolCallId: tc ? tc.id : undefined
               }, { skills, skillsService, memories, save, ctx, config, genId });
             },
             {
@@ -919,6 +988,11 @@ class ChatService {
       result: res.content,
       usage: res.usage
     };
+  }
+
+  /** 终止全部后台子代理（插件停用/应用退出路径，防孤儿资源） */
+  disposeSubagents() {
+    try { this.subagentManager.disposeAll(); } catch {}
   }
 }
 

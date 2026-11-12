@@ -45,7 +45,16 @@
     },
     'dispatch_subagent': {
       icon: '🤖',
-      title: (args) => `子智能体 [${(args && args.role) || '专项派生'}]`
+      title: (args) => {
+        const n = Array.isArray(args && args.tasks) ? args.tasks.length : 1;
+        const role = (args && args.role) || (n > 1 ? `${n} 路并行` : '专项派生');
+        const bg = args && args.wait === false ? ' · 后台' : '';
+        return `子智能体 [${role}]${bg}`;
+      }
+    },
+    'check_subagents': {
+      icon: '📡',
+      title: (args) => `查询后台子智能体${(args && args.wait) ? ' (等待完成)' : ''}`
     },
     'run_command': { icon: '⚡', title: (args) => `执行命令${args && args.command ? `: ${String(args.command).slice(0, 60)}` : ''}` },
     'write_file': { icon: '✏️', title: (args) => `写入文件${args && args.path ? `: ${args.path}` : ''}` },
@@ -114,10 +123,26 @@
     if (res.background && res.pid) return `<span>⚡ 后台运行中 (PID: ${res.pid}):</span> <strong>${escapeHtml(toolName)}</strong>`;
     if (toolName === 'stop_process' && res.ok) return `<span>⏹ 已停止进程${res.pid ? ` (PID: ${res.pid})` : ''}</span>`;
     if (toolName === 'dispatch_subagent') {
+      if (res.background) {
+        const n = res.total || (Array.isArray(res.tasks) ? res.tasks.length : 0);
+        return `<span>🤖 子智能体已转后台:</span> <strong>${n} 个任务派发</strong> <span style="opacity:0.85">(check_subagents 查询)</span>`;
+      }
+      if (res.mode === 'multi') {
+        const t = res.timed_out ? ` · ${res.timed_out} 超时` : '';
+        return `<span>🤖 子智能体并行 ×${res.total || 0}:</span> <strong>${res.succeeded || 0} 成功 · ${res.failed || 0} 失败${t}</strong>`;
+      }
       const modeLabel = res.mode === 'fork' ? '分叉探索' : '专项派生';
       const role = res.role || '子智能体';
-      const state = res.ok ? `完成 (${res.rounds_executed || 1} 轮 · ${res.total_tool_calls || 0} 次工具)` : '失败';
+      const state = res.timed_out
+        ? `超时 (${res.rounds_executed || 0} 轮 · 返回已得结论)`
+        : res.ok ? `完成 (${res.rounds_executed || 1} 轮 · ${res.total_tool_calls || 0} 次工具)` : '失败';
       return `<span>🤖 子智能体 [${escapeHtml(role)}] (${modeLabel}):</span> <strong>${state}</strong>`;
+    }
+    if (toolName === 'check_subagents') {
+      const list = Array.isArray(res.tasks) ? res.tasks : [];
+      const done = list.filter(t => t.status === 'running').length;
+      const state = done > 0 ? `仍有 ${done} 个运行中` : `共 ${list.length} 个任务`;
+      return `<span>📡 后台子智能体查询:</span> <strong>${escapeHtml(state)}</strong>`;
     }
     if (toolName === 'dispatch_task_to_ai_ide') {
       const ide = res.targetName || res.target || '外部 AI';
@@ -258,6 +283,7 @@
       </div>
       ${phase === 'done' ? buildArgsSection(tc.function.arguments) : ''}
       ${phase === 'done' ? buildResultSection(opts.result) : ''}
+      <div class="ai-subagent-slot" aria-hidden="true"></div>
       <div class="ai-tool-approval-slot"></div>
     `;
     return card;
@@ -290,7 +316,9 @@
 
   /**
    * tool_result: switch to completed layout, keeping args + approval status
-   * sections (they are re-created deterministically from stored data).
+   * sections (they are re-created deterministically from stored data) and the
+   * live subagent progress slot (its rows are keyed by data-child and may still
+   * receive late updates from background children).
    */
   function applyToolResult(card, toolName, result) {
     if (!card) return;
@@ -299,6 +327,8 @@
     const argsEl = card.querySelector('.ai-tool-args-details');
     const approvalSlot = card.querySelector('.ai-tool-approval-slot');
     const approvalHtml = approvalSlot ? approvalSlot.innerHTML : '';
+    const subagentSlot = card.querySelector('.ai-subagent-slot');
+    const subagentHtml = subagentSlot ? subagentSlot.innerHTML : '';
 
     card.classList.remove('running');
     if (result && result.denied) card.classList.add('denied');
@@ -311,6 +341,7 @@
       </div>
       ${argsEl ? argsEl.outerHTML : (argsRaw ? buildArgsSection(argsRaw) : '')}
       ${buildResultSection(result)}
+      <div class="ai-subagent-slot" aria-hidden="true">${subagentHtml}</div>
       <div class="ai-tool-approval-slot">${approvalHtml}</div>
     `;
   }

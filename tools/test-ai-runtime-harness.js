@@ -3,6 +3,7 @@
    2. Tool Pairing Balanced Invariants & Context Bounding (context-bounds.js)
    3. Three-Stage Tool Execution Pipeline & Concurrency Scheduler (tool-pipeline.js)
    4. Subagent Derivations (Spawn vs Fork) & Depth Guard (subagent-service.js)
+   5. Subagent Parallel Fan-Out, Timeout, Nesting & Background Registry (subagent-service.js)
    Run with: node tools/test-ai-runtime-harness.js */
 
 const assert = require('assert');
@@ -36,7 +37,8 @@ const {
 
 const {
   SubagentManager,
-  SUBAGENT_TOOL_DEFINITION
+  SUBAGENT_TOOL_DEFINITION,
+  CHECK_SUBAGENTS_TOOL_DEFINITION
 } = require(path.join(PLUGIN_DIR, 'services', 'subagent-service'));
 
 async function main() {
@@ -311,6 +313,208 @@ async function main() {
     }
 
     console.log('PASS: Subagent Derivations & Depth Guard verified');
+  }
+
+  console.log('--- 5. Testing Subagent Parallel Fan-Out, Timeout, Nesting & Background Registry ---');
+  {
+    // 让超时测试可快速收敛：注入远低于生产下限 (30s) 的最小超时
+    const subManager = new SubagentManager({ maxDepth: 2, minChildTimeoutMs: 80 });
+    const parentSession = { delegationDepth: 0, messages: [] };
+
+    const originalStreamCompletion = protocols.streamCompletion;
+    try {
+      // 1. tasks 数组并行扇出：两个子任务交错执行，全部 start 先于任何 finish
+      const chunkLog = [];
+      let callSeq = 0;
+      protocols.streamCompletion = async (opts, onEvent) => {
+        const mySeq = ++callSeq;
+        await new Promise(r => setTimeout(r, 60)); // 模拟流式延迟，制造交错窗口
+        onEvent({ type: 'content', delta: `任务${mySeq}结论。` });
+        onEvent({ type: 'done' });
+      };
+
+      const fanRes = await subManager.runSubagent({
+        parentSession,
+        tasks: [
+          { task_prompt: '调研依赖链', role: '依赖分析员' },
+          { task_prompt: '排查失败用例', role: '测试排查员' }
+        ],
+        toolCallId: 'tc_fanout',
+        emitChunk: c => chunkLog.push(c)
+      });
+
+      assert.strictEqual(fanRes.ok, true, 'parallel fan-out succeeds');
+      assert.strictEqual(fanRes.mode, 'multi');
+      assert.strictEqual(fanRes.total, 2);
+      assert.strictEqual(fanRes.succeeded, 2);
+      assert.strictEqual(fanRes.tasks.length, 2);
+      assert.ok(fanRes.tasks.every(t => t.ok && t.child_id), 'each task carries child result');
+
+      const starts = chunkLog.filter(c => c.type === 'subagent_start');
+      const finishes = chunkLog.filter(c => c.type === 'subagent_finish');
+      assert.strictEqual(starts.length, 2);
+      assert.strictEqual(finishes.length, 2);
+      // 并行判据：第二个 start 在第一个 finish 之前（串行执行则相反）
+      const firstFinishIdx = chunkLog.findIndex(c => c.type === 'subagent_finish');
+      const secondStartIdx = chunkLog.map(c => c.type).lastIndexOf('subagent_start');
+      assert.ok(secondStartIdx < firstFinishIdx, `children interleave (start@${secondStartIdx} < finish@${firstFinishIdx})`);
+      // UI 路由元数据：toolCallId 透传 + taskIndex 区分兄弟任务
+      assert.ok(starts.every(c => c.toolCallId === 'tc_fanout'));
+      assert.deepStrictEqual(starts.map(c => c.taskIndex).sort(), [0, 1]);
+      assert.ok(starts.every(c => c.depth === 1));
+
+      // 2. per-child 墙钟超时：流式永不完成，超时 abort 后返回 timed_out + 部分结论
+      protocols.streamCompletion = async (opts, onEvent, signal) => new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, 60000);
+        if (signal) signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        }, { once: true });
+      });
+
+      const timeoutRes = await subManager.runSubagent({
+        parentSession,
+        taskPrompt: '慢任务',
+        timeoutMs: 120
+      });
+      assert.strictEqual(timeoutRes.ok, false);
+      assert.strictEqual(timeoutRes.timed_out, true);
+      assert.ok(String(timeoutRes.error).includes('超时'));
+
+      // 3. 受控嵌套：L1 子代理经 toolDispatcher 派生 L2 孙代（单任务），L2 层不再保留派生工具
+      let l1CapturedTools = null;
+      let l2CapturedTools = null;
+      let l1Calls = 0;
+      let l2Calls = 0;
+      let l2Res = null;
+      // 以系统提示词中的深度标记区分 L1/L2 流（L1: 深度: 1/2, L2: 深度: 2/2）
+      protocols.streamCompletion = async (opts, onEvent) => {
+        const sys = (opts.messages && opts.messages[0] && opts.messages[0].content) || '';
+        if (sys.includes('深度: 2')) {
+          l2Calls++;
+          l2CapturedTools = opts.tools || [];
+          onEvent({ type: 'content', delta: 'L2 孙代结论。' });
+        } else {
+          l1Calls++;
+          l1CapturedTools = opts.tools || [];
+          if (l1Calls === 1) {
+            onEvent({
+              type: 'tool_calls',
+              delta: [{ index: 0, id: 'sub_tc_l1', function: { name: 'dispatch_subagent', arguments: JSON.stringify({ task_prompt: 'L2 孙代任务' }) } }]
+            });
+          } else {
+            onEvent({ type: 'content', delta: 'L1 汇总完成。' });
+          }
+        }
+        onEvent({ type: 'done' });
+      };
+      const dispatcherCalls = [];
+      const childTools = [
+        SUBAGENT_TOOL_DEFINITION,
+        CHECK_SUBAGENTS_TOOL_DEFINITION,
+        { type: 'function', function: { name: 'read_file', parameters: { type: 'object', properties: {} } } }
+      ];
+      const nestingRes = await subManager.runSubagent({
+        parentSession,
+        taskPrompt: 'L1 任务',
+        role: '一级调研员',
+        availableTools: childTools,
+        toolDispatcher: async (subName, subArgs, childInfo) => {
+          dispatcherCalls.push({ subName, depth: childInfo && childInfo.depth, hasConversation: Array.isArray(childInfo && childInfo.conversation) });
+          if (subName !== 'dispatch_subagent') return { ok: true };
+          if (!childInfo || childInfo.depth >= subManager.maxDepth) {
+            return { ok: false, error: '子智能体内禁止再次派生子智能体（已达到派生深度限制）' };
+          }
+          // 深度预算内：派生 L2（模拟 chat-service 的嵌套放行路径）
+          l2Res = await subManager.runSubagent({
+            parentSession: { delegationDepth: childInfo.depth, messages: childInfo.conversation },
+            taskPrompt: subArgs.task_prompt,
+            availableTools: childTools
+          });
+          return l2Res;
+        }
+      });
+      // L1 工具表在深度预算内保留 dispatch_subagent，但不含 check_subagents
+      assert.ok(l1CapturedTools && l1CapturedTools.some(t => t.function && t.function.name === 'dispatch_subagent'),
+        'L1 tool table keeps dispatch_subagent within depth budget');
+      assert.ok(l1CapturedTools && !l1CapturedTools.some(t => t.function && t.function.name === 'check_subagents'),
+        'check_subagents never leaks into child tool tables');
+      // L2 已达 maxDepth：工具表不再保留 dispatch_subagent
+      assert.ok(l2CapturedTools && !l2CapturedTools.some(t => t.function && t.function.name === 'dispatch_subagent'),
+        'L2 tool table drops dispatch_subagent at depth budget');
+      assert.strictEqual(dispatcherCalls.length, 1);
+      assert.strictEqual(dispatcherCalls[0].depth, 1, 'childInfo carries real depth');
+      assert.strictEqual(dispatcherCalls[0].hasConversation, true, 'childInfo carries child conversation');
+      assert.strictEqual(nestingRes.ok, true);
+      assert.strictEqual(nestingRes.depth, 1);
+      assert.ok(l2Res && l2Res.ok && l2Res.depth === 2, 'grandchild (L2) executed at depth 2');
+      assert.strictEqual(l1Calls, 2, 'L1 ran tool round + summary round');
+      assert.strictEqual(l2Calls, 1, 'L2 ran a single summary round');
+
+      // 4. 后台注册表：wait=false 立即返回，check_subagents 阻塞等待结果
+      let bgDone = false;
+      protocols.streamCompletion = async (opts, onEvent) => {
+        await new Promise(r => setTimeout(r, 80));
+        onEvent({ type: 'content', delta: '后台任务结论。' });
+        onEvent({ type: 'done' });
+        bgDone = true;
+      };
+      const bgRes = await subManager.runSubagent({
+        parentSession: { ...parentSession, id: 'sess_bg' },
+        taskPrompt: '后台调研',
+        role: '后台调研员',
+        wait: false,
+        sessionId: 'sess_bg'
+      });
+      assert.strictEqual(bgRes.ok, true);
+      assert.strictEqual(bgRes.background, true);
+      assert.strictEqual(bgRes.tasks.length, 1);
+      assert.strictEqual(bgRes.tasks[0].status, 'running');
+      assert.ok(bgRes.tasks[0].task_id, 'background returns task_id');
+      assert.ok(!bgDone, 'wait:false returns before child finishes');
+
+      const checkRes = await subManager.checkSubagents({ sessionId: 'sess_bg', wait: true, timeoutMs: 5000 });
+      assert.strictEqual(checkRes.ok, true);
+      assert.strictEqual(checkRes.tasks.length, 1);
+      assert.strictEqual(checkRes.tasks[0].status, 'completed');
+      assert.ok(checkRes.tasks[0].summary.includes('后台任务结论'));
+
+      // 跨会话隔离 + 提醒快照形状
+      assert.strictEqual((await subManager.checkSubagents({ sessionId: 'sess_other' })).tasks.length, 0, 'session isolation');
+      const snapshot = subManager.getReminderSnapshot('sess_bg');
+      assert.strictEqual(snapshot.length, 1);
+      assert.strictEqual(snapshot[0].status, 'completed');
+      assert.strictEqual(snapshot[0].role, '后台调研员');
+      assert.strictEqual(subManager.getReminderSnapshot('sess_none').length, 0);
+
+      // 5. disposeAll 终止运行中的后台任务
+      protocols.streamCompletion = async (opts, onEvent, signal) => new Promise((resolve, reject) => {
+        const t = setTimeout(resolve, 60000);
+        if (signal) signal.addEventListener('abort', () => {
+          clearTimeout(t);
+          const err = new Error('The operation was aborted');
+          err.name = 'AbortError';
+          reject(err);
+        }, { once: true });
+      });
+      const killRes = await subManager.runSubagent({
+        parentSession: { ...parentSession, id: 'sess_kill' },
+        taskPrompt: '将被终止的任务',
+        wait: false,
+        sessionId: 'sess_kill'
+      });
+      subManager.disposeAll();
+      const killCheck = await subManager.checkSubagents({ sessionId: 'sess_kill', wait: true, timeoutMs: 3000 });
+      const killed = killCheck.tasks.find(t => t.task_id === killRes.tasks[0].task_id);
+      assert.ok(killed, 'disposed task still queryable');
+      assert.notStrictEqual(killed.status, 'running', 'disposeAll aborts running background children');
+    } finally {
+      protocols.streamCompletion = originalStreamCompletion;
+    }
+
+    console.log('PASS: Subagent Fan-Out, Timeout, Nesting & Background Registry verified');
   }
 
   console.log('\n========================================');
