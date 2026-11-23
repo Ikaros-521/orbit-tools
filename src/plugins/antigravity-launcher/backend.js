@@ -19,6 +19,8 @@ module.exports = {
         proxyUrl: d.proxyUrl || null,
         targetPath: d.targetPath || null,
         workDir: d.workDir || null,
+        // 默认开启：旧数据里没有该键时视为 true。
+        preflight: d.preflight !== false,
       };
     };
 
@@ -37,7 +39,10 @@ module.exports = {
 
     function resolveTarget() {
       const cfg = getData();
-      const saved = cfg.targetPath && detect.exists(cfg.targetPath) ? cfg.targetPath : null;
+      // v1.1.1：历史保存的路径若是本插件自身（macOS 上的壳 bundle）则弃用，
+      // 否则会把启动器自己当成 Antigravity 重新拉起。
+      const saved = cfg.targetPath && detect.exists(cfg.targetPath)
+        && detect.isTargetCandidate(cfg.targetPath) ? cfg.targetPath : null;
       return saved ? detect.pack(saved, 'saved') : detect.detect();
     }
 
@@ -91,10 +96,32 @@ module.exports = {
       }
       if (!best) return { ok: false, errKey: 'err.noProxy' };
 
+      // v1.2.0 前置校验：CONNECT/SOCKS5 成功只证明代理收下了请求，不证明它
+      // 真能到达 Google。开关开启时先经同一隧道真实访问 generate_204，
+      // 不通则拒绝启动（面板通过 launch:stage 展示当前阶段）。
+      if (cfg.preflight !== false) {
+        emit('launch:stage', 'preflight');
+        const check = await proxy.checkGoogle(best, {
+          onAttempt: a => { if (!a.ok) log('warn', 'log.preflightTry', { n: a.attempt, reason: a.reason }); },
+        });
+        log(check.ok ? 'ok' : 'err', check.ok ? 'log.preflightOk' : 'log.preflightFail',
+          check.ok ? { ep: launch.redact(best), status: check.status, ms: check.ms }
+            : { ep: launch.redact(best), reason: check.reason });
+        if (!check.ok) return { ok: false, errKey: 'err.googleUnreachable', reason: check.reason };
+      } else {
+        log('sys', 'log.preflightSkip');
+      }
+      emit('launch:stage', 'spawning');
+
       const res = await launch.launch(best, target.path, msg => log('sys', 'log.raised', { msg }));
       if (res.spawnError) {
         log('err', 'log.spawnFail', { msg: res.spawnError.message });
         return { ok: false, errKey: 'err.spawnFail' };
+      }
+      // v1.1.1：秒退说明被单实例锁挡回，新进程从未画出窗口，不能算成功。
+      if (res.earlyExit) {
+        log('err', 'log.earlyExit', { code: res.earlyExit.code });
+        return { ok: false, errKey: 'err.earlyExit', earlyExit: res.earlyExit, running: launch.listRunning(target.path) };
       }
       log('ok', 'log.launched', { pid: res.pid, ep: launch.redact(best) });
       return { ok: true, pid: res.pid, endpoint: launch.redact(best), kind: best.kind };
@@ -218,6 +245,13 @@ module.exports = {
       lastBestProxy = null;
       log('ok', url ? 'log.manualProxy' : 'log.clearedProxy', url && { url });
       return getData();
+    });
+
+    ctx.ipc.handle('set-preflight', (_args) => {
+      const on = !!(_args && _args.on);
+      setData({ preflight: on });
+      log('ok', on ? 'log.preflightOn' : 'log.preflightOff');
+      return getData().preflight;
     });
 
     ctx.ipc.handle('open-external', (_args) => {

@@ -152,6 +152,9 @@
             <span class="lb-key" id="aglLbKey">READY</span>
             <span class="lb-cn" id="aglLbCn">${t('idle.cn')}</span>
             <span class="lb-target mono" id="aglLbTarget">${t('idle.target')}</span>
+            <span class="pf-toggle" id="aglPfToggle" role="switch" aria-checked="true" title="${t('pf.tip')}">
+              <i aria-hidden="true"></i><b>${t('pf.label')}</b>
+            </span>
           </button>
 
           <!-- 日志控制台 -->
@@ -211,6 +214,7 @@
     const lbKey = el.querySelector('#aglLbKey');
     const lbCn = el.querySelector('#aglLbCn');
     const lbTarget = el.querySelector('#aglLbTarget');
+    const preflightToggle = el.querySelector('#aglPfToggle');
 
     const consoleBody = el.querySelector('#aglConsoleBody');
 
@@ -557,6 +561,11 @@
       } else {
         const errKey = (res && res.errKey) ? res.errKey : 'err.noTarget';
         pushLog('err', errKey);
+        // 秒退时后端随附最新的运行实例列表，CH03 直接反映单实例锁的占用者。
+        if (res && res.running) {
+          state.running = res.running;
+          renderRunning();
+        }
         state.bar = { phase: (res && res.needsQuit) ? 'stale' : 'failed', params: {} };
         renderBar();
       }
@@ -618,6 +627,17 @@
       }
     };
 
+    // 开关嵌在启动条内：必须拦截冒泡，点开关不等于点启动。
+    preflightToggle.onclick = async e => {
+      e.stopPropagation();
+      const next = preflightToggle.getAttribute('aria-checked') !== 'true';
+      preflightToggle.setAttribute('aria-checked', String(next));
+      try {
+        const v = await ctx.call('set-preflight', { on: next });
+        if (typeof v === 'boolean') preflightToggle.setAttribute('aria-checked', String(v));
+      } catch { /* 保留乐观状态；开关本身不应阻塞面板 */ }
+    };
+
     // Subscriptions using host's ctx.onEvent
     const listen = (ch, fn) => {
       if (typeof ctx.onEvent === 'function') {
@@ -645,6 +665,13 @@
       }
     });
 
+    // 主进程按阶段推进启动流程；启动条同步叙述当前阶段。
+    listen('launch:stage', stage => {
+      if (!state.best) return;
+      state.bar = { phase: 'launching', params: { target: stage === 'preflight' ? t('bar.preflight') : t('bar.spawning') } };
+      renderBar();
+    });
+
     // Boot
     ctx.call('boot').then(bootInfo => {
       if (bootInfo) {
@@ -652,6 +679,8 @@
         if (bootInfo.config && bootInfo.config.proxyUrl) {
           proxyInput.value = bootInfo.config.proxyUrl;
         }
+        preflightToggle.setAttribute('aria-checked', String(
+          !(bootInfo.config && bootInfo.config.preflight === false)));
       }
       pushLog('sys', 'log.ready');
       pushLog('sys', 'log.whyGo');

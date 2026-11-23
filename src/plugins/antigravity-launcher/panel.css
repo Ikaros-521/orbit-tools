@@ -228,6 +228,20 @@
 .agl-wrap .lb-cn { font-size: 13.5px; letter-spacing: .08em; font-weight: 500; }
 .agl-wrap .lb-target { font-size: 10.5px; color: var(--ink-dim); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
+/* 前置校验开关，嵌在启动条内；点击它不能触发启动 */
+.agl-wrap .pf-toggle {
+  display: inline-flex; align-items: center; gap: 7px; cursor: pointer; flex: none;
+  font: 500 9px var(--font-display, "Bahnschrift", "Noto Sans", sans-serif);
+  letter-spacing: .14em; text-transform: uppercase;
+  color: var(--ink-faint); background: var(--inset); border: 1px solid var(--line-strong);
+  border-radius: 999px; padding: 6px 11px; transition: .18s; user-select: none;
+}
+.agl-wrap .pf-toggle i { width: 7px; height: 7px; border-radius: 50%; background: var(--ink-faint); transition: .18s; }
+.agl-wrap .pf-toggle:hover { color: var(--ink); border-color: var(--ink-dim); }
+.agl-wrap .pf-toggle[aria-checked="true"] { color: var(--green); border-color: var(--green); }
+.agl-wrap .pf-toggle[aria-checked="true"] i { background: var(--green); box-shadow: 0 0 10px -1px var(--green); }
+.agl-wrap .pf-toggle[aria-checked="true"]:hover { background: var(--green-soft); }
+
 /* Console */
 .agl-wrap .console {
   grid-area: console; display: flex; flex-direction: column; padding: 12px 14px;

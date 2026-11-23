@@ -1,9 +1,12 @@
 const net = require('net');
 const http = require('http');
+const tls = require('tls');
 const { spawnSync } = require('child_process');
 
 const LOGIN_TARGET = { host: 'accounts.google.com', port: 443 };
 const MODEL_TARGET = { host: 'daily-cloudcode-pa.googleapis.com', port: 443 };
+// 前置校验的目标。generate_204 是代理客户端自测节点用的端点：状态码固定、无响应体。
+const PREFLIGHT_TARGET = { host: 'www.google.com', port: 443, path: '/generate_204' };
 
 const PING_TARGETS = [
   { host: 'accounts.google.com', port: 443, id: 'google', label: 'Google' },
@@ -42,41 +45,79 @@ function parseProxyUrl(input, fallbackScheme) {
 
 // --- probes -----------------------------------------------------------------
 
-function httpConnect(ep, target, timeout = 3500) {
+// HTTP 回复头的结束偏移；头还没收完时返回 -1。
+function headEnd(buf) {
+  const i = buf.indexOf('\r\n\r\n');
+  if (i !== -1) return i + 4;
+  const j = buf.indexOf('\n\n');
+  return j === -1 ? -1 : j + 2;
+}
+
+// 隧道移交给 TLS 层之前必须摘掉握手期监听器：留着它们会把 TLS 流量当成
+// 更多的代理回复来读。pause 不可省略：无 'data' 监听器的流动 socket 会丢字节，
+// 而已读进 JS 缓冲的字节又会被 tls.connect() 跳过——只有 pause 的 socket 能把
+// 已缓冲与后续字节一并交给 TLS 层。空错误接收器要保留，否则无人监听的
+// 'error' 事件会击穿进程。
+function handOver(sock) {
+  sock.setTimeout(0);
+  sock.pause();
+  sock.removeAllListeners('data');
+  sock.removeAllListeners('timeout');
+  sock.removeAllListeners('close');
+  sock.removeAllListeners('error');
+  sock.on('error', () => {});
+}
+
+// 所有握手在 socket 事件上的失败方式一致，所以没有一个 promise 能被留在
+// pending：对端在中途回复前干净断开时永远不会触发 'timeout'，必须从
+// 'close' 上报。
+function watch(sock, fail) {
+  sock.on('error', () => fail('socket error'));
+  sock.on('timeout', () => fail('timeout'));
+  sock.on('close', () => fail('connection closed'));
+}
+
+// 每次握手 resolve { sock, rest, reason, rtt }：隧道保持打开，附带回复尾随
+// 字节。reject Error 的 message 即判定原因。*Connect 探测随即挂断；
+// httpsOverProxy 保留隧道并在其上跑 TLS。
+function httpTunnel(ep, target, timeout) {
   const t0 = Date.now();
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const sock = net.connect({ host: ep.host, port: ep.port, timeout });
     let buf = '';
-    const done = ok => {
+    const fail = reason => {
       sock.destroy();
-      resolve({ ...ok, rtt: Date.now() - t0 });
+      reject(Object.assign(new Error(reason), { rtt: Date.now() - t0 }));
     };
-    sock.on('error', () => done({ ok: false, reason: 'socket error' }));
-    sock.on('timeout', () => done({ ok: false, reason: 'timeout' }));
+    watch(sock, fail);
     sock.on('data', chunk => {
       buf += chunk.toString('latin1');
-      if (!buf.includes('\r\n\r\n') && !buf.includes('\n\n')) return;
+      const cut = headEnd(buf);
+      if (cut === -1) return;
       const status = buf.match(/HTTP\/\d(?:\.\d)?\s+(\d{3})/i);
-      done(status
-        ? { ok: status[1] === '200', reason: `CONNECT ${status[1]}` }
-        : { ok: false, reason: 'non-HTTP response (not an HTTP proxy?)' });
+      if (!status) return fail('non-HTTP response (not an HTTP proxy?)');
+      if (status[1] !== '200') return fail(`CONNECT ${status[1]}`);
+      handOver(sock);
+      resolve({
+        sock, rest: Buffer.from(buf.slice(cut), 'latin1'),
+        reason: `CONNECT ${status[1]}`, rtt: Date.now() - t0,
+      });
     });
     const auth = ep.user ? `\r\nProxy-Authorization: Basic ${Buffer.from(`${ep.user}:${ep.pass || ''}`).toString('base64')}` : '';
     sock.write(`CONNECT ${target.host}:${target.port} HTTP/1.1\r\nHost: ${target.host}:${target.port}${auth}\r\n\r\n`);
   });
 }
 
-// Sends the domain, not a resolved IP: local DNS is exactly what is poisoned here.
-function socks5Connect(ep, target, timeout = 3500) {
+// 发送域名而非已解析 IP：本地 DNS 正是可能被污染的环节。
+function socks5Tunnel(ep, target, timeout) {
   const t0 = Date.now();
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     const sock = net.connect({ host: ep.host, port: ep.port, timeout });
-    const done = ok => {
+    const fail = reason => {
       sock.destroy();
-      resolve({ ...ok, rtt: Date.now() - t0 });
+      reject(Object.assign(new Error(reason), { rtt: Date.now() - t0 }));
     };
-    sock.on('error', () => done({ ok: false, reason: 'socket error' }));
-    sock.on('timeout', () => done({ ok: false, reason: 'timeout' }));
+    watch(sock, fail);
     const greeting = Buffer.from([0x05, 0x01, 0x00]);
     const hostBuf = Buffer.from(target.host, 'utf8');
     const req = Buffer.concat([
@@ -92,22 +133,37 @@ function socks5Connect(ep, target, timeout = 3500) {
         if (acc.length < 2) return;
         if (acc[0] !== 0x05 || acc[1] !== 0x00) {
           const isHttpReply = acc[0] === 0x48 /* H */;
-          return done({
-            ok: false,
-            reason: isHttpReply ? 'answered HTTP, not SOCKS5' : `SOCKS5 greeting rejected (05 ${acc[1]})`,
-          });
+          return fail(isHttpReply ? 'answered HTTP, not SOCKS5' : `SOCKS5 greeting rejected (05 ${acc[1]})`);
         }
         phase = 1; acc = Buffer.alloc(0); sock.write(req); return;
       }
       if (acc.length < 4) return;
       const rep = acc[1];
-      done(rep === 0x00
-        ? { ok: true, reason: 'SOCKS5 CONNECT 00' }
-        : { ok: false, reason: `SOCKS5 reply code ${rep}` });
+      if (rep !== 0x00) return fail(`SOCKS5 reply code ${rep}`);
+      // 4 字节头之后是 BND.ADDR（长度由类型决定）和 BND.PORT。
+      const atyp = acc[3];
+      const end = atyp === 0x01 ? 10 : atyp === 0x04 ? 22 : atyp === 0x03 ? 7 + (acc[4] || 0) : 4;
+      if (acc.length < end) return;
+      handOver(sock);
+      resolve({ sock, rest: acc.subarray(end), reason: 'SOCKS5 CONNECT 00', rtt: Date.now() - t0 });
     });
     sock.write(greeting);
   });
 }
+
+// 扫描与测速通道要的判定：握手一次、立即挂断、回报结果。
+async function probeTunnel(open, ep, target, timeout) {
+  try {
+    const tun = await open(ep, target, timeout);
+    tun.sock.destroy();
+    return { ok: true, reason: tun.reason, rtt: tun.rtt };
+  } catch (err) {
+    return { ok: false, reason: err.message, rtt: err.rtt };
+  }
+}
+
+const httpConnect = (ep, target, timeout = 3500) => probeTunnel(httpTunnel, ep, target, timeout);
+const socks5Connect = (ep, target, timeout = 3500) => probeTunnel(socks5Tunnel, ep, target, timeout);
 
 async function classify(ep, timeout = 2500) {
   const [httpLogin, socksLogin] = await Promise.all([
@@ -263,6 +319,70 @@ async function pingTargets(ep, timeout = 3500) {
   }));
 }
 
+// --- pre-flight check -------------------------------------------------------
+
+// CONNECT / SOCKS5 成功只证明本地代理收下了请求：客户端会在真正拨号上游之前
+// （或不管上游死活）就答 200。这才是启动需要的断言——一份经同一隧道（即
+// Antigravity 将拿到的同一条通道）读到的、证书校验完整的 HTTPS 回复。TLS
+// 不做任何放宽，被劫持或被黑洞的线路只会失败而不会蒙混过关。
+// resolve { status, ms }；reject Error 的 message 即原因。
+async function httpsOverProxy(ep, target, timeout = 6000) {
+  const t0 = Date.now();
+  const { sock, rest } = await (ep.kind === 'socks5' ? socks5Tunnel : httpTunnel)(ep, target, timeout);
+  // 一个截止时间同时覆盖握手与请求。
+  const left = Math.max(timeout - (Date.now() - t0), 500);
+
+  return new Promise((resolve, reject) => {
+    if (rest.length) sock.unshift(rest);
+    const secure = tls.connect({ socket: sock, servername: target.host });
+    let settled = false;
+    let head = '';
+    const fail = reason => {
+      if (settled) return;
+      settled = true;
+      secure.destroy();
+      reject(new Error(reason));
+    };
+    // TLS 不一定会把底下 socket 的每种失败都暴露出来。
+    sock.on('error', () => fail('socket error'));
+    secure.setTimeout(left);
+    secure.on('error', err => fail(err.code || 'socket hang up'));
+    secure.on('timeout', () => fail('timeout'));
+    secure.on('close', () => fail('connection closed'));
+    secure.once('secureConnect', () => {
+      secure.write(`GET ${target.path} HTTP/1.1\r\nHost: ${target.host}\r\nConnection: close\r\n\r\n`);
+    });
+    secure.on('data', chunk => {
+      head += chunk.toString('latin1');
+      if (!head.includes('\n')) return;
+      const status = head.match(/^HTTP\/\d(?:\.\d)?\s+(\d{3})/);
+      // 4xx 也是站点亲自回答的；5xx 不能证明线路可用。
+      if (!status) return fail('non-HTTP response');
+      if (Number(status[1]) >= 500) return fail(`HTTP ${status[1]}`);
+      settled = true;
+      secure.destroy();
+      resolve({ status: Number(status[1]), ms: Date.now() - t0 });
+    });
+  });
+}
+
+// 门禁本体。尝试两次：单次丢包不应该把启动拦在地面；每次尝试都用全新隧道。
+async function checkGoogle(ep, { attempts = 2, timeout = 6000, onAttempt } = {}) {
+  let reason = 'not attempted';
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const { status, ms } = await httpsOverProxy(ep, PREFLIGHT_TARGET, timeout);
+      const out = { ok: true, attempt, attempts, status, ms };
+      if (onAttempt) onAttempt(out);
+      return out;
+    } catch (err) {
+      reason = err.message;
+      if (onAttempt) onAttempt({ ok: false, attempt, attempts, reason });
+    }
+  }
+  return { ok: false, attempts, reason };
+}
+
 // --- IP queries -------------------------------------------------------------
 
 function queryJsonOverHttp(options, timeout = 4000) {
@@ -368,5 +488,6 @@ async function fetchIpInfo(ep) {
 module.exports = {
   scan, classify, buildCandidates, parseProxyUrl,
   httpConnect, socks5Connect, pingTargets, fetchIpInfo,
-  LOGIN_TARGET, MODEL_TARGET, PING_TARGETS, DEFAULT_CANDIDATES,
+  httpsOverProxy, checkGoogle,
+  LOGIN_TARGET, MODEL_TARGET, PING_TARGETS, DEFAULT_CANDIDATES, PREFLIGHT_TARGET,
 };

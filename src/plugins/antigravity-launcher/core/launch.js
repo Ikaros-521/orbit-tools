@@ -280,16 +280,22 @@ async function launch(ep, targetPath, onRaise) {
     windowsHide: false,
   });
   let spawnError = null;
+  let exitInfo = null;
   child.on('error', err => { spawnError = err; });
+  child.on('exit', (code, signal) => { exitInfo = { code, signal }; });
   child.unref();
   // spawn() reports ENOENT etc. on the next tick, so read it after a short
   // settle instead of claiming success before the event can land.
   await new Promise(r => setTimeout(r, 400));
-  if (!spawnError) {
-    const appName = path.basename(path.dirname(path.dirname(targetPath)), '.app');
-    raiseWindow(child.pid, appName, msg => { if (onRaise) onRaise(msg); });
-  }
-  return { pid: child.pid, spawnError };
+  if (spawnError) return { pid: child.pid, spawnError };
+  // 一秒内就退出的客户端从未画过窗口。实践中这是 Electron 的单实例锁——
+  // 另一份副本仍持有 profile，新副本转发 argv 后 exit 0。要如实上报，
+  // 否则用户面对绿色 UI 却等不来窗口。
+  await new Promise(r => setTimeout(r, 900));
+  if (exitInfo) return { pid: child.pid, spawnError: null, earlyExit: exitInfo };
+  const appName = path.basename(path.dirname(path.dirname(targetPath)), '.app');
+  raiseWindow(child.pid, appName, msg => { if (onRaise) onRaise(msg); });
+  return { pid: child.pid, spawnError: null };
 }
 
 function openTerminal({ type = 'powershell', workDir, ep }) {
