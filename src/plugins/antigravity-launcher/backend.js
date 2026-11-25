@@ -2,6 +2,7 @@
    Manages proxy scanning, Antigravity binary detection, process tree inspection,
    network diagnostics, terminal launch with proxy env, and process spawning. */
 const { dialog, shell } = require('electron');
+const os = require('os');
 const path = require('path');
 const detect = require('./core/detect');
 const proxy = require('./core/proxy');
@@ -12,6 +13,8 @@ let teardown = null;
 module.exports = {
   activate(ctx) {
     let lastBestProxy = null;
+    // 本工具启动的桌面客户端：{ pid, at, bootAt, verified }。
+    let launchedDesktop = null;
 
     const getData = () => {
       const d = (ctx.data && typeof ctx.data.get === 'function') ? ctx.data.get() : {};
@@ -21,6 +24,8 @@ module.exports = {
         workDir: d.workDir || null,
         // 默认开启：旧数据里没有该键时视为 true。
         preflight: d.preflight !== false,
+        cliPath: d.cliPath || null,
+        launchedDesktop: d.launchedDesktop || null,
       };
     };
 
@@ -37,6 +42,54 @@ module.exports = {
 
     const log = (level, k, p) => emit('log', { level, k, p, ts: Date.now() });
 
+    const sleep = ms => new Promise(r => setTimeout(r, ms));
+    const bootTime = () => Date.now() - os.uptime() * 1000;
+
+    function forgetLaunched() {
+      launchedDesktop = null;
+      if (getData().launchedDesktop) setData({ launchedDesktop: null });
+    }
+
+    // 在跑的桌面客户端是不是本工具启动的那个？只有 PID 并非证据——Windows
+    // 很容易复用它们——所以从更早一次运行恢复出的记录，要先与进程真实
+    // 启动时间核对后才可信。其他平台没有读取该时间的廉价途径，退化为
+    // 「同一次开机」，至少排除掉重启前的一切。
+    async function launchedPidAmong(running) {
+      const rec = launchedDesktop;
+      if (!rec) return null;
+      if (!running.some(r => r.pid === rec.pid)) { forgetLaunched(); return null; }
+      if (!rec.verified) {
+        let mine = false;
+        if (process.platform === 'win32') {
+          const startedAt = await launch.processStartEpoch(rec.pid);
+          mine = launchedDesktop === rec && startedAt !== null && Math.abs(startedAt - rec.at) < 15000;
+        } else {
+          mine = Math.abs(bootTime() - rec.bootAt) < 3600 * 1000;
+        }
+        if (!mine) { forgetLaunched(); return null; }
+        rec.verified = true;
+      }
+      return rec.pid;
+    }
+
+    // 「什么在跑」的单一快照，probe 与状态轮询共用，重叠的调用不会同时
+    // 读两遍进程表。
+    let statusInFlight = null;
+    function processStatus() {
+      if (!statusInFlight) {
+        statusInFlight = (async () => {
+          const list = await launch.listProcesses();
+          const running = launch.pickRunning(list, resolveTarget().path);
+          return {
+            running,
+            sessions: launch.pickCliSessions(list),
+            launchedPid: await launchedPidAmong(running),
+          };
+        })().finally(() => { statusInFlight = null; });
+      }
+      return statusInFlight;
+    }
+
     function resolveTarget() {
       const cfg = getData();
       // v1.1.1：历史保存的路径若是本插件自身（macOS 上的壳 bundle）则弃用，
@@ -46,14 +99,30 @@ module.exports = {
       return saved ? detect.pack(saved, 'saved') : detect.detect();
     }
 
+    function resolveCliTarget() {
+      const cfg = getData();
+      const saved = cfg.cliPath && detect.exists(cfg.cliPath) ? cfg.cliPath : null;
+      return saved ? detect.packCli(saved, 'saved') : detect.detectCli();
+    }
+
+    // 更早一次运行留下的桌面客户端记录：启动时间核对过才可信，
+    // 该核对由 launchedPidAmong 在首次见到时完成。
+    const savedRec = getData().launchedDesktop;
+    launchedDesktop = savedRec && Number.isInteger(savedRec.pid) ? { ...savedRec, verified: false } : null;
+
     async function doProbe() {
       const cfg = getData();
-      const out = { target: null, proxyBest: null, results: [], running: [] };
+      const out = { target: null, cliTarget: null, proxyBest: null, results: [], running: [], cliSessions: [], launchedPid: null };
 
       out.target = resolveTarget();
       log(out.target.found ? 'ok' : 'warn',
         out.target.found ? 'log.foundTarget' : 'log.noTarget',
         out.target.found ? { path: out.target.path, source: out.target.source } : undefined);
+
+      out.cliTarget = resolveCliTarget();
+      log(out.cliTarget.found ? 'ok' : 'warn',
+        out.cliTarget.found ? 'log.foundCli' : 'log.noCli',
+        out.cliTarget.found ? { path: out.cliTarget.path, source: out.cliTarget.source } : undefined);
 
       const best = await proxy.scan(cfg.proxyUrl, r => {
         emit('probe:candidate', {
@@ -71,21 +140,54 @@ module.exports = {
           model: best.best.modelOk ? 'log.proxyOk.yes' : 'log.proxyOk.no',
         });
 
-      out.running = launch.listRunning(out.target.path);
-      log(out.running.length ? 'warn' : 'ok', out.running.length ? 'log.running' : 'log.clean',
-        out.running.length && { n: out.running.length, pids: out.running.map(r => r.pid).join(', ') });
+      Object.assign(out, await processStatus());
+      if (out.launchedPid) {
+        log('ok', 'log.runningLaunched', { pid: out.launchedPid });
+      } else {
+        log(out.running.length ? 'warn' : 'ok', out.running.length ? 'log.running' : 'log.clean',
+          out.running.length && { n: out.running.length, pids: out.running.map(r => r.pid).join(', ') });
+      }
 
       return out;
     }
 
-    async function doLaunch() {
-      const cfg = getData();
-      const target = resolveTarget();
-      if (!target.found) return { ok: false, errKey: 'err.noTarget' };
+    // 前置校验对两个启动目标同样适用，扫描 → 校验 → 上报的序列只写一次。
+    async function runPreflight(best) {
+      emit('launch:stage', 'preflight');
+      const check = await proxy.checkGoogle(best, {
+        onAttempt: a => { if (!a.ok) log('warn', 'log.preflightTry', { n: a.attempt, reason: a.reason }); },
+      });
+      log(check.ok ? 'ok' : 'err', check.ok ? 'log.preflightOk' : 'log.preflightFail',
+        check.ok ? { ep: launch.redact(best), status: check.status, ms: check.ms }
+          : { ep: launch.redact(best), reason: check.reason });
+      return check.ok;
+    }
 
-      const running = launch.listRunning(target.path);
-      if (running.length) {
-        return { ok: false, needsQuit: true, running, errKey: 'err.stale' };
+    // agy 在终端打开后过一会儿才起来。等新会话出现，CH03 才能如实上报，
+    // 而不是「无进程」；同时记下是哪个进程，启动条才能跟随这一个会话，
+    // 而不是用户另行运行的某个 agy。
+    async function waitForNewSession(before) {
+      let own = [];
+      for (let i = 0; i < 15 && !own.length; i++) {
+        await sleep(400);
+        own = launch.pickCliSessions(await launch.listProcesses()).filter(s => !before.has(s.pid));
+      }
+      return { sessions: launch.pickCliSessions(await launch.listProcesses()), own: own.map(s => s.pid) };
+    }
+
+    async function doLaunch(targetKind = 'desktop') {
+      const cfg = getData();
+      const cli = targetKind === 'cli';
+      const target = cli ? resolveCliTarget() : resolveTarget();
+      if (!target.found) return { ok: false, errKey: cli ? 'err.noCli' : 'err.noTarget' };
+
+      // 不需要网络就能做出的拒绝放最前面：已在运行的客户端立即上报，
+      // 而不是等一次扫描加一趟 Google 往返之后。
+      if (!cli) {
+        const running = launch.pickRunning(await launch.listProcesses(), target.path);
+        if (running.length) {
+          return { ok: false, needsQuit: true, running, launchedPid: await launchedPidAmong(running), errKey: 'err.stale' };
+        }
       }
 
       let best = lastBestProxy;
@@ -100,31 +202,48 @@ module.exports = {
       // 真能到达 Google。开关开启时先经同一隧道真实访问 generate_204，
       // 不通则拒绝启动（面板通过 launch:stage 展示当前阶段）。
       if (cfg.preflight !== false) {
-        emit('launch:stage', 'preflight');
-        const check = await proxy.checkGoogle(best, {
-          onAttempt: a => { if (!a.ok) log('warn', 'log.preflightTry', { n: a.attempt, reason: a.reason }); },
-        });
-        log(check.ok ? 'ok' : 'err', check.ok ? 'log.preflightOk' : 'log.preflightFail',
-          check.ok ? { ep: launch.redact(best), status: check.status, ms: check.ms }
-            : { ep: launch.redact(best), reason: check.reason });
-        if (!check.ok) return { ok: false, errKey: 'err.googleUnreachable', reason: check.reason };
+        if (!(await runPreflight(best))) return { ok: false, errKey: 'err.googleUnreachable', reason: 'preflight' };
       } else {
         log('sys', 'log.preflightSkip');
       }
       emit('launch:stage', 'spawning');
 
-      const res = await launch.launch(best, target.path, msg => log('sys', 'log.raised', { msg }));
+      // CLI 不能无头启动：打开注入代理的终端直接进入 agy，插件不托管该进程，
+      // 只统计自己打开的这一次会话。
+      if (cli) {
+        const before = new Set(launch.pickCliSessions(await launch.listProcesses()).map(s => s.pid));
+        const res = launch.launchCli(best, target.path, { workDir: cfg.workDir });
+        log('ok', 'log.launchedCli', { dir: res.dir, ep: launch.redact(best) });
+        const { sessions, own } = await waitForNewSession(before);
+        if (!own.length) log('warn', 'log.cliNotSeen');
+        return { ok: true, cli: true, sessions, own, endpoint: launch.redact(best), kind: best.kind };
+      }
+
+      const res = await launch.launch(best, target.path,
+        msg => log('sys', 'log.raised', { msg }),
+        pid => { launchedDesktop = { pid, at: Date.now(), bootAt: bootTime(), verified: true }; });
       if (res.spawnError) {
+        forgetLaunched();
         log('err', 'log.spawnFail', { msg: res.spawnError.message });
         return { ok: false, errKey: 'err.spawnFail' };
       }
       // v1.1.1：秒退说明被单实例锁挡回，新进程从未画出窗口，不能算成功。
       if (res.earlyExit) {
+        forgetLaunched();
         log('err', 'log.earlyExit', { code: res.earlyExit.code });
-        return { ok: false, errKey: 'err.earlyExit', earlyExit: res.earlyExit, running: launch.listRunning(target.path) };
+        const running = launch.pickRunning(await launch.listProcesses(), target.path);
+        return { ok: false, errKey: 'err.earlyExit', earlyExit: res.earlyExit, running };
       }
       log('ok', 'log.launched', { pid: res.pid, ep: launch.redact(best) });
-      return { ok: true, pid: res.pid, endpoint: launch.redact(best), kind: best.kind };
+      // 跨重启保留：之后重新打开的工具仍知道这个客户端是被代理启动的，
+      // 不会把它当作残留实例提供终止。
+      const { pid, at, bootAt } = launchedDesktop;
+      setData({ launchedDesktop: { pid, at, bootAt } });
+      return {
+        ok: true, pid: res.pid, launchedPid: res.pid,
+        running: launch.pickRunning(await launch.listProcesses(), target.path),
+        endpoint: launch.redact(best), kind: best.kind,
+      };
     }
 
     async function doOpenTerminal(type = 'powershell') {
@@ -153,18 +272,38 @@ module.exports = {
       platform: process.platform,
       config: getData(),
       target: resolveTarget(),
+      cliTarget: resolveCliTarget(),
       lastBestProxy,
     }));
 
     ctx.ipc.handle('probe', () => doProbe());
-    ctx.ipc.handle('launch', () => doLaunch());
+    ctx.ipc.handle('launch', (args) => doLaunch(args && args.targetKind));
+    ctx.ipc.handle('status', () => processStatus());
     ctx.ipc.handle('terminal', ({ type }) => doOpenTerminal(type));
 
-    ctx.ipc.handle('quit-instances', (_args) => {
+    ctx.ipc.handle('quit-instances', async (_args) => {
       const pids = (_args && _args.pids) ? _args.pids : [];
       launch.killInstances(pids);
       log('warn', 'log.killed', { pids: pids.join(', ') });
-      return launch.listRunning(resolveTarget().path);
+      // 进程消失要一点时间；稍等再读，CH03 才不会闪回旧状态。
+      await sleep(500);
+      return (await processStatus()).running;
+    });
+
+    ctx.ipc.handle('choose-cli', async () => {
+      const host = ctx.getHostWindow ? ctx.getHostWindow() : null;
+      const r = await dialog.showOpenDialog(host && !host.isDestroyed() ? host : null, {
+        title: detect.CLI_EXE,
+        properties: ['openFile'],
+        filters: process.platform === 'win32'
+          ? [{ name: detect.CLI_EXE, extensions: ['exe'] }]
+          : [{ name: 'All files', extensions: ['*'] }],
+      });
+      if (r.canceled || !r.filePaths[0]) return null;
+      const p = r.filePaths[0];
+      setData({ cliPath: p });
+      log('ok', 'log.manualCli', { path: p });
+      return p;
     });
 
     ctx.ipc.handle('choose-target', async () => {
@@ -261,6 +400,7 @@ module.exports = {
 
     teardown = () => {
       lastBestProxy = null;
+      launchedDesktop = null;
     };
   },
 

@@ -16,7 +16,7 @@
 | **端口与进程** `port-scope` | TCP / UDP 监听端口 + 进程名 + PID，过滤排序，一键结束进程 | `Ctrl+Shift+P` |
 | **镜像源切换** `mirror-hub` | npm / pip / docker / maven / rust 国内镜像源并发测速与一键切换（自动备份原配置） | `Ctrl+Shift+M` |
 | **计算器** `calculator` | 科学算式安全求值（AST 解析非 eval）、实时预览、历史、剪贴板算式智能求值 | `Ctrl+Shift+L` |
-| **反重力启动器** `antigravity-launcher` | Google Antigravity 进程级代理启动：握手探测、前置 Google 可达性校验（可开关）、网络诊断、终端代理、一键拉起 | `Ctrl+Shift+G`（启动动作） |
+| **反重力启动器** `antigravity-launcher` | Google Antigravity 进程级代理启动：桌面版 / agy CLI 双目标、握手探测、前置 Google 可达性校验（可开关）、网络诊断、终端代理、一键拉起 | `Ctrl+Shift+G`（启动动作） |
 
 录屏聚焦的「标注时冻结屏幕」默认关闭，开启后在下一次进入标注时抓取静态底图，退出标注立即撤去底图。放大镜的「显示中心十字」「显示倍率标签」可分别开关，当前放大镜会立即更新。
 

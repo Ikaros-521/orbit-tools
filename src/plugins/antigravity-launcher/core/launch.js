@@ -1,32 +1,64 @@
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 
-// The launcher's own executable is named "Antigravity Launcher.exe" /
-// "Antigravity.Launcher-*.exe", so a prefix match on "antigravity" would
-// report the launcher as a stale Antigravity instance — and then kill it.
-function listRunning(targetPath) {
-  const base = (targetPath ? path.basename(targetPath) : 'Antigravity').toLowerCase();
-  const isTarget = name => name.toLowerCase() === base;
-  const self = process.pid;
+// 启动器自己的可执行文件叫 "Antigravity Launcher.exe" /
+// "Antigravity.Launcher-*.exe"，只有精确同名匹配才能避免把启动器当成
+// Antigravity 残留实例——进而误杀。
 
+const isCliName = name => /^agy(\.exe)?$/i.test(name);
+
+function parseProcessList(text) {
   if (process.platform === 'win32') {
-    const r = spawnSync('tasklist', ['/FO', 'CSV', '/NH'], { encoding: 'utf8' });
-    return (r.stdout || '').split('\n').map(line => {
+    return text.split('\n').map(line => {
       const m = line.match(/^"([^"]+)","(\d+)"/);
-      if (!m) return null;
-      const pid = Number(m[2]);
-      return isTarget(m[1]) && pid !== self ? { name: m[1], pid } : null;
+      return m ? { name: m[1], pid: Number(m[2]) } : null;
     }).filter(Boolean);
   }
-  const r = spawnSync('ps', ['-axo', 'pid=,comm='], { encoding: 'utf8' });
-  return (r.stdout || '').split('\n').map(line => {
+  return text.split('\n').map(line => {
     const m = line.trim().match(/^(\d+)\s+(.+)$/);
-    if (!m) return null;
-    const pid = Number(m[1]);
-    const name = path.basename(m[2]);
-    return isTarget(name) && pid !== self ? { name, pid } : null;
+    return m ? { name: path.basename(m[2]), pid: Number(m[1]) } : null;
   }).filter(Boolean);
+}
+
+// 一次读取进程表回答所有「是否在跑」。异步是因为 CH03 会轮询它：同步的
+// tasklist 每次都会卡住主线程，连窗口一起卡。
+function listProcesses() {
+  const [cmd, args] = process.platform === 'win32'
+    ? ['tasklist', ['/FO', 'CSV', '/NH']]
+    : ['ps', ['-axo', 'pid=,comm=']];
+  return new Promise(resolve => {
+    execFile(cmd, args, { windowsHide: true, timeout: 8000, maxBuffer: 8 * 1024 * 1024 }, (_err, stdout) => {
+      resolve(parseProcessList(String(stdout || '')));
+    });
+  });
+}
+
+// 桌面客户端的实例。CLI 路径在这里没有可报告的东西：它的会话属于用户的
+// 终端，从来不是「残留实例」。
+function pickRunning(list, targetPath) {
+  const base = (targetPath ? path.basename(targetPath) : 'Antigravity').toLowerCase();
+  if (isCliName(base)) return [];
+  const isTarget = name => name.toLowerCase() === base;
+  return list.filter(p => isTarget(p.name) && p.pid !== process.pid);
+}
+
+// agy 会话对 CLI 页签只是信息展示，永远不是要终止的对象。
+const pickCliSessions = list => list.filter(p => isCliName(p.name));
+
+// Windows 很乐意复用进程 ID，所以一条记录下来的 PID 只有在其启动时间与
+// 记录吻合时才算是「本工具启动的客户端」。解析为 epoch 毫秒，读不到时
+// 返回 null。
+function processStartEpoch(pid) {
+  if (process.platform !== 'win32' || !Number.isInteger(pid) || pid <= 0) return Promise.resolve(null);
+  const script = `$p = Get-Process -Id ${pid} -ErrorAction SilentlyContinue; if ($p) { ([DateTimeOffset]$p.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds() }`;
+  return new Promise(resolve => {
+    execFile('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script],
+      { windowsHide: true, timeout: 15000 }, (_err, stdout) => {
+        const ms = Number(String(stdout || '').trim());
+        resolve(ms > 0 ? ms : null);
+      });
+  });
 }
 
 function killInstances(pids) {
@@ -264,7 +296,7 @@ function raiseWindow(pid, appName, onResult) {
   }
 }
 
-async function launch(ep, targetPath, onRaise) {
+async function launch(ep, targetPath, onRaise, onSpawn) {
   const env = { ...process.env, ...buildEnv(ep) };
   const args = [
     `--proxy-server=http://${ep.host}:${ep.port}`,
@@ -279,6 +311,9 @@ async function launch(ep, targetPath, onRaise) {
     // inherits it for its first window, so the UI never appears at all.
     windowsHide: false,
   });
+  // 调用方立刻拿到 pid，CH03 从进程存在的那一刻就显示它，而不是等下面的
+  // settle 延迟过去之后。
+  if (onSpawn && child.pid) onSpawn(child.pid);
   let spawnError = null;
   let exitInfo = null;
   child.on('error', err => { spawnError = err; });
@@ -298,7 +333,7 @@ async function launch(ep, targetPath, onRaise) {
   return { pid: child.pid, spawnError: null };
 }
 
-function openTerminal({ type = 'powershell', workDir, ep }) {
+function openTerminal({ type = 'powershell', workDir, ep, runCommand }) {
   const validDir = workDir && fs.existsSync(workDir) ? workDir : (process.env.USERPROFILE || process.env.HOME || process.cwd());
   const env = { ...process.env, ...(ep ? buildEnv(ep) : {}) };
 
@@ -308,13 +343,20 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
   const shDir = validDir.replace(/'/g, `'\\''`);     // POSIX 单引号转义
   const cmdDir = validDir.replace(/"/g, '""');       // cmd 双引号转义
 
+  // 可选命令在环境变量就绪后执行，终端打开即直接进入例如 agy CLI，
+  // 而不是停在空提示符；各 shell 用各自风格的转义。
+  const psRun = runCommand ? runCommand.replace(/'/g, "''") : '';
+  const shRun = runCommand ? runCommand.replace(/'/g, `'\\''`) : '';
+  const cmdRun = runCommand ? runCommand.replace(/"/g, '""') : '';
+
   if (process.platform === 'win32') {
     if (type === 'cmd') {
       const http = ep ? urlFor(ep, 'http') : '';
       const socks = ep ? urlFor(ep, 'socks5') : '';
+      const runTail = runCommand ? ` && "${cmdRun}"` : '';
       const cmdScript = ep
-        ? `cd /d "${cmdDir}" && set "HTTP_PROXY=${http}" && set "HTTPS_PROXY=${http}" && set "ALL_PROXY=${socks}" && set "NO_PROXY=localhost,127.0.0.1,::1" && echo [AGY] Proxy environment set -> ${http}`
-        : `cd /d "${cmdDir}" && echo [AGY] Terminal ready`;
+        ? `cd /d "${cmdDir}" && set "HTTP_PROXY=${http}" && set "HTTPS_PROXY=${http}" && set "ALL_PROXY=${socks}" && set "NO_PROXY=localhost,127.0.0.1,::1" && echo [AGY] Proxy environment set -> ${http}${runTail}`
+        : `cd /d "${cmdDir}" && echo [AGY] Terminal ready${runTail}`;
       const child = spawn('cmd.exe', ['/c', 'start', '""', 'cmd.exe', '/K', cmdScript], {
         cwd: validDir,
         env,
@@ -328,9 +370,10 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
       // powershell
       const http = ep ? urlFor(ep, 'http') : '';
       const socks = ep ? urlFor(ep, 'socks5') : '';
+      const runTail = runCommand ? `; & '${psRun}'` : '';
       const psScript = ep
-        ? `Set-Location -LiteralPath '${psDir}'; $env:HTTP_PROXY='${http}'; $env:HTTPS_PROXY='${http}'; $env:ALL_PROXY='${socks}'; $env:NO_PROXY='localhost,127.0.0.1,::1'; Write-Host '[AGY] Proxy environment set -> ${http}' -ForegroundColor Cyan`
-        : `Set-Location -LiteralPath '${psDir}'; Write-Host '[AGY] Terminal ready' -ForegroundColor Yellow`;
+        ? `Set-Location -LiteralPath '${psDir}'; $env:HTTP_PROXY='${http}'; $env:HTTPS_PROXY='${http}'; $env:ALL_PROXY='${socks}'; $env:NO_PROXY='localhost,127.0.0.1,::1'; Write-Host '[AGY] Proxy environment set -> ${http}' -ForegroundColor Cyan${runTail}`
+        : `Set-Location -LiteralPath '${psDir}'; Write-Host '[AGY] Terminal ready' -ForegroundColor Yellow${runTail}`;
       const child = spawn('cmd.exe', ['/c', 'start', '""', 'powershell.exe', '-NoExit', '-Command', psScript], {
         cwd: validDir,
         env,
@@ -349,7 +392,9 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
     const envExports = ep
       ? `export HTTP_PROXY="${http}" && export HTTPS_PROXY="${http}" && export ALL_PROXY="${socks}" && export NO_PROXY="localhost,127.0.0.1,::1" && `
       : '';
-    const script = `tell application "Terminal" to do script "cd '${shDir.replace(/"/g, '\\"')}' && ${envExports}echo '[AGY] Proxy environment set'"` ;
+    const macRun = shRun.replace(/"/g, '\\"');
+    const runTail = runCommand ? ` && '${macRun}'` : '';
+    const script = `tell application "Terminal" to do script "cd '${shDir.replace(/"/g, '\\"')}' && ${envExports}echo '[AGY] Proxy environment set'${runTail}"` ;
     spawn('osascript', ['-e', script], { detached: true, stdio: 'ignore' }).unref();
     return { ok: true, dir: validDir };
   } else {
@@ -359,14 +404,15 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
     const envExports = ep
       ? `export HTTP_PROXY="${http}"; export HTTPS_PROXY="${http}"; export ALL_PROXY="${socks}"; `
       : '';
-    const child = spawn('x-terminal-emulator', ['-e', `bash -c "cd '${shDir}'; ${envExports}echo '[AGY] Proxy environment set'; exec bash"`], {
+    const runTail = runCommand ? `; '${shRun}'` : '';
+    const child = spawn('x-terminal-emulator', ['-e', `bash -c "cd '${shDir}'; ${envExports}echo '[AGY] Proxy environment set'${runTail}; exec bash"`], {
       cwd: validDir,
       env,
       detached: true,
       stdio: 'ignore',
     });
     child.on('error', () => {
-      spawn('gnome-terminal', ['--', 'bash', '-c', `cd '${shDir}'; ${envExports}echo '[AGY] Proxy environment set'; exec bash`], {
+      spawn('gnome-terminal', ['--', 'bash', '-c', `cd '${shDir}'; ${envExports}echo '[AGY] Proxy environment set'${runTail}; exec bash`], {
         cwd: validDir,
         env,
         detached: true,
@@ -378,4 +424,14 @@ function openTerminal({ type = 'powershell', workDir, ep }) {
   }
 }
 
-module.exports = { listRunning, killInstances, buildEnv, buildProxyCommands, openTerminal, launch, urlFor, redact, raiseWindow };
+// CLI 没法无头启动：它是交互式会话，输出属于用户的终端。启动它因此意味着
+// 打开一个注入代理的终端，直接进入 agy。
+function launchCli(ep, cliPath, { type, workDir } = {}) {
+  const t = type || (process.platform === 'win32' ? 'powershell' : 'terminal');
+  return openTerminal({ type: t, workDir, ep, runCommand: cliPath });
+}
+
+module.exports = {
+  listProcesses, pickRunning, pickCliSessions, processStartEpoch,
+  killInstances, buildEnv, buildProxyCommands, openTerminal, launchCli, launch, urlFor, redact, raiseWindow,
+};

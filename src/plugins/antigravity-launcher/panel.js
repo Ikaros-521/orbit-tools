@@ -28,19 +28,27 @@
       return s;
     };
 
+    // 两个并行启动目标：桌面客户端与终端 CLI。CH01（代理端点）是机器的
+    // 事实，两边共享；其余——二进制、进程树、启动状态——按目标各一份，
+    // 两边互不干扰、可以同时运行。
+    const idleBar = { phase: 'idle', params: {} };
     const state = {
       platform: ctx.platform || 'win32',
       best: null,
-      target: null,
-      running: [],
+      profiles: {
+        desktop: { target: null, running: [], launchedPid: null, bar: { ...idleBar, params: {} } },
+        cli: { target: null, sessions: [], own: [], bar: { ...idleBar, params: {} } },
+      },
+      tab: 'desktop',
       ipInfo: { direct: null, proxy: null },
       pings: [],
       diagnosing: false,
       ipMasked: localStorage.getItem('agy.ipMasked') !== 'false',
-      bar: { phase: 'idle', params: {} },
       probing: false,
       logs: [],
     };
+    const cur = () => state.profiles[state.tab];
+    let statusBusy = false;
 
     el.innerHTML = `
       <div class="agl-wrap">
@@ -92,7 +100,13 @@
 
           <!-- 三通道 -->
           <main class="channels">
-            <div class="etiquette">CHANNELS<span class="cn">／ ${t('g.channels')}</span></div>
+            <div class="channels-head">
+              <div class="etiquette">CHANNELS<span class="cn">／ ${t('g.channels')}</span></div>
+              <span class="seg tab-seg" id="aglTargetSeg" role="group" title="${t('tip.target')}">
+                <span role="button" tabindex="0" data-target="desktop">${t('target.desktop')}</span>
+                <span role="button" tabindex="0" data-target="cli">${t('target.cli')}</span>
+              </span>
+            </div>
 
             <article class="channel glass" id="aglCh01" data-state="idle">
               <div class="ch-id"><b>CH01</b><span>${t('role.ch01')}</span></div>
@@ -121,6 +135,7 @@
               </div>
               <div class="ch-acts">
                 <button type="button" class="btn-sm" id="aglBtnChoose">${t('choose')}</button>
+                <button type="button" class="btn-sm" id="aglBtnChooseCli" title="${t('tip.chooseCli')}">${t('chooseCli')}</button>
               </div>
             </article>
 
@@ -201,6 +216,8 @@
     const ch02Value = el.querySelector('#aglCh02Value');
     const ch02Meta = el.querySelector('#aglCh02Meta');
     const btnChoose = el.querySelector('#aglBtnChoose');
+    const btnChooseCli = el.querySelector('#aglBtnChooseCli');
+    const targetSeg = el.querySelector('#aglTargetSeg');
 
     const ch03 = el.querySelector('#aglCh03');
     const ch03Value = el.querySelector('#aglCh03Value');
@@ -334,41 +351,121 @@
     }
 
     function renderTarget() {
-      const tg = state.target;
+      const tg = cur().target;
+      const cli = state.tab === 'cli';
+      // 卡片按钮跟随页签：各目标自己挑二进制。
+      btnChoose.style.display = cli ? 'none' : '';
+      btnChooseCli.style.display = cli ? '' : 'none';
       if (!tg) { setState(ch02, 'idle'); ch02Value.textContent = t('ch02.searching'); return; }
       if (!tg.found) {
         setState(ch02, 'warn');
-        ch02Value.textContent = t('ch02.none');
-        ch02Meta.textContent = t('ch02.noneMeta');
+        ch02Value.textContent = cli ? t('ch02.cliNone') : t('ch02.none');
+        ch02Meta.textContent = cli ? t('ch02.cliNoneMeta') : t('ch02.noneMeta');
         return;
       }
       setState(ch02, 'live');
       ch02Value.textContent = tg.path;
-      ch02Meta.textContent = t(tg.languageServer ? 'ch02.okMetaLs' : 'ch02.okMetaNoLs', { source: tg.source });
+      ch02Meta.textContent = cli
+        ? t('ch02.cliOkMeta', { source: tg.source })
+        : t(tg.languageServer ? 'ch02.okMetaLs' : 'ch02.okMetaNoLs', { source: tg.source });
     }
 
     function renderRunning() {
-      const list = state.running || [];
-      btnKill.style.display = list.length ? 'inline-flex' : 'none';
+      const p = cur();
+      btnKill.style.display = 'none';
+      if (p.bar.phase === 'launching') {
+        setState(ch03, 'scan');
+        ch03Value.textContent = t('ch03.starting');
+        ch03Meta.textContent = '';
+        return;
+      }
+      // CLI 页签把会话当信息展示：它们活在用户自己的终端里，没有要终止
+      // 的残留，也不阻塞启动。
+      if (state.tab === 'cli') {
+        const list = p.sessions || [];
+        setState(ch03, 'live');
+        ch03Value.textContent = list.length
+          ? t('ch03.cliSessions', { n: list.length, pids: list.map(r => r.pid).join(', ') })
+          : t('ch03.cliClean');
+        ch03Meta.textContent = t('ch03.cliCleanMeta');
+        return;
+      }
+      const list = p.running;
       if (!list.length) {
         setState(ch03, 'live');
         ch03Value.textContent = t('ch03.clean');
         ch03Meta.textContent = t('ch03.cleanMeta');
         return;
       }
+      // 经本工具启动的，已经带着代理环境，不再当作残留实例。
+      if (list.some(r => r.pid === p.launchedPid)) {
+        setState(ch03, 'live');
+        ch03Value.textContent = t('ch03.launched', { pid: p.launchedPid });
+        ch03Meta.textContent = t('ch03.launchedMeta');
+        return;
+      }
       setState(ch03, 'stale');
+      btnKill.style.display = 'inline-flex';
       ch03Value.textContent = t('ch03.stale', { n: list.length, pids: list.map(r => r.pid).join(', ') });
       ch03Meta.textContent = t('ch03.staleMeta');
     }
 
+    const epLabel = () => state.best ? `${state.best.scheme}://${state.best.host}:${state.best.port} · ${state.best.kind}` : '';
+    const readyBar = () => state.best
+      ? { phase: 'armed', params: { target: `:${state.best.port} ${state.best.kind}` } }
+      : { phase: 'noproxy', params: {} };
+    function launchedBar(kind) {
+      return kind === 'desktop'
+        ? { phase: 'launched', params: { pid: state.profiles.desktop.launchedPid, target: epLabel() } }
+        : { phase: 'launched', params: { target: `${epLabel()} · ${t('launched.cli.dir')}` } };
+    }
+
+    // 启动条跟随实际在跑的东西：在跑的目标显示为已启动，一旦退出就回到就绪。
+    function settleProfile(kind) {
+      const p = state.profiles[kind];
+      if (p.bar.phase === 'launching') return;
+      // CLI 只统计本工具自己打开的会话：用户在自己终端里跑的 agy 与启动条无关。
+      const up = kind === 'cli' ? p.own.length > 0 : !!p.launchedPid;
+      if (up) { p.bar = launchedBar(kind); return; }
+      const blocked = kind === 'cli' ? false : p.running.length > 0;
+      if (p.bar.phase === 'launched' || (p.bar.phase === 'stale' && !blocked)) p.bar = readyBar();
+    }
+
+    // 什么在跑会不经本窗口而变化——用户关掉 Antigravity、结束一个 agy 会话
+    // ——所以 CH03 从进程表的最新读取重绘，而不是沿用上次启动的记录。
+    function applyStatus(s, render = true) {
+      const d = state.profiles.desktop;
+      d.running = s.running || [];
+      d.launchedPid = s.launchedPid || null;
+      const c = state.profiles.cli;
+      c.sessions = s.sessions || [];
+      c.own = c.own.filter(pid => c.sessions.some(r => r.pid === pid));
+      settleProfile('desktop'); settleProfile('cli');
+      if (render) { renderRunning(); renderBar(); }
+    }
+
+    async function refreshStatus() {
+      if (statusBusy || state.probing) return;
+      statusBusy = true;
+      try { applyStatus(await ctx.call('status')); }
+      catch (e) { console.error('Status failed:', e); }
+      finally { statusBusy = false; }
+    }
+
+    function syncTargetSeg() {
+      targetSeg.querySelectorAll('[data-target]').forEach(b =>
+        b.setAttribute('aria-pressed', String(b.dataset.target === state.tab)));
+    }
+
     function renderBar() {
-      const { phase, params } = state.bar;
+      const { phase, params } = cur().bar;
+      const cli = state.tab === 'cli';
       const map = {
         idle: ['idle', 'idle.key', 'idle.cn', 'idle.target'],
         probing: ['probing', 'scanning.key', 'scanning.cn', 'scanning.target'],
         armed: ['armed', 'armed.key', 'armed.cn', null],
-        launching: ['probing', 'launching.key', 'launching.cn', null],
-        launched: ['armed', 'launched.key', 'launched.cn', null],
+        launching: ['probing', 'launching.key', cli ? 'launching.cli.cn' : 'launching.cn', null],
+        launched: ['armed', 'launched.key', cli ? 'launched.cli.cn' : 'launched.cn', null],
         stale: ['blocked', 'stale.key', 'stale.cn', null],
         noproxy: ['blocked', 'noproxy.key', 'noproxy.cn', null],
         failed: ['blocked', 'failed.key', 'failed.cn', null],
@@ -376,7 +473,7 @@
       const [ds, kKey, kCn, kTarget] = map[phase] || map.idle;
       setState(launchBar, ds);
       lbKey.textContent = t(kKey);
-      lbCn.textContent = phase === 'launched' ? `${t(kCn)} PID ${params.pid}` : t(kCn);
+      lbCn.textContent = t(kCn) + (phase === 'launched' && !cli && params.pid ? ` PID ${params.pid}` : '');
       lbTarget.textContent = kTarget ? t(kTarget) : (params.target || '');
     }
 
@@ -476,6 +573,7 @@
       renderProxy();
       renderTarget();
       renderRunning();
+      syncTargetSeg();
       renderBar();
       renderEnv();
       renderAdaptiveButtons();
@@ -504,9 +602,10 @@
 
     async function doProbe() {
       state.best = null;
-      state.running = [];
       state.probing = true;
-      state.target = null;
+      for (const p of Object.values(state.profiles)) {
+        p.target = null; p.running = []; p.sessions = [];
+      }
       proxyForm.hidden = true;
       repaint();
       pushLog('sys', 'log.startProbe');
@@ -515,16 +614,16 @@
         const res = await ctx.call('probe');
         state.probing = false;
         if (res) {
-          state.target = res.target;
-          state.running = res.running || [];
           state.best = res.proxyBest;
-          state.bar = state.best
-            ? { phase: 'armed', params: { target: `:${state.best.port} ${state.best.kind}` } }
-            : { phase: 'noproxy', params: {} };
+          // 一个端点武装两个启动目标：代理扫描是共享的。
+          for (const p of Object.values(state.profiles)) if (p.bar.phase !== 'launching') p.bar = readyBar();
+          applyStatus(res, false);
+          state.profiles.desktop.target = res.target;
+          state.profiles.cli.target = res.cliTarget || null;
         }
       } catch (err) {
         state.probing = false;
-        state.bar = { phase: 'failed', params: {} };
+        for (const p of Object.values(state.profiles)) p.bar = { phase: 'failed', params: {} };
         pushLog('err', 'err.noProxy');
       }
       repaint();
@@ -532,43 +631,51 @@
     }
 
     async function doLaunch() {
-      if (state.running && state.running.length) {
-        pushLog('err', 'err.blockedStale');
-        state.bar = { phase: 'stale', params: {} };
+      const cli = state.tab === 'cli';
+      const p = cur();
+      if (cli && p.target && !p.target.found) {
+        p.bar = { phase: 'failed', params: { target: t('err.blockedCli') } };
+        pushLog('err', 'err.blockedCli');
         renderBar();
         return;
       }
       if (!state.best) {
+        p.bar = { phase: 'noproxy', params: {} };
         pushLog('err', 'err.noProxy');
-        state.bar = { phase: 'noproxy', params: {} };
         renderBar();
         return;
       }
-      state.bar = { phase: 'launching', params: {} };
-      renderBar();
+      // 启动期间页签可能被切走，所以现在就绑定 profile，而不是 await 之后
+      // 再读 cur()。
+      const kind = state.tab;
+      const prof = state.profiles[kind];
+      prof.bar = { phase: 'launching', params: { target: `:${state.best.port} ${state.best.kind}` } };
+      renderBar(); renderRunning();
 
-      const res = await ctx.call('launch');
+      const res = await ctx.call('launch', { targetKind: kind });
       if (res && res.ok) {
-        state.bar = { phase: 'launched', params: { pid: res.pid } };
-        renderBar();
-        setTimeout(async () => {
-          const probeRes = await ctx.call('probe');
-          if (probeRes) {
-            state.running = probeRes.running || [];
-            renderRunning();
-          }
-        }, 1500);
+        if (res.cli) { prof.sessions = res.sessions || prof.sessions; prof.own = res.own || []; }
+        else {
+          prof.launchedPid = res.launchedPid || res.pid || null;
+          prof.running = res.running || prof.running;
+        }
+        prof.bar = launchedBar(kind);
+        if (!res.cli) {
+          setTimeout(() => { refreshStatus(); }, 1500);
+        }
+      } else if (res && res.needsQuit) {
+        prof.running = res.running || [];
+        prof.launchedPid = res.launchedPid || null;
+        pushLog('err', res.errKey || 'err.stale');
+        // 已经经本工具在跑：没有要退出的，直接展示它。
+        prof.bar = prof.launchedPid ? launchedBar(kind) : { phase: 'stale', params: {} };
       } else {
         const errKey = (res && res.errKey) ? res.errKey : 'err.noTarget';
         pushLog('err', errKey);
-        // 秒退时后端随附最新的运行实例列表，CH03 直接反映单实例锁的占用者。
-        if (res && res.running) {
-          state.running = res.running;
-          renderRunning();
-        }
-        state.bar = { phase: (res && res.needsQuit) ? 'stale' : 'failed', params: {} };
-        renderBar();
+        if (res && res.running) prof.running = res.running;
+        prof.bar = { phase: 'failed', params: {} };
       }
+      renderRunning(); renderBar();
     }
 
     // Event listeners
@@ -602,25 +709,41 @@
 
     btnChoose.onclick = async () => {
       const p = await ctx.call('choose-target');
-      if (p) doProbe();
+      if (p) {
+        state.profiles.desktop.target = { found: true, path: p, source: 'manual', languageServer: null };
+        state.tab = 'desktop'; syncTargetSeg(); renderTarget();
+      }
+    };
+
+    btnChooseCli.onclick = async () => {
+      const p = await ctx.call('choose-cli');
+      if (p) {
+        state.profiles.cli.target = { found: true, path: p, source: 'manual', kind: 'cli' };
+        state.tab = 'cli'; syncTargetSeg(); renderTarget();
+      }
     };
 
     btnKill.onclick = async () => {
-      const pids = state.running.map(r => r.pid);
-      const left = await ctx.call('quit-instances', { pids });
-      state.running = left || [];
-      renderRunning();
-      if (!state.running.length) {
-        state.bar = state.best
-          ? { phase: 'armed', params: { target: `:${state.best.port} ${state.best.kind}` } }
-          : { phase: 'noproxy', params: {} };
-        renderBar();
-      }
+      const pids = (cur().running || []).map(r => r.pid);
+      if (!pids.length) return;
+      await ctx.call('quit-instances', { pids });
+      await refreshStatus();
+    };
+
+    targetSeg.onclick = e => {
+      // 通道头部的页签：切换 profile 绝不能触发启动。
+      const b = e.target.closest('[data-target]');
+      if (!b || b.dataset.target === state.tab) return;
+      state.tab = b.dataset.target;
+      syncTargetSeg();
+      renderTarget(); renderRunning(); renderBar();
+      // 另一个页签可能已经离开一会儿了，重新读一次它的状态。
+      refreshStatus();
     };
 
     launchBar.onclick = () => {
       if (state.probing) return;
-      if (state.bar.phase === 'armed' || state.bar.phase === 'launched') {
+      if (cur().bar.phase === 'armed' || cur().bar.phase === 'launched') {
         doLaunch();
       } else {
         doProbe();
@@ -668,8 +791,8 @@
     // 主进程按阶段推进启动流程；启动条同步叙述当前阶段。
     listen('launch:stage', stage => {
       if (!state.best) return;
-      state.bar = { phase: 'launching', params: { target: stage === 'preflight' ? t('bar.preflight') : t('bar.spawning') } };
-      renderBar();
+      cur().bar = { phase: 'launching', params: { target: stage === 'preflight' ? t('bar.preflight') : t('bar.spawning') } };
+      renderBar(); renderRunning();
     });
 
     // Boot
@@ -681,9 +804,15 @@
         }
         preflightToggle.setAttribute('aria-checked', String(
           !(bootInfo.config && bootInfo.config.preflight === false)));
+        state.profiles.cli.target = bootInfo.cliTarget || null;
       }
+      // 总是打开在桌面客户端页签；页签是每次会话的选择。
+      syncTargetSeg();
       pushLog('sys', 'log.ready');
       pushLog('sys', 'log.whyGo');
+      // 进程状态不经本窗口也会变化（用户关闭 Antigravity、结束 agy 会话），
+      // 轮询让 CH03 与启动条保持如实。
+      setInterval(() => { refreshStatus(); }, 4000);
       doProbe();
     }).catch(err => {
       console.error('Boot error:', err);
