@@ -6,6 +6,7 @@
   <a href="https://github.com/Ikaros-521/orbit-tools/issues"><img src="https://img.shields.io/github/issues/Ikaros-521/orbit-tools?style=flat-square&label=issues" alt="GitHub Issues"></a>
   <a href="https://github.com/Ikaros-521/orbit-tools/releases"><img src="https://img.shields.io/github/v/release/Ikaros-521/orbit-tools?style=flat-square&label=release" alt="Latest Release"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/Ikaros-521/orbit-tools?style=flat-square&label=license" alt="License"></a>
+  <a href="https://m8ven.ai/mcp/ikaros-521-orbit-tools-hqq32k?s=readme"><img src="https://m8ven.ai/badge/mcp/ikaros-521-orbit-tools-hqq32k?v=9dd90d7fa2ffec64987c14a9f7e84aea" alt="M8ven Score"></a>
 </p>
 
 <p align="center">
